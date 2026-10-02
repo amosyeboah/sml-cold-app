@@ -188,25 +188,6 @@ export async function pushLocalStorageToCloudIfAvailable(): Promise<{ pushedSale
  * Caches and updates local storage, filtering out any locally deleted tombstones.
  */
 export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
-  if (usesHubAuthority()) {
-    const client = getSupabaseClient()
-    if (!client || !isOnline()) return []
-    const { data, error } = await client.from('cloud_products').select('*').order('name', { ascending: true })
-    if (error || !data) return []
-    return data.map((product: any) => ({
-      id: product.id,
-      name: product.name,
-      genericName: product.generic_name || undefined,
-      sku: product.sku,
-      categoryId: product.category_name || 'General',
-      categoryName: product.category_name || 'General',
-      price: Number(product.price) || 0,
-      cost: Number(product.cost) || 0,
-      stockQuantity: Number(product.stock_quantity) || 0,
-      minStockLevel: Number(product.min_stock_level) || 10,
-    }))
-  }
-
   const localMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
   const deletedIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_MEDICINE_IDS, []))
   const client = getSupabaseClient()
@@ -292,19 +273,6 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
  * Fetches latest batches directly from Supabase Cloud, respecting local deletions.
  */
 export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
-  if (usesHubAuthority()) {
-    const client = getSupabaseClient()
-    if (!client || !isOnline()) return []
-    const { data, error } = await client.from('cloud_batches').select('*').order('expiry_date', { ascending: true })
-    if (error || !data) return []
-    return data.map((batch: any) => ({
-      id: batch.id,
-      medicineId: batch.product_id,
-      batchNumber: batch.batch_number,
-      expiryDate: batch.expiry_date,
-      quantity: Number(batch.quantity) || 0,
-    }))
-  }
 
   const localBatches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
   const deletedMedIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_MEDICINE_IDS, []))
@@ -551,7 +519,6 @@ const PAYMENT_LABELS: Record<string, string> = {
 
 // Seed initial data if empty or migrate legacy dummy data
 async function seedInitialDataIfNeeded() {
-  if (usesHubAuthority()) return
 
   const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
   const adminPassword = await hashPassword('admin1234')

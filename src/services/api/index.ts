@@ -1,5 +1,5 @@
 import { mobileApi } from './mobileStorage'
-import { hubClient, isCloudHosting } from './hubClient'
+import { isCloudHosting } from './hubClient'
 
 function getReadOnlyPortalApi() {
   return new Proxy(mobileApi, {
@@ -44,7 +44,7 @@ export function getApi() {
             // fallback
           }
         }
-        return await hubClient.refundSale(id, username, userRole)
+        return await mobileApi.refundSale(id)
       },
 
       // Bluetooth printer methods
@@ -111,7 +111,9 @@ export function getApi() {
     return getReadOnlyPortalApi() as any
   }
 
-  return { ...mobileApi, ...hubClient } as any
+  // Tablet in the store, mobile devices, and Web POS:
+  // Directly use mobileApi (offline-first authoritative storage on device + Supabase Cloud synchronization)
+  return mobileApi as any
 }
 
 export const api = getApi()

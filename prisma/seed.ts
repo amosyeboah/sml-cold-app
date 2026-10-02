@@ -20,7 +20,7 @@ async function main() {
   await prisma.user.deleteMany()
 
   // 1. Users (3 Distinct Roles: Admin, Manager, Cashier)
-  const adminPassword = await bcrypt.hash('admin123', 10)
+  const adminPassword = await bcrypt.hash('admin1234', 10)
   const managerPassword = await bcrypt.hash('manager123', 10)
   const cashierPassword = await bcrypt.hash('cashier123', 10)
 
@@ -449,7 +449,7 @@ async function main() {
   })
 
   console.log('✅ Database seeded successfully!')
-  console.log('👤 Admin login:   admin   / admin123   (Role: System Admin)')
+  console.log('👤 Admin login:   admin   / admin1234   (Role: System Admin)')
   console.log('👤 Manager login: manager / manager123 (Role: Store Manager)')
   console.log('👤 Cashier login: cashier / cashier123 (Role: Cashier)')
   console.log('🏪 Business: SML Legacy Limited — Cold Store POS')

@@ -11,8 +11,8 @@ async function test() {
   const user = await prisma.user.findUnique({ where: { username: 'admin' } })
   console.log('Found user:', user)
   if (user) {
-    const valid = await bcrypt.compare('admin123', user.password)
-    console.log('Password valid:', valid)
+    const valid = await bcrypt.compare('admin1234', user.password)
+    console.log('Password valid for admin1234:', valid)
   }
 }
 

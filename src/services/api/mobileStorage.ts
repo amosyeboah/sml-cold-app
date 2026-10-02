@@ -49,7 +49,7 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   }
 
   // 3. Fallback for default seed credentials
-  if (password === 'admin123' || password === 'manager123' || password === 'cashier123') return true
+  if (password === 'admin1234' || password === 'admin123' || password === 'manager123' || password === 'cashier123') return true
 
   return false
 }
@@ -76,11 +76,7 @@ const portalMemory = new Map<string, any>()
 const hasElectronPreload = typeof window !== 'undefined' && Boolean((window as any).api) && !(window as any).Capacitor
 
 function usesHubAuthority(): boolean {
-  return typeof window !== 'undefined' && (
-    isCloudHosting() ||
-    Boolean((window as any).Capacitor) ||
-    !hasElectronPreload
-  )
+  return typeof window !== 'undefined' && isCloudHosting()
 }
 
 function getItem<T>(key: string, defaultValue: T): T {
@@ -567,18 +563,25 @@ const PAYMENT_LABELS: Record<string, string> = {
 async function seedInitialDataIfNeeded() {
   if (usesHubAuthority()) return
 
-  const users = getItem(STORAGE_KEYS.USERS, [])
-  if (users.length === 0) {
-    const adminPassword = await hashPassword('admin123')
-    const managerPassword = await hashPassword('manager123')
-    const cashierPassword = await hashPassword('cashier123')
+  const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
+  const adminPassword = await hashPassword('admin1234')
+  const managerPassword = await hashPassword('manager123')
+  const cashierPassword = await hashPassword('cashier123')
 
+  if (users.length === 0) {
     const initialUsers = [
       { id: generateId(), username: 'admin', password: adminPassword, pin: '1111', role: 'ADMIN', createdAt: new Date().toISOString() },
       { id: generateId(), username: 'manager', password: managerPassword, pin: '2222', role: 'MANAGER', createdAt: new Date().toISOString() },
       { id: generateId(), username: 'cashier', password: cashierPassword, pin: '1234', role: 'CASHIER', createdAt: new Date().toISOString() }
     ]
     setItem(STORAGE_KEYS.USERS, initialUsers)
+  } else {
+    // Ensure admin user password is updated to admin1234
+    const adminUser = users.find(u => u.username && u.username.toLowerCase() === 'admin')
+    if (adminUser) {
+      adminUser.password = adminPassword
+      setItem(STORAGE_KEYS.USERS, users)
+    }
   }
 
   // Initial Categories

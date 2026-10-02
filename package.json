@@ -5,6 +5,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "web": "vite",
     "web:dev": "vite",
     "build": "vite build",
     "build:web": "vite build",

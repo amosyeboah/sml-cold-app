@@ -1,5 +1,5 @@
 import { getSupabaseClient, checkCloudConnection } from './supabaseClient'
-import { hubClient, isCloudHosting } from '../api/hubClient'
+import { isCloudHosting } from '../api/hubClient'
 import { pushLocalStorageToCloudIfAvailable, syncAllCloudDataIfAvailable } from '../api/mobileStorage'
 
 export type SyncEntity = 'SALE' | 'AUDIT_LOG' | 'PRODUCT' | 'BATCH' | 'PURCHASE'
@@ -61,17 +61,23 @@ function publishSyncState(listener: SyncListener): void {
     return
   }
 
-  const getStatus = (window as any).api?.getSyncStatus
-    ? () => (window as any).api.getSyncStatus()
-    : () => hubClient.getSyncStatus()
-  getStatus().then((status: any) => {
-    listener({
-      isSyncing: status.state === 'SYNCING',
-      pendingCount: Number(status.pendingOutbox ?? status.pendingCount) || 0,
-      lastSyncTime: status.lastSyncAt || status.lastSyncTime || null,
+  if ((window as any).api?.getSyncStatus) {
+    (window as any).api.getSyncStatus().then((status: any) => {
+      listener({
+        isSyncing: status.state === 'SYNCING',
+        pendingCount: Number(status.pendingOutbox ?? status.pendingCount) || 0,
+        lastSyncTime: status.lastSyncAt || status.lastSyncTime || null,
+      })
+    }).catch(() => {
+      listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
     })
-  }).catch(() => {
-    listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
+    return
+  }
+
+  listener({
+    isSyncing: isCurrentlySyncing,
+    pendingCount: getPendingQueue().length,
+    lastSyncTime: getLastSyncTime(),
   })
 }
 
@@ -165,19 +171,20 @@ export async function flushSyncQueue(): Promise<{
   message: string
 }> {
   if (typeof window !== 'undefined' && isCloudHosting()) {
-    return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local hub.' }
+    return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local tablet POS.' }
   }
 
-  const flush = typeof window !== 'undefined' && (window as any).api?.flushSyncOutbox
-    ? (size: number) => (window as any).api.flushSyncOutbox(size)
-    : (size: number) => hubClient.flushSyncOutbox(size)
-  const result = await flush(50)
-  return {
-    success: Boolean(result.success),
-    syncedCount: Number(result.succeeded) || 0,
-    failedCount: Number(result.failed) || 0,
-    message: result.error || `Hub outbox: ${Number(result.succeeded) || 0} synced, ${Number(result.failed) || 0} failed.`,
+  if (typeof window !== 'undefined' && (window as any).api?.flushSyncOutbox) {
+    const result = await (window as any).api.flushSyncOutbox(50)
+    return {
+      success: Boolean(result.success),
+      syncedCount: Number(result.succeeded) || 0,
+      failedCount: Number(result.failed) || 0,
+      message: result.error || `Sync completed: ${Number(result.succeeded) || 0} synced, ${Number(result.failed) || 0} failed.`,
+    }
   }
+
+  return await legacyFlushSyncQueue()
 }
 
 async function legacyFlushSyncQueue(): Promise<{
@@ -472,12 +479,11 @@ export async function reconcileAllSalesWithCloud(): Promise<{
   cloudTotal: number
   message: string
 }> {
-  const client = getSupabaseClient()
-  if (!client) {
-    return { success: false, pushedCount: 0, cloudTotal: 0, message: 'Supabase client is not configured.' }
-  }
-
   if (typeof window !== 'undefined' && isCloudHosting()) {
+    const client = getSupabaseClient()
+    if (!client) {
+      return { success: false, pushedCount: 0, cloudTotal: 0, message: 'Supabase client is not configured.' }
+    }
     const { count, error } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
     return {
       success: !error,
@@ -487,14 +493,7 @@ export async function reconcileAllSalesWithCloud(): Promise<{
     }
   }
 
-  const result = await flushSyncQueue()
-  const { count } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
-  return {
-    success: result.success,
-    pushedCount: result.syncedCount,
-    cloudTotal: count || 0,
-    message: result.message,
-  }
+  return await legacyReconcileAllSalesWithCloud()
 }
 
 async function legacyReconcileAllSalesWithCloud(): Promise<{

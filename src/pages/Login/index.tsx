@@ -67,7 +67,7 @@ export default function LoginPage() {
         let password = 'cashier123'
         if (selectedPinRole === 'ADMIN' || pinValue === '1111' || pinValue === '9999') {
           username = 'admin'
-          password = 'admin123'
+          password = 'admin1234'
         } else if (selectedPinRole === 'MANAGER' || pinValue === '2222' || pinValue === '5555') {
           username = 'manager'
           password = 'manager123'
@@ -235,7 +235,7 @@ export default function LoginPage() {
               <div className="flex items-center justify-center gap-1.5 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => fillRole('admin', 'admin123')}
+                  onClick={() => fillRole('admin', 'admin1234')}
                   className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-100 transition-colors"
                 >
                   Admin

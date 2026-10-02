@@ -2,7 +2,6 @@ import { prisma } from '../db/prisma'
 import { recordStockMovement } from './stockMovementService'
 import { enqueueOutboxItem } from './syncOutboxService'
 import { recordAudit } from './auditService'
-import { getHubSupabaseClient } from './hubSupabase'
 import { flushOutboxBatch } from './syncEngine'
 import { randomUUID } from 'crypto'
 
@@ -190,17 +189,6 @@ export async function deleteProduct(id: string, meta?: { deviceId?: string; user
   })
 
   if (deleted) {
-    // Immediately delete from Supabase so cloud monitoring is updated without waiting for periodic sync
-    try {
-      const supabase = getHubSupabaseClient()
-      if (supabase) {
-        await supabase.from('cloud_batches').delete().eq('product_id', id)
-        await supabase.from('cloud_products').delete().eq('id', id)
-      }
-    } catch (err) {
-      console.warn('Immediate cloud product deletion notice:', err)
-    }
-
     // Trigger immediate outbox flush in background
     flushOutboxBatch(50).catch(() => {})
   }
@@ -392,7 +380,7 @@ export async function deleteBatch(id: string, meta?: { deviceId?: string; userna
       'BATCH',
       'DELETE',
       id,
-      { id },
+      { id, medicineId: existing.medicineId },
       meta?.deviceId
     )
 
@@ -400,15 +388,6 @@ export async function deleteBatch(id: string, meta?: { deviceId?: string; userna
   })
 
   if (deleted) {
-    try {
-      const supabase = getHubSupabaseClient()
-      if (supabase) {
-        await supabase.from('cloud_batches').delete().eq('id', id)
-      }
-    } catch (err) {
-      console.warn('Immediate cloud batch deletion notice:', err)
-    }
-
     flushOutboxBatch(50).catch(() => {})
   }
 

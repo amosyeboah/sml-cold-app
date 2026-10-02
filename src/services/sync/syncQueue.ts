@@ -1,4 +1,6 @@
 import { getSupabaseClient, checkCloudConnection } from './supabaseClient'
+import { hubClient, isCloudHosting } from '../api/hubClient'
+import { pushLocalStorageToCloudIfAvailable, syncAllCloudDataIfAvailable } from '../api/mobileStorage'
 
 export type SyncEntity = 'SALE' | 'AUDIT_LOG' | 'PRODUCT' | 'BATCH' | 'PURCHASE'
 export type SyncAction = 'INSERT' | 'UPDATE' | 'DELETE'
@@ -39,26 +41,42 @@ let isCurrentlySyncing = false
 
 export function subscribeToSyncState(listener: SyncListener): () => void {
   listeners.add(listener)
-  listener({
-    isSyncing: isCurrentlySyncing,
-    pendingCount: getPendingQueue().length,
-    lastSyncTime: getLastSyncTime(),
-  })
+  const refresh = () => publishSyncState(listener)
+  refresh()
+  const interval = setInterval(refresh, 10000)
   return () => {
     listeners.delete(listener)
+    clearInterval(interval)
   }
 }
 
-function notifyListeners() {
-  const pendingCount = getPendingQueue().length
-  const lastSyncTime = getLastSyncTime()
-  listeners.forEach((l) =>
-    l({
-      isSyncing: isCurrentlySyncing,
-      pendingCount,
-      lastSyncTime,
+function publishSyncState(listener: SyncListener): void {
+  if (typeof window === 'undefined') {
+    listener({ isSyncing: isCurrentlySyncing, pendingCount: getPendingQueue().length, lastSyncTime: getLastSyncTime() })
+    return
+  }
+
+  if (isCloudHosting()) {
+    listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
+    return
+  }
+
+  const getStatus = (window as any).api?.getSyncStatus
+    ? () => (window as any).api.getSyncStatus()
+    : () => hubClient.getSyncStatus()
+  getStatus().then((status: any) => {
+    listener({
+      isSyncing: status.state === 'SYNCING',
+      pendingCount: Number(status.pendingOutbox ?? status.pendingCount) || 0,
+      lastSyncTime: status.lastSyncAt || status.lastSyncTime || null,
     })
-  )
+  }).catch(() => {
+    listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
+  })
+}
+
+function notifyListeners() {
+  listeners.forEach(publishSyncState)
 }
 
 // ─── Queue Management ────────────────────────────────────────────────────────
@@ -141,6 +159,28 @@ export function addSyncHistoryLog(log: Omit<SyncSessionLog, 'id'>): void {
 // ─── Flush / Process Sync Queue ───────────────────────────────────────────────
 
 export async function flushSyncQueue(): Promise<{
+  success: boolean
+  syncedCount: number
+  failedCount: number
+  message: string
+}> {
+  if (typeof window !== 'undefined' && isCloudHosting()) {
+    return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local hub.' }
+  }
+
+  const flush = typeof window !== 'undefined' && (window as any).api?.flushSyncOutbox
+    ? (size: number) => (window as any).api.flushSyncOutbox(size)
+    : (size: number) => hubClient.flushSyncOutbox(size)
+  const result = await flush(50)
+  return {
+    success: Boolean(result.success),
+    syncedCount: Number(result.succeeded) || 0,
+    failedCount: Number(result.failed) || 0,
+    message: result.error || `Hub outbox: ${Number(result.succeeded) || 0} synced, ${Number(result.failed) || 0} failed.`,
+  }
+}
+
+async function legacyFlushSyncQueue(): Promise<{
   success: boolean
   syncedCount: number
   failedCount: number
@@ -434,6 +474,37 @@ export async function reconcileAllSalesWithCloud(): Promise<{
 }> {
   const client = getSupabaseClient()
   if (!client) {
+    return { success: false, pushedCount: 0, cloudTotal: 0, message: 'Supabase client is not configured.' }
+  }
+
+  if (typeof window !== 'undefined' && isCloudHosting()) {
+    const { count, error } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
+    return {
+      success: !error,
+      pushedCount: 0,
+      cloudTotal: count || 0,
+      message: error ? error.message : 'Owner portal refreshed from the live cloud mirror.',
+    }
+  }
+
+  const result = await flushSyncQueue()
+  const { count } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
+  return {
+    success: result.success,
+    pushedCount: result.syncedCount,
+    cloudTotal: count || 0,
+    message: result.message,
+  }
+}
+
+async function legacyReconcileAllSalesWithCloud(): Promise<{
+  success: boolean
+  pushedCount: number
+  cloudTotal: number
+  message: string
+}> {
+  const client = getSupabaseClient()
+  if (!client) {
     return {
       success: false,
       pushedCount: 0,
@@ -683,9 +754,9 @@ export async function reconcileAllSalesWithCloud(): Promise<{
       console.warn('Reconcile SQLite notice:', dbErr)
     }
   } else {
-    // 3. If running on Web / Mobile Browser, pull latest cloud products, batches, and sales
+    // 3. Web / Vercel: push local browser state to cloud, then pull latest mirrors
     try {
-      const { syncAllCloudDataIfAvailable } = await import('../api/mobileStorage')
+      await pushLocalStorageToCloudIfAvailable()
       await syncAllCloudDataIfAvailable()
     } catch (webErr) {
       console.warn('Web storage cloud sync notice:', webErr)

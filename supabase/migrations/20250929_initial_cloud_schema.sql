@@ -1,12 +1,8 @@
--- ==============================================================================
--- SML LEGACY LIMITED - COLD STORE REMOTE SUPABASE POSTGRESQL SCHEMA (PHASE 2)
--- Authoritative Remote Access, Idempotent Sync Ledger & UK Owner Dashboard
--- ==============================================================================
+-- Initial Supabase mirror schema. Run before 20250930_cloud_stock_movements.sql.
+-- The tablet hub uses SUPABASE_SERVICE_ROLE_KEY for writes; browser clients are read-only.
 
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. STORES / DEPOTS TABLE
 CREATE TABLE IF NOT EXISTS sml_stores (
     id TEXT PRIMARY KEY DEFAULT 'sml_accra_main',
     name TEXT NOT NULL DEFAULT 'SML Legacy Limited - Cold Store Main Depot',
@@ -21,22 +17,10 @@ CREATE TABLE IF NOT EXISTS sml_stores (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Insert default store record if not exists
 INSERT INTO sml_stores (id, name, location, phone, email, owner_name, owner_phone, currency, currency_symbol)
-VALUES (
-    'sml_accra_main',
-    'SML Legacy Limited - Cold Store Main Depot',
-    'Cold Store Market Depot, Accra, Ghana',
-    '+233 54 386 4610',
-    'sorphygold@yahoo.com',
-    'Sofiyat Opeyemi Yusuf',
-    '+447999007775',
-    'GHS',
-    'GH₵'
-)
+VALUES ('sml_accra_main', 'SML Legacy Limited - Cold Store Main Depot', 'Cold Store Market Depot, Accra, Ghana', '+233 54 386 4610', 'sorphygold@yahoo.com', 'Sofiyat Opeyemi Yusuf', '+447999007775', 'GHS', 'GH₵')
 ON CONFLICT (id) DO NOTHING;
 
--- 2. CLOUD DEVICES (Depot Desktop, Tablets, Scanners)
 CREATE TABLE IF NOT EXISTS cloud_devices (
     device_id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -49,9 +33,6 @@ CREATE TABLE IF NOT EXISTS cloud_devices (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_devices_store ON cloud_devices(store_id);
-
--- 3. CLOUD PRODUCTS CATALOG
 CREATE TABLE IF NOT EXISTS cloud_products (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -67,10 +48,6 @@ CREATE TABLE IF NOT EXISTS cloud_products (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_products_sku ON cloud_products(sku);
-CREATE INDEX IF NOT EXISTS idx_cloud_products_category ON cloud_products(category_name);
-
--- 4. CLOUD BATCHES (Freezer lots & expiry)
 CREATE TABLE IF NOT EXISTS cloud_batches (
     id TEXT PRIMARY KEY,
     product_id TEXT NOT NULL REFERENCES cloud_products(id) ON DELETE CASCADE,
@@ -80,10 +57,6 @@ CREATE TABLE IF NOT EXISTS cloud_batches (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_batches_product ON cloud_batches(product_id);
-CREATE INDEX IF NOT EXISTS idx_cloud_batches_expiry ON cloud_batches(expiry_date);
-
--- 5. CLOUD SALES (Mirrored POS Transactions - Immutable after commit)
 CREATE TABLE IF NOT EXISTS cloud_sales (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -99,10 +72,6 @@ CREATE TABLE IF NOT EXISTS cloud_sales (
     CONSTRAINT uq_cloud_sales_store_id UNIQUE (store_id, id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_sales_date ON cloud_sales(date DESC);
-CREATE INDEX IF NOT EXISTS idx_cloud_sales_total ON cloud_sales(total DESC);
-
--- 6. CLOUD SALE ITEMS
 CREATE TABLE IF NOT EXISTS cloud_sale_items (
     id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
     sale_id TEXT NOT NULL REFERENCES cloud_sales(id) ON DELETE CASCADE,
@@ -116,9 +85,6 @@ CREATE TABLE IF NOT EXISTS cloud_sale_items (
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0.00
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_sale_items_sale ON cloud_sale_items(sale_id);
-
--- 7. CLOUD SALE PAYMENTS
 CREATE TABLE IF NOT EXISTS cloud_sale_payments (
     id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
     sale_id TEXT NOT NULL REFERENCES cloud_sales(id) ON DELETE CASCADE,
@@ -126,9 +92,6 @@ CREATE TABLE IF NOT EXISTS cloud_sale_payments (
     amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_sale_payments_sale ON cloud_sale_payments(sale_id);
-
--- 8. CLOUD PURCHASES (Restock orders & supplier receipts)
 CREATE TABLE IF NOT EXISTS cloud_purchases (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -142,9 +105,6 @@ CREATE TABLE IF NOT EXISTS cloud_purchases (
     CONSTRAINT uq_cloud_purchases_store_id UNIQUE (store_id, id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_purchases_date ON cloud_purchases(date DESC);
-
--- 9. CLOUD PURCHASE ITEMS
 CREATE TABLE IF NOT EXISTS cloud_purchase_items (
     id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
     purchase_id TEXT NOT NULL REFERENCES cloud_purchases(id) ON DELETE CASCADE,
@@ -155,9 +115,6 @@ CREATE TABLE IF NOT EXISTS cloud_purchase_items (
     expiry_date TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_purchase_items_purchase ON cloud_purchase_items(purchase_id);
-
--- 10. CLOUD STOCK MOVEMENTS (Append-only Ledger - Single Source of Truth for Inventory Deltas)
 CREATE TABLE IF NOT EXISTS cloud_stock_movements (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -176,11 +133,6 @@ CREATE TABLE IF NOT EXISTS cloud_stock_movements (
     synced_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_product ON cloud_stock_movements(product_id);
-CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_created ON cloud_stock_movements(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_type ON cloud_stock_movements(movement_type);
-
--- 11. CLOUD AUDIT LOGS
 CREATE TABLE IF NOT EXISTS cloud_audit_logs (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -196,10 +148,6 @@ CREATE TABLE IF NOT EXISTS cloud_audit_logs (
     synced_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_audit_logs_created_at ON cloud_audit_logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_cloud_audit_logs_severity ON cloud_audit_logs(severity);
-
--- 12. CLOUD SYNC EVENTS (Authoritative Event Ledger & Incremental Cursor)
 CREATE TABLE IF NOT EXISTS cloud_sync_events (
     cursor_seq BIGSERIAL PRIMARY KEY,
     event_id TEXT UNIQUE NOT NULL,
@@ -213,10 +161,6 @@ CREATE TABLE IF NOT EXISTS cloud_sync_events (
     applied_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_sync_events_cursor ON cloud_sync_events(cursor_seq ASC);
-CREATE INDEX IF NOT EXISTS idx_cloud_sync_events_entity ON cloud_sync_events(entity_type, entity_id);
-
--- 13. CLOUD SYNC SESSIONS (Device sync telemetry)
 CREATE TABLE IF NOT EXISTS cloud_sync_sessions (
     id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
@@ -232,11 +176,26 @@ CREATE TABLE IF NOT EXISTS cloud_sync_sessions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_cloud_devices_store ON cloud_devices(store_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_products_sku ON cloud_products(sku);
+CREATE INDEX IF NOT EXISTS idx_cloud_products_category ON cloud_products(category_name);
+CREATE INDEX IF NOT EXISTS idx_cloud_batches_product ON cloud_batches(product_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_batches_expiry ON cloud_batches(expiry_date);
+CREATE INDEX IF NOT EXISTS idx_cloud_sales_date ON cloud_sales(date DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_sales_total ON cloud_sales(total DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_sale_items_sale ON cloud_sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_sale_payments_sale ON cloud_sale_payments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_purchases_date ON cloud_purchases(date DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_purchase_items_purchase ON cloud_purchase_items(purchase_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_product ON cloud_stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_created ON cloud_stock_movements(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_stock_movements_type ON cloud_stock_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_cloud_audit_logs_created_at ON cloud_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_audit_logs_severity ON cloud_audit_logs(severity);
+CREATE INDEX IF NOT EXISTS idx_cloud_sync_events_cursor ON cloud_sync_events(cursor_seq ASC);
+CREATE INDEX IF NOT EXISTS idx_cloud_sync_events_entity ON cloud_sync_events(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_cloud_sync_sessions_created_at ON cloud_sync_sessions(created_at DESC);
 
--- ==============================================================================
--- ROW LEVEL SECURITY (RLS) & ACCESS POLICIES
--- ==============================================================================
 ALTER TABLE sml_stores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_products ENABLE ROW LEVEL SECURITY;
@@ -264,6 +223,7 @@ DROP POLICY IF EXISTS "Allow POS and Portal access stock movements" ON cloud_sto
 DROP POLICY IF EXISTS "Allow POS and Portal access audit logs" ON cloud_audit_logs;
 DROP POLICY IF EXISTS "Allow POS and Portal access sync events" ON cloud_sync_events;
 DROP POLICY IF EXISTS "Allow POS and Portal access sync sessions" ON cloud_sync_sessions;
+
 DROP POLICY IF EXISTS "Allow portal read devices" ON cloud_devices;
 DROP POLICY IF EXISTS "Allow portal read products" ON cloud_products;
 DROP POLICY IF EXISTS "Allow portal read batches" ON cloud_batches;
@@ -299,9 +259,6 @@ GRANT ALL ON TABLE sml_stores, cloud_devices, cloud_products, cloud_batches, clo
     cloud_stock_movements, cloud_audit_logs, cloud_sync_events, cloud_sync_sessions TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 
--- ==============================================================================
--- REALTIME PUBLICATION (Enables instantaneous owner updates in the UK)
--- ==============================================================================
 DO $$
 DECLARE
     table_name TEXT;

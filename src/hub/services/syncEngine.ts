@@ -1,5 +1,5 @@
 import { prisma } from '../db/prisma'
-import { getHubSupabaseClient, testCloudConnectivity } from './hubSupabase'
+import { getHubSupabaseClient, getSupabaseCredentials, testCloudConnectivity } from './hubSupabase'
 import * as syncOutboxService from './syncOutboxService'
 import { randomUUID } from 'crypto'
 
@@ -20,6 +20,30 @@ export interface SyncEngineStatus {
 let isSyncing = false
 let lastSuccessfulSyncAt: string | null = null
 let lastSyncError: string | null = null
+
+async function refreshCloudProductStock(supabase: ReturnType<typeof getHubSupabaseClient>, productId: string): Promise<void> {
+  const batches = await prisma.batch.findMany({ where: { medicineId: productId }, select: { quantity: true } })
+  const stockQuantity = batches.reduce((sum, batch) => sum + batch.quantity, 0)
+  const { error } = await supabase
+    .from('cloud_products')
+    .update({ stock_quantity: stockQuantity, updated_at: new Date().toISOString() })
+    .eq('id', productId)
+  if (error) throw error
+}
+
+/** PostgREST / Supabase errors when a mirror table or column is not deployed yet. */
+export function isIgnorableCloudSchemaError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const anyErr = err as { message?: string; code?: string }
+  const msg = String(anyErr.message || '').toLowerCase()
+  const code = anyErr.code
+  if (code === '42P01' || code === '42703' || code === 'PGRST204') return true
+  if (msg.includes('does not exist')) return true
+  if (msg.includes('schema cache')) return true
+  if (msg.includes('could not find the table')) return true
+  if (msg.includes('could not find the') && msg.includes('column')) return true
+  return false
+}
 
 export async function getSyncCursor(key = 'cloud_to_local_cursor'): Promise<number> {
   const record = await prisma.syncCursor.findUnique({ where: { key } })
@@ -101,11 +125,12 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
         }
 
         // 2. Idempotency Check: Has this event already been recorded in Supabase?
-        const { data: existingCloudEvent } = await supabase
+        const { data: existingCloudEvent, error: eventLookupErr } = await supabase
           .from('cloud_sync_events')
           .select('cursor_seq')
           .eq('event_id', event.eventId)
           .maybeSingle()
+        if (eventLookupErr) throw eventLookupErr
 
         if (existingCloudEvent) {
           // Previously committed in cloud but local ACK was lost; mark as synced immediately
@@ -120,87 +145,102 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
         const storeId = event.storeId || 'sml_accra_main'
 
         if (entity === 'SALE') {
-          // Idempotent write to cloud_sales (without device_id to match Supabase cloud schema)
-          const saleNumber = payload.saleNumber || `INV-${payload.id.slice(0, 8).toUpperCase()}`
-          const { error: saleErr } = await supabase.from('cloud_sales').upsert(
-            {
-              id: payload.id,
-              store_id: storeId,
-              sale_number: saleNumber,
-              customer_name: payload.customer?.name || payload.customerName || 'Walk-in Customer',
-              total: Number(payload.total) || 0,
-              payment_method: payload.paymentMethod || 'CASH',
-              cashier_username: payload.username || 'cashier',
-              date: payload.date || new Date().toISOString(),
-              synced_at: new Date().toISOString(),
-            },
-            { onConflict: 'id' }
-          )
-          if (saleErr) throw saleErr
-
-          // Idempotent write to cloud_sale_items
-          if (payload.items && Array.isArray(payload.items) && payload.items.length > 0) {
-            const itemsToUpsert = payload.items.map((i: any) => ({
-              id: i.id || `${payload.id}_${i.batchId || i.productId}`,
-              sale_id: payload.id,
-              product_id: i.productId || i.batch?.medicineId || null,
-              batch_id: i.batchId || null,
-              product_name: i.productName || i.name || 'Cold Store Item',
-              sku: i.sku || null,
-              quantity: Number(i.quantity) || 1,
-              unit_price: Number(i.price) || 0,
-              unit_cost: Number(i.cost) || 0,
-              subtotal: (Number(i.quantity) || 1) * (Number(i.price) || 0),
-            }))
-            const { error: itemsErr } = await supabase.from('cloud_sale_items').upsert(itemsToUpsert, { onConflict: 'id' })
-            if (itemsErr) throw itemsErr
-          }
-
-          // Best-effort write to cloud_sale_payments if table exists
-          if (payload.payments && Array.isArray(payload.payments) && payload.payments.length > 0) {
-            try {
-              const paymentsToUpsert = payload.payments.map((p: any) => ({
-                id: p.id || randomUUID(),
-                sale_id: payload.id,
-                method: p.method,
-                amount: Number(p.amount) || 0,
-              }))
-              await supabase.from('cloud_sale_payments').upsert(paymentsToUpsert, { onConflict: 'id' })
-            } catch {}
-          }
-        } else if (entity === 'STOCK_MOVEMENT') {
-          // Best-effort write to cloud_stock_movements (skipped if table not yet migrated in Supabase)
-          try {
-            const { error: smErr } = await supabase.from('cloud_stock_movements').upsert(
+          if (action === 'DELETE') {
+            const { error: saleDeleteErr } = await supabase.from('cloud_sales').delete().eq('id', payload.id)
+            if (saleDeleteErr) throw saleDeleteErr
+          } else {
+            const saleNumber = payload.saleNumber || `INV-${payload.id.slice(0, 8).toUpperCase()}`
+            const { error: saleErr } = await supabase.from('cloud_sales').upsert(
               {
                 id: payload.id,
                 store_id: storeId,
-                product_id: payload.productId,
-                batch_id: payload.batchId || null,
-                quantity_delta: Number(payload.quantityDelta),
-                movement_type: payload.movementType,
-                reference_type: payload.referenceType,
-                reference_id: payload.referenceId || null,
-                unit_cost: payload.unitCost !== undefined ? Number(payload.unitCost) : null,
-                unit_price: payload.unitPrice !== undefined ? Number(payload.unitPrice) : null,
-                user_id: payload.userId || null,
-                notes: payload.notes || null,
-                created_at: payload.createdAt || new Date().toISOString(),
+                sale_number: saleNumber,
+                customer_name: payload.customer?.name || payload.customerName || 'Walk-in Customer',
+                total: Number(payload.total) || 0,
+                payment_method: payload.paymentMethod || 'CASH',
+                cashier_username: payload.username || 'cashier',
+                date: payload.date || new Date().toISOString(),
                 synced_at: new Date().toISOString(),
               },
               { onConflict: 'id' }
             )
-            if (smErr && !smErr.message?.includes('does not exist') && smErr.code !== '42P01') {
-              throw smErr
+            if (saleErr) throw saleErr
+
+            if (payload.items && Array.isArray(payload.items) && payload.items.length > 0) {
+              const itemsToUpsert = payload.items.map((i: any) => ({
+                id: i.id || `${payload.id}_${i.batchId || i.productId}`,
+                sale_id: payload.id,
+                product_id: i.productId || i.batch?.medicineId || null,
+                batch_id: i.batchId || null,
+                product_name: i.productName || i.name || 'Cold Store Item',
+                sku: i.sku || null,
+                quantity: Number(i.quantity) || 1,
+                unit_price: Number(i.price) || 0,
+                unit_cost: Number(i.cost) || 0,
+                subtotal: (Number(i.quantity) || 1) * (Number(i.price) || 0),
+              }))
+              const { error: itemsErr } = await supabase.from('cloud_sale_items').upsert(itemsToUpsert, { onConflict: 'id' })
+              if (itemsErr) throw itemsErr
             }
-          } catch (err: any) {
-            if (!err.message?.includes('does not exist') && err.code !== '42P01') {
-              throw err
+
+            if (payload.payments && Array.isArray(payload.payments) && payload.payments.length > 0) {
+              const paymentsToUpsert = payload.payments.map((p: any) => ({
+                id: p.id || `${payload.id}_${p.method}`,
+                sale_id: payload.id,
+                method: p.method,
+                amount: Number(p.amount) || 0,
+              }))
+              const { error: paymentsErr } = await supabase.from('cloud_sale_payments').upsert(paymentsToUpsert, { onConflict: 'id' })
+              if (paymentsErr) throw paymentsErr
             }
           }
+        } else if (entity === 'STOCK_MOVEMENT') {
+          const { error: smErr } = await supabase.from('cloud_stock_movements').upsert(
+            {
+              id: payload.id,
+              store_id: storeId,
+              product_id: payload.productId,
+              batch_id: payload.batchId || null,
+              quantity_delta: Number(payload.quantityDelta),
+              movement_type: payload.movementType,
+              reference_type: payload.referenceType,
+              reference_id: payload.referenceId || null,
+              unit_cost: payload.unitCost !== undefined ? Number(payload.unitCost) : null,
+              unit_price: payload.unitPrice !== undefined ? Number(payload.unitPrice) : null,
+              user_id: payload.userId || null,
+              notes: payload.notes || null,
+              created_at: payload.createdAt || new Date().toISOString(),
+              synced_at: new Date().toISOString(),
+            },
+            { onConflict: 'id' }
+          )
+          if (smErr) throw smErr
+
+          if (payload.batchId) {
+            const batch = await prisma.batch.findUnique({ where: { id: payload.batchId } })
+            if (batch) {
+              const { error: batchErr } = await supabase.from('cloud_batches').upsert(
+                {
+                  id: batch.id,
+                  product_id: batch.medicineId,
+                  batch_number: batch.batchNumber,
+                  expiry_date: batch.expiryDate.toISOString(),
+                  quantity: batch.quantity,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'id' }
+              )
+              if (batchErr) throw batchErr
+            }
+          }
+          await refreshCloudProductStock(supabase, payload.productId)
         } else if (entity === 'PURCHASE') {
-          // Best-effort write to cloud_purchases (skipped if table not yet migrated in Supabase)
-          try {
+          if (action === 'DELETE') {
+            const { error: itemsDeleteErr } = await supabase.from('cloud_purchase_items').delete().eq('purchase_id', payload.id)
+            if (itemsDeleteErr) throw itemsDeleteErr
+            const { error: purchaseDeleteErr } = await supabase.from('cloud_purchases').delete().eq('id', payload.id)
+            if (purchaseDeleteErr) throw purchaseDeleteErr
+          } else {
             const { error: purErr } = await supabase.from('cloud_purchases').upsert(
               {
                 id: payload.id,
@@ -213,13 +253,11 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
               },
               { onConflict: 'id' }
             )
-            if (purErr && !purErr.message?.includes('does not exist') && purErr.code !== '42P01') {
-              throw purErr
-            }
+            if (purErr) throw purErr
 
             if (payload.items && Array.isArray(payload.items) && payload.items.length > 0) {
               const purchaseItems = payload.items.map((i: any) => ({
-                id: i.id || randomUUID(),
+                id: i.id || `${payload.id}_${i.medicineId || i.productId}_${i.batchNumber || ''}`,
                 purchase_id: payload.id,
                 product_id: i.medicineId || i.productId,
                 quantity: Number(i.quantity) || 1,
@@ -227,18 +265,16 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
                 batch_number: i.batchNumber || null,
                 expiry_date: i.expiryDate ? new Date(i.expiryDate).toISOString() : null,
               }))
-              await supabase.from('cloud_purchase_items').upsert(purchaseItems, { onConflict: 'id' }).catch(() => {})
-            }
-          } catch (err: any) {
-            if (!err.message?.includes('does not exist') && err.code !== '42P01') {
-              throw err
+              const { error: itemsErr } = await supabase.from('cloud_purchase_items').upsert(purchaseItems, { onConflict: 'id' })
+              if (itemsErr) throw itemsErr
             }
           }
         } else if (entity === 'PRODUCT') {
           if (action === 'DELETE') {
-            await supabase.from('cloud_batches').delete().eq('product_id', payload.id)
+            const { error: batchesErr } = await supabase.from('cloud_batches').delete().eq('product_id', payload.id)
+            if (batchesErr) throw batchesErr
             const { error: delErr } = await supabase.from('cloud_products').delete().eq('id', payload.id)
-            if (delErr) console.warn('Supabase product delete warning:', delErr)
+            if (delErr) throw delErr
           } else {
             const { error: prodErr } = await supabase.from('cloud_products').upsert(
               {
@@ -250,7 +286,10 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
                 category_name: payload.category?.name || payload.categoryName || 'General',
                 price: Number(payload.price) || 0,
                 cost: Number(payload.cost) || 0,
-                stock_quantity: Number(payload.stockQuantity) || 0,
+                stock_quantity: await prisma.batch.aggregate({
+                  where: { medicineId: payload.id },
+                  _sum: { quantity: true },
+                }).then((result) => result._sum.quantity || 0),
                 min_stock_level: Number(payload.minStockLevel) || 10,
                 updated_at: new Date().toISOString(),
               },
@@ -260,9 +299,19 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
           }
         } else if (entity === 'BATCH') {
           if (action === 'DELETE') {
-            await supabase.from('cloud_batches').delete().eq('id', payload.id)
+            let productId = payload.medicineId
+            if (!productId) {
+              const { data: existingBatch, error: lookupErr } = await supabase
+                .from('cloud_batches')
+                .select('product_id')
+                .eq('id', payload.id)
+                .maybeSingle()
+              if (lookupErr) throw lookupErr
+              productId = existingBatch?.product_id
+            }
             const { error: delErr } = await supabase.from('cloud_batches').delete().eq('id', payload.id)
-            if (delErr) console.warn('Supabase batch delete warning:', delErr)
+            if (delErr) throw delErr
+            if (productId) await refreshCloudProductStock(supabase, productId)
           } else {
             const { error: batchErr } = await supabase.from('cloud_batches').upsert(
               {
@@ -276,6 +325,7 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
               { onConflict: 'id' }
             )
             if (batchErr) throw batchErr
+            await refreshCloudProductStock(supabase, payload.medicineId)
           }
         } else if (entity === 'AUDIT_LOG') {
           // Idempotent write to cloud_audit_logs (without device_id)
@@ -296,11 +346,11 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
             { onConflict: 'id' }
           )
           if (auditErr) throw auditErr
+        } else {
+          throw new Error(`Unsupported outbox entity: ${entity}`)
         }
 
-        // 4. Best-effort record in cloud_sync_events (Idempotency Ledger) if table exists
-        try {
-          await supabase.from('cloud_sync_events').upsert(
+        const { error: ledgerErr } = await supabase.from('cloud_sync_events').upsert(
             {
               event_id: event.eventId,
               store_id: storeId,
@@ -313,7 +363,7 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
             },
             { onConflict: 'event_id' }
           )
-        } catch {}
+        if (ledgerErr) throw ledgerErr
 
         // 5. Explicit Local Acknowledgement: Mark SYNCED locally upon cloud success
         await syncOutboxService.markEventSynced(event.eventId)
@@ -376,152 +426,12 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
  * Incremental Cursor Cloud-to-Local Pull.
  * Reads changes from cloud_sync_events with cursor > lastSyncCursor, saves to local SyncInbox, and applies them.
  */
-export async function pullCloudChanges(limit = 100): Promise<{
+export async function pullCloudChanges(_limit = 100): Promise<{
   pulledCount: number
   appliedCount: number
   newCursor: number
 }> {
-  const currentCursor = await getSyncCursor()
-  const conn = await testCloudConnectivity()
-  if (!conn.connected) {
-    return { pulledCount: 0, appliedCount: 0, newCursor: currentCursor }
-  }
-
-  const supabase = getHubSupabaseClient()
-  const { data: cloudEvents, error } = await supabase
-    .from('cloud_sync_events')
-    .select('*')
-    .gt('cursor_seq', currentCursor)
-    .order('cursor_seq', { ascending: true })
-    .limit(limit)
-
-  if (error || !cloudEvents || cloudEvents.length === 0) {
-    return { pulledCount: 0, appliedCount: 0, newCursor: currentCursor }
-  }
-
-  let appliedCount = 0
-  let maxCursor = currentCursor
-
-  for (const cEvent of cloudEvents) {
-    const seq = Number(cEvent.cursor_seq)
-    if (seq > maxCursor) maxCursor = seq
-
-    // Deduplication check in local SyncInbox
-    const existingInbox = await prisma.syncInbox.findUnique({
-      where: { eventId: cEvent.event_id },
-    })
-
-    if (existingInbox) {
-      continue
-    }
-
-    // Save to local inbox
-    const inboxItem = await prisma.syncInbox.create({
-      data: {
-        id: randomUUID(),
-        eventId: cEvent.event_id,
-        storeId: cEvent.store_id || 'sml_accra_main',
-        entityType: cEvent.entity_type,
-        entityId: cEvent.entity_id,
-        operation: cEvent.operation,
-        payload: JSON.stringify(cEvent.payload),
-        status: 'PENDING',
-      },
-    })
-
-    // Apply master data changes (e.g. price updates by UK Owner from cloud)
-    try {
-      if (cEvent.entity_type === 'PRODUCT') {
-        if (cEvent.operation === 'UPDATE') {
-          const p = cEvent.payload
-          if (p.id) {
-            const localProd = await prisma.medicine.findUnique({ where: { id: p.id } })
-            if (localProd) {
-              await prisma.medicine.update({
-                where: { id: p.id },
-                data: {
-                  ...(p.price !== undefined ? { price: Number(p.price) } : {}),
-                  ...(p.cost !== undefined ? { cost: Number(p.cost) } : {}),
-                  ...(p.name ? { name: p.name } : {}),
-                },
-              })
-            }
-          }
-        } else if (cEvent.operation === 'DELETE') {
-          const p = cEvent.payload
-          if (p.id) {
-            const localProd = await prisma.medicine.findUnique({ where: { id: p.id }, include: { batches: true } })
-            if (localProd) {
-              const batchIds = Array.isArray(localProd.batches) ? localProd.batches.map((b: any) => b.id) : []
-
-              const deleteErrors: string[] = []
-
-              if (batchIds.length > 0) {
-                try {
-                  await prisma.saleItem.deleteMany({ where: { batchId: { in: batchIds } } })
-                } catch (err: any) {
-                  deleteErrors.push(`saleItem.deleteMany failed: ${err.message || String(err)}`)
-                }
-
-                try {
-                  await prisma.stockMovement.deleteMany({ where: { productId: p.id } })
-                } catch (err: any) {
-                  deleteErrors.push(`stockMovement.deleteMany failed: ${err.message || String(err)}`)
-                }
-
-                try {
-                  await prisma.batch.deleteMany({ where: { medicineId: p.id } })
-                } catch (err: any) {
-                  deleteErrors.push(`batch.deleteMany failed: ${err.message || String(err)}`)
-                }
-              }
-
-              try {
-                await prisma.purchaseItem.deleteMany({ where: { medicineId: p.id } })
-              } catch (err: any) {
-                deleteErrors.push(`purchaseItem.deleteMany failed: ${err.message || String(err)}`)
-              }
-
-              try {
-                await prisma.medicine.delete({ where: { id: p.id } })
-              } catch (err: any) {
-                deleteErrors.push(`medicine.delete failed: ${err.message || String(err)}`)
-              }
-
-              if (deleteErrors.length > 0) {
-                // Provide detailed failure context on the inbox item so operators can inspect later
-                throw new Error(`Partial/failed deletes for product ${p.id}: ${deleteErrors.join('; ')}`)
-              }
-            }
-          }
-        }
-      }
-
-      await prisma.syncInbox.update({
-        where: { id: inboxItem.id },
-        data: {
-          status: 'APPLIED',
-          appliedAt: new Date(),
-        },
-      })
-      appliedCount++
-    } catch (applyErr: any) {
-      await prisma.syncInbox.update({
-        where: { id: inboxItem.id },
-        data: {
-          status: 'FAILED',
-          error: applyErr.message || 'Failed to apply inbox change locally',
-        },
-      })
-    }
-  }
-
-  await setSyncCursor(maxCursor)
-  return {
-    pulledCount: cloudEvents.length,
-    appliedCount,
-    newCursor: maxCursor,
-  }
+  return { pulledCount: 0, appliedCount: 0, newCursor: await getSyncCursor() }
 }
 
 export interface ReconciliationReport {
@@ -762,7 +672,7 @@ export async function getSyncState(): Promise<any> {
     lastSyncCursor: String(cursor),
     inboundCursor: Number(cursor) || 0,
     depotId: 'sml_accra_main',
-    cloudConfigured: true,
+    cloudConfigured: Boolean(getSupabaseCredentials().url && getSupabaseCredentials().key),
   }
 }
 
@@ -777,7 +687,6 @@ export function startPeriodicSyncWorker(intervalMs = 30000): void {
   syncIntervalTimer = setInterval(async () => {
     try {
       await flushOutboxBatch(50)
-      await pullCloudChanges(50)
     } catch (err) {
       console.warn('[Sync Worker Background Notice]:', err)
     }
@@ -786,7 +695,6 @@ export function startPeriodicSyncWorker(intervalMs = 30000): void {
   // Trigger immediate initial flush
   setTimeout(() => {
     flushOutboxBatch(50).catch(() => {})
-    pullCloudChanges(50).catch(() => {})
   }, 3000)
 }
 

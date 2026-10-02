@@ -21,6 +21,7 @@ import Settings from '@/pages/Settings'
 import Categories from '@/pages/Categories'
 import AuditTrail from '@/pages/Audit'
 import SyncPage from '@/pages/Sync'
+import { isCloudHosting } from '@/services/api/hubClient'
 
 import { RoleGuard } from './RoleGuard'
 
@@ -38,7 +39,7 @@ export const router = createHashRouter([
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: 'dashboard', element: <Dashboard /> },
-          { path: 'pos', element: <POS /> },
+          { path: 'pos', element: isCloudHosting() ? <Navigate to="/dashboard" replace /> : <POS /> },
           { path: 'sales-history', element: <SalesHistory /> },
           { path: 'medicines', element: <Medicines /> },
           { path: 'products', element: <Navigate to="/medicines" replace /> },

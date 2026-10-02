@@ -1,4 +1,18 @@
 import { mobileApi } from './mobileStorage'
+import { hubClient, isCloudHosting } from './hubClient'
+
+function getReadOnlyPortalApi() {
+  return new Proxy(mobileApi, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && /^(create|update|delete|remove|add|set|adjust|refund|cancel|complete|receive|record|process|retry|flush|pull|save|import|reset|seed|push)/i.test(property)) {
+        return async () => {
+          throw new Error('The owner portal is read-only. Business changes must be made on the local hub.')
+        }
+      }
+      return Reflect.get(target, property, receiver)
+    },
+  })
+}
 
 /**
  * Unified API Client for SML Legacy Cold Store App.
@@ -30,7 +44,7 @@ export function getApi() {
             // fallback
           }
         }
-        return await mobileApi.refundSale(id)
+        return await hubClient.refundSale(id, username, userRole)
       },
 
       // Bluetooth printer methods
@@ -93,9 +107,19 @@ export function getApi() {
     return wrappedApi
   }
 
-  // Tablet in the store, mobile devices, and Remote Vercel Web:
-  // Directly use mobileApi (offline-first local storage + Supabase Cloud synchronization)
-  return mobileApi as any
+  if (typeof window !== 'undefined' && isCloudHosting()) {
+    return getReadOnlyPortalApi() as any
+  }
+
+  return { ...mobileApi, ...hubClient } as any
 }
 
 export const api = getApi()
+
+if (typeof window !== 'undefined') {
+  try {
+    ;(window as any).api = api
+  } catch {
+    // ignore non-writable host bridges
+  }
+}

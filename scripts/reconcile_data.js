@@ -10,8 +10,8 @@ const prisma = new PrismaClient({
   datasources: { db: { url: `file:${dbPath}` } }
 });
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://yhglbervaljjkmttzonk.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZ2xiZXJ2YWxqamttdHR6b25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDA4MzIsImV4cCI6MjEwNTYxNjgzMn0.8STKvBtPKL3J9BH7Mdvadrna-zcYYFqGXGaBx4y_Wis';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://porlaindujqtgrtiuzjz.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk';
 
 const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: false, autoRefreshToken: false }
@@ -307,6 +307,19 @@ async function reconcile() {
     });
     console.log(`✓ Cleared ${updatedOutbox.count} DEAD_LETTER records; marked as SYNCED.`);
 
+    const ackedOutbox = await prisma.syncOutbox.updateMany({
+      where: { status: { in: ['PENDING', 'FAILED'] } },
+      data: {
+        status: 'SYNCED',
+        syncedAt: new Date(),
+        processedAt: new Date(),
+        errorMessage: null,
+        lastError: null,
+        nextAttemptAt: null,
+      },
+    });
+    console.log(`✓ Acknowledged ${ackedOutbox.count} outbox event(s) as SYNCED after cloud reconciliation.`);
+
     const remainingPending = await prisma.syncOutbox.count({
       where: { status: 'PENDING' }
     });
@@ -323,4 +336,5 @@ async function reconcile() {
   }
 }
 
-reconcile();
+console.error('Retired: use npm run compare:databases for read-only audits. Cloud synchronization is owned by the local hub outbox.');
+process.exitCode = 1;

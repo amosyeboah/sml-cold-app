@@ -178,6 +178,7 @@ export async function deletePurchase(id: string) {
     // Delete purchase items first
     await tx.purchaseItem.deleteMany({ where: { purchaseId: id } })
     const deleted = await tx.purchase.delete({ where: { id } })
+    await enqueueOutboxItem(tx, 'PURCHASE', 'DELETE', id, { id }, existing.deviceId || undefined)
 
     return deleted
   })

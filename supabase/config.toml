@@ -1,0 +1,5 @@
+project_id = "sml-cold-store"
+
+[db.migrations]
+enabled = true
+schema_paths = []

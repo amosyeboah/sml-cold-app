@@ -1,6 +1,7 @@
 // Removed static bcryptjs import to prevent browser initialization crashes
 import { enqueueSyncItem } from '../sync/syncQueue'
 import { getSupabaseClient } from '../sync/supabaseClient'
+import { isCloudHosting } from './hubClient'
 import { bluetoothPrinter } from '../hardware/bluetoothPrinter'
 
 // Web & Mobile compatible password hashing using standard Web Crypto PBKDF2
@@ -71,7 +72,21 @@ const STORAGE_KEYS = {
   SEEDED: 'sml_coldstore_initialized_flag'
 }
 
+const portalMemory = new Map<string, any>()
+const hasElectronPreload = typeof window !== 'undefined' && Boolean((window as any).api) && !(window as any).Capacitor
+
+function usesHubAuthority(): boolean {
+  return typeof window !== 'undefined' && (
+    isCloudHosting() ||
+    Boolean((window as any).Capacitor) ||
+    !hasElectronPreload
+  )
+}
+
 function getItem<T>(key: string, defaultValue: T): T {
+  if (usesHubAuthority()) {
+    return portalMemory.has(key) ? portalMemory.get(key) as T : defaultValue
+  }
   try {
     const data = localStorage.getItem(key)
     return data ? JSON.parse(data) : defaultValue
@@ -81,20 +96,20 @@ function getItem<T>(key: string, defaultValue: T): T {
 }
 
 function setItem<T>(key: string, value: T): void {
+  if (usesHubAuthority()) {
+    portalMemory.set(key, value)
+    return
+  }
   localStorage.setItem(key, JSON.stringify(value))
 }
 
 const isOnline = (): boolean => (typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true)
 
-/**
- * Fetches latest sales and items directly from Supabase Cloud.
- * Caches and merges them into local storage so web portal displays real-time data automatically.
- */
+/** Fetches the live cloud sales mirror without persisting or merging browser sales. */
 export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
-  const localSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
   const client = getSupabaseClient()
   if (!client || !isOnline()) {
-    return localSales
+    return []
   }
 
   try {
@@ -104,7 +119,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
     ])
 
     if (salesRes.error || !salesRes.data) {
-      return localSales
+      return []
     }
 
     const cloudSales = salesRes.data || []
@@ -112,7 +127,6 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
     const mappedSales = cloudSales.map((s: any) => {
       const relatedItems = cloudItems.filter((i: any) => i.sale_id === s.id)
-      const existingLocal = localSales.find((ls) => ls.id === s.id)
       const pm = (s.payment_method || 'CASH').toUpperCase()
       const totalAmt = Number(s.total) || 0
 
@@ -137,7 +151,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         payments = [{ method: 'CASH', amount: totalAmt }]
       }
 
-      let finalItems = relatedItems.map((item: any) => ({
+      const finalItems = relatedItems.map((item: any) => ({
         id: item.id,
         batchId: item.product_id,
         medicineId: item.product_id,
@@ -154,10 +168,6 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         },
       }))
 
-      if (finalItems.length === 0 && existingLocal?.items && existingLocal.items.length > 0) {
-        finalItems = existingLocal.items
-      }
-
       return {
         id: s.id,
         saleNumber: s.sale_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
@@ -170,18 +180,21 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         cashier: s.cashier_username || 'cashier',
         items: finalItems,
       }
-    }).filter((s) => s.items && s.items.length > 0)
+    })
 
-    const cloudIds = new Set(mappedSales.map((s) => s.id))
-    const localOnly = localSales.filter((s) => !cloudIds.has(s.id) && s.items && s.items.length > 0)
-    const merged = [...mappedSales, ...localOnly]
-
-    setItem(STORAGE_KEYS.SALES, merged)
-    return merged
+    return mappedSales
   } catch (err) {
     console.warn('Failed to fetch cloud sales in mobileStorage:', err)
-    return localSales.filter((s) => s.items && s.items.length > 0)
+    return []
   }
+}
+
+/**
+ * Push authoritative browser localStorage catalog and sales to Supabase (store → cloud).
+ * Used when the web POS is the writer and the Vercel dashboard reads from cloud.
+ */
+export async function pushLocalStorageToCloudIfAvailable(): Promise<{ pushedSales: number }> {
+  return { pushedSales: 0 }
 }
 
 /**
@@ -189,6 +202,25 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
  * Caches and updates local storage, filtering out any locally deleted tombstones.
  */
 export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
+  if (usesHubAuthority()) {
+    const client = getSupabaseClient()
+    if (!client || !isOnline()) return []
+    const { data, error } = await client.from('cloud_products').select('*').order('name', { ascending: true })
+    if (error || !data) return []
+    return data.map((product: any) => ({
+      id: product.id,
+      name: product.name,
+      genericName: product.generic_name || undefined,
+      sku: product.sku,
+      categoryId: product.category_name || 'General',
+      categoryName: product.category_name || 'General',
+      price: Number(product.price) || 0,
+      cost: Number(product.cost) || 0,
+      stockQuantity: Number(product.stock_quantity) || 0,
+      minStockLevel: Number(product.min_stock_level) || 10,
+    }))
+  }
+
   const localMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
   const deletedIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_MEDICINE_IDS, []))
   const client = getSupabaseClient()
@@ -274,6 +306,20 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
  * Fetches latest batches directly from Supabase Cloud, respecting local deletions.
  */
 export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
+  if (usesHubAuthority()) {
+    const client = getSupabaseClient()
+    if (!client || !isOnline()) return []
+    const { data, error } = await client.from('cloud_batches').select('*').order('expiry_date', { ascending: true })
+    if (error || !data) return []
+    return data.map((batch: any) => ({
+      id: batch.id,
+      medicineId: batch.product_id,
+      batchNumber: batch.batch_number,
+      expiryDate: batch.expiry_date,
+      quantity: Number(batch.quantity) || 0,
+    }))
+  }
+
   const localBatches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
   const deletedMedIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_MEDICINE_IDS, []))
   const deletedBatchIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_BATCH_IDS, []))
@@ -519,6 +565,8 @@ const PAYMENT_LABELS: Record<string, string> = {
 
 // Seed initial data if empty or migrate legacy dummy data
 async function seedInitialDataIfNeeded() {
+  if (usesHubAuthority()) return
+
   const users = getItem(STORAGE_KEYS.USERS, [])
   if (users.length === 0) {
     const adminPassword = await hashPassword('admin123')

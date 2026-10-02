@@ -16,13 +16,13 @@ export function getSupabaseCredentials() {
   const url =
     process.env.SUPABASE_URL ||
     process.env.VITE_SUPABASE_URL ||
-    'https://yhglbervaljjkmttzonk.supabase.co'
+    'https://porlaindujqtgrtiuzjz.supabase.co'
 
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
     process.env.VITE_SUPABASE_ANON_KEY ||
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZ2xiZXJ2YWxqamttdHR6b25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDA4MzIsImV4cCI6MjEwNTYxNjgzMn0.8STKvBtPKL3J9BH7Mdvadrna-zcYYFqGXGaBx4y_Wis'
+    process.env.SUPABASE_ANON_KEY ||
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk'
 
   return { url, key }
 }
@@ -30,6 +30,9 @@ export function getSupabaseCredentials() {
 export function getHubSupabaseClient(): SupabaseClient {
   if (!supabaseInstance) {
     const { url, key } = getSupabaseCredentials()
+    if (!key) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is required by the local hub to write the cloud mirror.')
+    }
     supabaseInstance = createClient(url, key, {
       auth: {
         persistSession: false,
@@ -45,9 +48,9 @@ export async function testCloudConnectivity(): Promise<{
   latencyMs: number
   error?: string
 }> {
-  const client = getHubSupabaseClient()
   const start = Date.now()
   try {
+    const client = getHubSupabaseClient()
     const { error } = await client
       .from('sml_stores')
       .select('id')

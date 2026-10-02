@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowUpRight,
-  ArrowDownLeft,
   ShieldCheck,
   Server,
   Zap,
@@ -114,7 +113,6 @@ export default function SyncPage() {
   const [sessions, setSessions] = useState<SyncSessionItem[]>([])
   const [reconciliation, setReconciliation] = useState<ReconciliationReport | null>(null)
   const [isFlushing, setIsFlushing] = useState(false)
-  const [isPulling, setIsPulling] = useState(false)
   const [isReconciling, setIsReconciling] = useState(false)
   const [isRetryingDeadLetter, setIsRetryingDeadLetter] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
@@ -165,28 +163,6 @@ export default function SyncPage() {
       })
     } finally {
       setIsFlushing(false)
-    }
-  }
-
-  const handlePullChanges = async () => {
-    setIsPulling(true)
-    setFeedback(null)
-    try {
-      const res = await api.pullSyncChanges(50)
-      setFeedback({
-        type: res.success ? 'success' : 'info',
-        message: `Cloud pull: ${res.applied || 0} updates applied to local depot SQLite (Cursor advanced to ${res.newCursor || status.inboundCursor}).`,
-      })
-      await refreshData()
-      queryClient.invalidateQueries({ queryKey: ['medicines'] })
-      queryClient.invalidateQueries({ queryKey: ['batches'] })
-    } catch (err: any) {
-      setFeedback({
-        type: 'error',
-        message: `Pull error: ${err.message || 'Failed to fetch cloud changes'}`,
-      })
-    } finally {
-      setIsPulling(false)
     }
   }
 
@@ -289,21 +265,11 @@ export default function SyncPage() {
           <div className="flex flex-wrap items-center gap-2.5">
             <Button
               onClick={handleFlushOutbox}
-              disabled={isFlushing || isPulling}
+              disabled={isFlushing}
               className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-950/20 h-10 px-4 rounded-xl text-xs sm:text-sm"
             >
               <RefreshCw className={`w-4 h-4 ${isFlushing ? 'animate-spin' : ''}`} />
               {isFlushing ? 'Flushing Outbox...' : 'Push Outbox'}
-            </Button>
-
-            <Button
-              onClick={handlePullChanges}
-              disabled={isFlushing || isPulling}
-              variant="outline"
-              className="gap-2 border-white/20 bg-white/10 hover:bg-white/20 text-white font-semibold h-10 px-4 rounded-xl text-xs sm:text-sm"
-            >
-              <ArrowDownLeft className={`w-4 h-4 ${isPulling ? 'animate-spin' : ''}`} />
-              {isPulling ? 'Pulling...' : 'Pull Updates'}
             </Button>
 
             <Button

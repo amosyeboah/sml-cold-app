@@ -22,6 +22,7 @@
     "cap:add": "npx cap add android",
     "cap:sync": "electron-vite build && npx cap sync android",
     "hub": "ts-node src/hub/index.ts",
+    "compare:databases": "node scripts/compare_databases.js",
     "test": "vitest run",
     "cap:open": "npx cap open android"
   },

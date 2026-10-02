@@ -5,19 +5,26 @@ globalThis.WebSocket = ws;
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-const dbPath = path.resolve(__dirname, '../database/pharmacy.db').replace(/\\/g, '/');
+const defaultDbPath = path.resolve(__dirname, '../database/pharmacy.db');
+const rawDbUrl = process.env.SML_SQLITE_DB
+  ? path.resolve(process.env.SML_SQLITE_DB)
+  : (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('file:'))
+  ? path.resolve(process.cwd(), process.env.DATABASE_URL.replace(/^file:/, ''))
+  : defaultDbPath;
+const databaseUrl = `file:${rawDbUrl.replace(/\\/g, '/')}`;
 const prisma = new PrismaClient({
-  datasources: { db: { url: `file:${dbPath}` } }
+  datasources: { db: { url: databaseUrl } }
 });
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://yhglbervaljjkmttzonk.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZ2xiZXJ2YWxqamttdHR6b25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDA4MzIsImV4cCI6MjEwNTYxNjgzMn0.8STKvBtPKL3J9BH7Mdvadrna-zcYYFqGXGaBx4y_Wis';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://porlaindujqtgrtiuzjz.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk';
 
 const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
 async function runComparison() {
+  let auditFailed = false;
   console.log('================================================================');
   console.log('SML COLD STORE: COMPREHENSIVE LOCAL SQLITE vs ONLINE SUPABASE AUDIT');
   console.log('================================================================\n');
@@ -34,6 +41,11 @@ async function runComparison() {
 
     const totalOutbox = await prisma.syncOutbox.count();
     console.log(`Total SyncOutbox records: ${totalOutbox}`);
+    const outstandingOutbox = await prisma.syncOutbox.count({ where: { status: { not: 'SYNCED' } } });
+    if (outstandingOutbox > 0) {
+      auditFailed = true;
+      console.error(`Outbox is not drained: ${outstandingOutbox} event(s) are pending, failed, processing, or dead-lettered.`);
+    }
 
     const deadLetters = await prisma.syncOutbox.findMany({
       where: { status: 'DEAD_LETTER' },
@@ -75,16 +87,21 @@ async function runComparison() {
       .select('*')
       .order('name', { ascending: true });
 
-    if (cpErr) console.error('Cloud products fetch error:', cpErr);
+    if (cpErr) {
+      auditFailed = true;
+      console.error('Cloud products fetch error:', cpErr);
+    }
 
     console.log(`Local SQLite products count: ${localProducts.length}`);
     console.log(`Online Supabase products count: ${cloudProducts?.length || 0}`);
+    if (localProducts.length !== (cloudProducts?.length || 0)) auditFailed = true;
 
     const localProdMap = new Map(localProducts.map(p => [p.id, p]));
     const cloudProdMap = new Map((cloudProducts || []).map(p => [p.id, p]));
 
     const missingInCloudProducts = localProducts.filter(p => !cloudProdMap.has(p.id));
     const missingInLocalProducts = (cloudProducts || []).filter(p => !localProdMap.has(p.id));
+    if (missingInCloudProducts.length || missingInLocalProducts.length) auditFailed = true;
 
     if (missingInCloudProducts.length > 0) {
       console.log(`Products in Local but MISSING in Cloud (${missingInCloudProducts.length}):`);
@@ -113,8 +130,9 @@ async function runComparison() {
       if (Math.abs(Number(lp.cost) - Number(cp.cost)) > 0.01) {
         diffs.push(`cost: local=${lp.cost} vs cloud=${cp.cost}`);
       }
-      if (localStock !== Number(cp.stock_quantity)) {
-        diffs.push(`stock_quantity: local=${localStock} vs cloud=${cp.stock_quantity}`);
+      const cloudStock = Number(cp.current_stock ?? cp.stock_quantity ?? 0);
+      if (localStock !== cloudStock) {
+        diffs.push(`stock: local=${localStock} vs cloud=${cloudStock}`);
       }
       if (lp.name !== cp.name) {
         diffs.push(`name: local="${lp.name}" vs cloud="${cp.name}"`);
@@ -125,6 +143,7 @@ async function runComparison() {
     }
 
     if (productAttrMismatches.length > 0) {
+      auditFailed = true;
       console.log(`Product attribute/stock mismatches (${productAttrMismatches.length}):`);
       productAttrMismatches.forEach(m => console.log(`  * [${m.sku}] ${m.name}: ${m.diffs.join(', ')}`));
     } else {
@@ -139,16 +158,21 @@ async function runComparison() {
     const { data: cloudBatches, error: cbErr } = await supabase
       .from('cloud_batches')
       .select('*');
-    if (cbErr) console.error('Cloud batches error:', cbErr);
+    if (cbErr) {
+      auditFailed = true;
+      console.error('Cloud batches error:', cbErr);
+    }
 
     console.log(`Local SQLite batches count: ${localBatches.length}`);
     console.log(`Online Supabase batches count: ${cloudBatches?.length || 0}`);
+    if (localBatches.length !== (cloudBatches?.length || 0)) auditFailed = true;
 
     const localBatchMap = new Map(localBatches.map(b => [b.id, b]));
     const cloudBatchMap = new Map((cloudBatches || []).map(b => [b.id, b]));
 
     const missingInCloudBatches = localBatches.filter(b => !cloudBatchMap.has(b.id));
     const missingInLocalBatches = (cloudBatches || []).filter(b => !localBatchMap.has(b.id));
+    if (missingInCloudBatches.length || missingInLocalBatches.length) auditFailed = true;
 
     if (missingInCloudBatches.length > 0) {
       console.log(`Batches in Local but MISSING in Cloud (${missingInCloudBatches.length}):`);
@@ -159,7 +183,7 @@ async function runComparison() {
 
     if (missingInLocalBatches.length > 0) {
       console.log(`Batches in Cloud but MISSING in Local (${missingInLocalBatches.length}):`);
-      missingInLocalBatches.forEach(b => console.log(`  * ID: ${b.id} | ProdId: ${b.product_id} | Batch#: ${b.batch_number} | Qty: ${b.quantity}`));
+      missingInLocalBatches.forEach(b => console.log(`  * ID: ${b.id} | ProdId: ${b.product_id} | Batch#: ${b.batch_number} | Qty: ${b.quantity_current ?? b.quantity}`));
     } else {
       console.log('✓ All cloud batches exist in Local batches.');
     }
@@ -168,17 +192,19 @@ async function runComparison() {
     for (const lb of localBatches) {
       const cb = cloudBatchMap.get(lb.id);
       if (!cb) continue;
-      if (lb.quantity !== Number(cb.quantity)) {
+      const cQty = Number(cb.quantity_current ?? cb.quantity ?? 0);
+      if (lb.quantity !== cQty) {
         batchQtyMismatches.push({
           id: lb.id,
           product: lb.medicine?.name,
           batchNumber: lb.batchNumber,
           localQty: lb.quantity,
-          cloudQty: cb.quantity
+          cloudQty: cQty
         });
       }
     }
     if (batchQtyMismatches.length > 0) {
+      auditFailed = true;
       console.log(`Batch quantity mismatches (${batchQtyMismatches.length}):`);
       batchQtyMismatches.forEach(m => console.log(`  * [${m.batchNumber}] ${m.product}: local=${m.localQty} vs cloud=${m.cloudQty}`));
     } else {
@@ -205,21 +231,26 @@ async function runComparison() {
     const { data: cloudSales, error: csErr } = await supabase
       .from('cloud_sales')
       .select('*')
-      .order('date', { ascending: true });
-    if (csErr) console.error('Cloud sales error:', csErr);
+      .order('sold_at', { ascending: true });
+    if (csErr) {
+      auditFailed = true;
+      console.error('Cloud sales error:', csErr);
+    }
 
     const localSalesRevenue = localSales.reduce((acc, s) => acc + (Number(s.total) || 0), 0);
-    const cloudSalesRevenue = (cloudSales || []).reduce((acc, s) => acc + (Number(s.total) || 0), 0);
+    const cloudSalesRevenue = (cloudSales || []).reduce((acc, s) => acc + (Number(s.total_amount ?? s.total) || 0), 0);
 
     console.log(`Local SQLite sales count: ${localSales.length} | Total Revenue: GH₵${localSalesRevenue.toFixed(2)}`);
     console.log(`Online Supabase sales count: ${cloudSales?.length || 0} | Total Revenue: GH₵${cloudSalesRevenue.toFixed(2)}`);
     console.log(`Difference: ${localSales.length - (cloudSales?.length || 0)} transactions | GH₵${(localSalesRevenue - cloudSalesRevenue).toFixed(2)} revenue`);
+    if (localSales.length !== (cloudSales?.length || 0) || Math.abs(localSalesRevenue - cloudSalesRevenue) > 0.01) auditFailed = true;
 
     const localSaleMap = new Map(localSales.map(s => [s.id, s]));
     const cloudSaleMap = new Map((cloudSales || []).map(s => [s.id, s]));
 
     const missingInCloudSales = localSales.filter(s => !cloudSaleMap.has(s.id));
     const missingInLocalSales = (cloudSales || []).filter(s => !localSaleMap.has(s.id));
+    if (missingInCloudSales.length || missingInLocalSales.length) auditFailed = true;
 
     if (missingInCloudSales.length > 0) {
       console.log(`\nSales in Local SQLite but MISSING in Cloud Supabase (${missingInCloudSales.length}):`);
@@ -260,6 +291,7 @@ async function runComparison() {
       }
     }
     if (saleDiffs.length > 0) {
+      auditFailed = true;
       console.log(`Matched sales with total amount differences (${saleDiffs.length}):`);
       saleDiffs.forEach(d => console.log(`  * ID: ${d.id}: local=GH₵${d.localTotal} vs cloud=GH₵${d.cloudTotal}`));
     } else {
@@ -274,6 +306,7 @@ async function runComparison() {
       .select('*', { count: 'exact', head: true });
     console.log(`Local SQLite sale items count: ${localSaleItems}`);
     console.log(`Online Supabase sale items count: ${cloudSaleItemsCount || 0}`);
+    if (localSaleItems !== (cloudSaleItemsCount || 0)) auditFailed = true;
 
     // 6. STOCK MOVEMENTS
     console.log('\n--- 6. STOCK MOVEMENTS ---');
@@ -283,6 +316,7 @@ async function runComparison() {
       .select('*', { count: 'exact', head: true });
     console.log(`Local SQLite stock movements count: ${localSmCount}`);
     console.log(`Online Supabase stock movements count: ${cloudSmCount || 0}`);
+    if (localSmCount !== (cloudSmCount || 0)) auditFailed = true;
 
     // 7. AUDIT LOGS
     console.log('\n--- 7. AUDIT LOGS ---');
@@ -292,6 +326,7 @@ async function runComparison() {
       .select('*', { count: 'exact', head: true });
     console.log(`Local SQLite audit logs count: ${localAuditCount}`);
     console.log(`Online Supabase audit logs count: ${cloudAuditCount || 0}`);
+    if (localAuditCount !== (cloudAuditCount || 0)) auditFailed = true;
 
     // 8. OTHER TABLES (CUSTOMERS, SUPPLIERS, USERS, CATEGORIES, PURCHASES)
     console.log('\n--- 8. OTHER ENTITIES ---');
@@ -323,11 +358,13 @@ async function runComparison() {
     console.log(`Total events in cloud_sync_events: ${eventCount || 0}`);
 
     console.log('\n================================================================');
-    console.log('AUDIT COMPLETED');
+    console.log(auditFailed ? 'AUDIT FAILED: discrepancies or undrained outbox require attention.' : 'AUDIT PASSED: local and cloud mirrors agree; outbox is drained.');
     console.log('================================================================');
+    if (auditFailed) process.exitCode = 1;
 
   } catch (err) {
     console.error('Error during comparison:', err);
+    process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
   }

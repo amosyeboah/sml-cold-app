@@ -150,7 +150,9 @@ export default function LoginPage() {
     setError(null)
     try {
       const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
-      const res = await apiClient.login(data.username, data.password)
+      const cleanU = (data.username || '').trim()
+      const cleanP = (data.password || '').trim()
+      const res = await apiClient.login(cleanU, cleanP)
       if (res?.success === false) {
         throw new Error(res.error || 'Invalid username or password')
       }
@@ -298,10 +300,32 @@ export default function LoginPage() {
                     {errors.password && <p className="text-xs text-red-500">{errors.password.message}</p>}
                   </div>
 
-                  <div className="flex justify-end">
-                    <a href="#" className="text-[13px] font-semibold text-blue-600 hover:text-blue-700">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span>Default:</span>
+                      <button
+                        type="button"
+                        onClick={() => fillRole('admin', 'admin1234')}
+                        className="font-medium text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                      >
+                        Admin
+                      </button>
+                      <span>•</span>
+                      <button
+                        type="button"
+                        onClick={() => fillRole('cashier', 'cashier123')}
+                        className="font-medium text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                      >
+                        Cashier
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => alert('Default Logins:\n\n• Admin: admin / admin1234 (PIN: 1111)\n• Cashier: cashier / cashier123 (PIN: 1234)\n• Manager: manager / manager123 (PIN: 2222)')}
+                      className="text-[13px] font-semibold text-blue-600 hover:text-blue-700"
+                    >
                       Forgot password?
-                    </a>
+                    </button>
                   </div>
 
                   {error && (
@@ -342,7 +366,7 @@ export default function LoginPage() {
                   className="h-11 w-full border-gray-200 bg-white text-[14px] font-semibold text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 rounded-lg shadow-sm"
                 >
                   <Grid3x3 className="h-4 w-4 text-gray-500" />
-                  Login with PIN
+                  Login with PIN (Default: 1111)
                 </Button>
               </>
             ) : (

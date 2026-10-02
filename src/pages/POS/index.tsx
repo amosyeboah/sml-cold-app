@@ -1713,7 +1713,7 @@ export default function POS() {
 
           <div className="mt-auto border-t border-slate-100 p-3">
             <Link
-              to="/medicines"
+              to="/products"
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 active:scale-95"
             >
               <Plus className="h-3.5 w-3.5" />

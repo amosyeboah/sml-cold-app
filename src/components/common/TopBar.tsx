@@ -20,6 +20,7 @@ const greetingText = () => {
 const routeSubtitles: Record<string, string> = {
   '/dashboard': "Here's what's happening in your cold store today.",
   '/pos': 'Process sales and manage checkout transactions.',
+  '/products': 'Manage your frozen products catalog.',
   '/medicines': 'Manage your frozen products catalog.',
   '/inventory': 'Track cold room stock, cartons, and inventory levels.',
   '/purchases': 'Manage supplier purchase orders and stock receipts.',
@@ -147,7 +148,7 @@ export default function TopBar() {
         ) : (
           <div>
             <h1 className="text-xl font-bold text-slate-800 capitalize">
-              {pathname === '/medicines' ? 'Products' : pathname.replace('/', '')}
+              {pathname === '/products' || pathname === '/medicines' ? 'Products' : pathname.replace('/', '')}
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
               {routeSubtitles[pathname] ?? ''}
@@ -304,7 +305,7 @@ export default function TopBar() {
                     const role = user?.role || 'CASHIER'
                     if (role === 'ADMIN') return true
                     if (role === 'MANAGER') return !['/backup', '/users', '/settings'].includes(path)
-                    return ['/dashboard', '/pos', '/medicines', '/customers'].includes(path)
+                    return ['/dashboard', '/pos', '/products', '/customers'].includes(path)
                   })
                   .map(([path, desc]) => (
                   <Command.Item 
@@ -316,7 +317,7 @@ export default function TopBar() {
                       <Search className="w-4 h-4 text-slate-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold capitalize">{path === '/medicines' ? 'Products' : path.replace('/', '')}</p>
+                      <p className="text-sm font-semibold capitalize">{path === '/products' || path === '/medicines' ? 'Products' : path.replace('/', '')}</p>
                       <p className="text-xs text-slate-400 truncate opacity-80">{desc}</p>
                     </div>
                   </Command.Item>
@@ -328,7 +329,7 @@ export default function TopBar() {
                   {medicines.map((m: any) => (
                     <Command.Item 
                       key={'med'+m.id} 
-                      onSelect={() => { navigate('/medicines'); setSearchOpen(false) }}
+                      onSelect={() => { navigate('/products'); setSearchOpen(false) }}
                       className="flex items-center gap-3 p-2 rounded-lg cursor-pointer aria-selected:bg-sky-50 aria-selected:text-sky-700 text-slate-700 data-[selected=true]:bg-sky-50 data-[selected=true]:text-sky-700"
                     >
                       <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">

@@ -27,7 +27,7 @@ const navItems: { to: string; label: string; icon: any; allowedRoles: string[] }
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
   { to: '/pos', label: 'POS', icon: CreditCard, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
   { to: '/sales-history', label: 'Sales History', icon: FileText, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
-  { to: '/medicines', label: 'Products', icon: Package, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
+  { to: '/products', label: 'Products', icon: Package, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
   { to: '/inventory', label: 'Inventory', icon: Layers, allowedRoles: ['ADMIN', 'MANAGER'] },
   { to: '/categories', label: 'Categories', icon: Tags, allowedRoles: ['ADMIN', 'MANAGER'] },
   { to: '/purchases', label: 'Purchases', icon: ShoppingBag, allowedRoles: ['ADMIN', 'MANAGER'] },

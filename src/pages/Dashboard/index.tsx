@@ -112,7 +112,7 @@ function KPICard({
 // ─── Static data ──────────────────────────────────────────────────────────
 const quickActions = [
   { label: 'New Sale', icon: ShoppingCart, color: '#6366f1', bg: 'rgba(99,102,241,0.1)', to: '/pos' },
-  { label: 'Add Product', icon: Package, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', to: '/medicines' },
+  { label: 'Add Product', icon: Package, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', to: '/products' },
   { label: 'New Purchase', icon: Package, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', to: '/purchases' },
   { label: 'Stock Adjustment', icon: RefreshCw, color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', to: '/inventory' },
   { label: 'Daily Report', icon: FileText, color: '#ef4444', bg: 'rgba(239,68,68,0.1)', to: '/reports' },

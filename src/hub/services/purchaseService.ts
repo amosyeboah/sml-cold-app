@@ -178,6 +178,19 @@ export async function deletePurchase(id: string) {
     // Delete purchase items first
     await tx.purchaseItem.deleteMany({ where: { purchaseId: id } })
     const deleted = await tx.purchase.delete({ where: { id } })
+    await tx.auditLog.create({
+      data: {
+        id: randomUUID(),
+        action: 'PURCHASE_DELETE',
+        category: 'PURCHASES',
+        details: `Purchase order #${id.slice(0, 8)} for GH₵${existing.total?.toFixed(2) ?? '0.00'} was deleted`,
+        username: 'ADMIN',
+        userRole: 'ADMIN',
+        severity: 'WARNING',
+        deviceId: existing.deviceId || null,
+        metadata: JSON.stringify({ purchaseId: id, total: existing.total }),
+      },
+    })
     await enqueueOutboxItem(tx, 'PURCHASE', 'DELETE', id, { id }, existing.deviceId || undefined)
 
     return deleted

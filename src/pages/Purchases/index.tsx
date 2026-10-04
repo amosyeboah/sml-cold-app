@@ -467,51 +467,48 @@ export default function Purchases() {
       />
       <PurchaseDetailModal purchase={viewingPurchase} onClose={() => setViewingPurchase(null)} />
 
-      <div className="space-y-6 p-6">
+      <div className="space-y-4 p-3.5 sm:p-5">
         {/* Banner */}
         <div
-          className="relative overflow-hidden rounded-2xl border border-blue-200 p-6 text-white shadow-lg shadow-blue-500/10"
+          className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs"
           style={{ backgroundColor: '#2563eb' }}
         >
           <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
           <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
           <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
+          <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-sky-100">
                   Procurement
                 </span>
-                <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
+                <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2 py-0.5 text-[9px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
                   Stock Received
                 </span>
               </div>
-              <h1 className="text-2xl font-bold">Purchase Orders</h1>
-              <p className="max-w-xl text-sm text-blue-50/90">
-                Record supplier purchases, track unit costs, and automatically increment inventory stock upon receipt.
-              </p>
+              <h1 className="text-lg sm:text-xl font-bold leading-tight">Purchase Orders</h1>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2.5 backdrop-blur-sm">
-                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-sky-100">
+            <div className="grid grid-cols-3 gap-2 flex-shrink-0">
+              <div className="rounded-xl border border-white/10 bg-white/10 px-2.5 py-1.5 backdrop-blur-sm">
+                <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-sky-100">
                   <ClipboardList className="h-3 w-3" /> Orders
                 </div>
-                <p className="mt-1 text-xl font-bold">{purchases.length}</p>
-                <p className="text-[10px] text-sky-200">{thisMonth} this month</p>
+                <p className="mt-0.5 text-base sm:text-lg font-bold">{purchases.length}</p>
+                <p className="text-[9px] text-sky-200">{thisMonth} this month</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-amber-400/15 px-3 py-2.5 backdrop-blur-sm">
-                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-amber-100">
+              <div className="rounded-xl border border-white/10 bg-amber-400/15 px-2.5 py-1.5 backdrop-blur-sm">
+                <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-amber-100">
                   <TrendingUp className="h-3 w-3" /> Spend
                 </div>
-                <p className="mt-1 text-xl font-bold">₵{totalSpend.toLocaleString('en-GH', { minimumFractionDigits: 2 })}</p>
-                <p className="text-[10px] text-amber-200">Cumulative</p>
+                <p className="mt-0.5 text-base sm:text-lg font-bold">₵{totalSpend.toLocaleString('en-GH', { minimumFractionDigits: 2 })}</p>
+                <p className="text-[9px] text-amber-200">Cumulative</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-3 py-2.5 backdrop-blur-sm">
-                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-emerald-100">
+              <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 py-1.5 backdrop-blur-sm">
+                <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-emerald-100">
                   <Users className="h-3 w-3" /> Suppliers
                 </div>
-                <p className="mt-1 text-xl font-bold">{activeSuppliers}</p>
-                <p className="text-[10px] text-emerald-200">Active</p>
+                <p className="mt-0.5 text-base sm:text-lg font-bold">{activeSuppliers}</p>
+                <p className="text-[9px] text-emerald-200">Active</p>
               </div>
             </div>
           </div>

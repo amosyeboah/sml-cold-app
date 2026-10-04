@@ -31,12 +31,14 @@ import {
   BluetoothOff,
   Smartphone,
   Archive,
+  RefreshCw,
+  Check,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { bluetoothPrinter, BluetoothPrinterStatus, PaperWidth } from '@/services/hardware/bluetoothPrinter'
+import { bluetoothPrinter, BluetoothPrinterStatus, PaperWidth, NativeBluetoothDevice } from '@/services/hardware/bluetoothPrinter'
 import { api } from '@/services/api'
 
 // ── Default settings values ──────────────────────────────────────────────────
@@ -154,6 +156,31 @@ export default function Settings() {
   const [btStatus, setBtStatus] = useState<BluetoothPrinterStatus>(bluetoothPrinter.getStatus())
   const [isConnectingBt, setIsConnectingBt] = useState(false)
   const [btFeedback, setBtFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [pairedDevices, setPairedDevices] = useState<NativeBluetoothDevice[]>([])
+  const [selectedDeviceAddress, setSelectedDeviceAddress] = useState<string>(
+    typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') || '' : ''
+  )
+  const [isLoadingPaired, setIsLoadingPaired] = useState(false)
+
+  const loadPairedDevices = async () => {
+    if (!bluetoothPrinter.isNative()) return
+    setIsLoadingPaired(true)
+    try {
+      const res = await bluetoothPrinter.listPairedDevices()
+      if (res.success && res.devices) {
+        setPairedDevices(res.devices)
+        if (res.devices.length > 0 && !selectedDeviceAddress) {
+          setSelectedDeviceAddress(res.devices[0].address)
+        }
+      } else if (res.error) {
+        setBtFeedback({ type: 'error', message: res.error })
+      }
+    } catch (e: any) {
+      // ignore
+    } finally {
+      setIsLoadingPaired(false)
+    }
+  }
 
   useEffect(() => {
     return bluetoothPrinter.subscribe((status) => {
@@ -165,11 +192,18 @@ export default function Settings() {
     })
   }, [])
 
-  const handleConnectBt = async () => {
+  useEffect(() => {
+    if (activeTab === 'hardware' && bluetoothPrinter.isNative()) {
+      loadPairedDevices()
+    }
+  }, [activeTab])
+
+  const handleConnectBt = async (address?: string) => {
     setIsConnectingBt(true)
     setBtFeedback(null)
     try {
-      const res = await bluetoothPrinter.connect()
+      const target = address || selectedDeviceAddress || undefined
+      const res = await bluetoothPrinter.connect(target)
       if (res.success) {
         setBtFeedback({ type: 'success', message: `Successfully connected to ${res.deviceName || 'Bluetooth Printer'}!` })
         set('hw.printerName', res.deviceName || 'Bluetooth Printer')
@@ -273,9 +307,6 @@ export default function Settings() {
                 System
               </p>
               <h1 className="text-2xl font-bold text-gray-900 leading-tight">Settings</h1>
-              <p className="mt-1 text-sm text-gray-500 max-w-lg">
-                Configure your cold store profile, owner details, receipt layout, and hardware peripherals.
-              </p>
             </div>
           </div>
 
@@ -820,18 +851,24 @@ export default function Settings() {
                   <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5 flex items-start gap-3">
                     <Smartphone className="h-5 w-5 flex-shrink-0 text-blue-600 mt-0.5" />
                     <div className="text-xs text-blue-900 space-y-1">
-                      <p className="font-semibold">Android Tablet & Phone Wireless Printing</p>
+                      <p className="font-semibold">
+                        {btStatus.isNative
+                          ? 'Android Native Bluetooth ESC/POS Printing'
+                          : 'Bluetooth Thermal Receipt Printing'}
+                      </p>
                       <p className="text-blue-700 leading-relaxed">
-                        Connect portable 58mm or 80mm ESC/POS Bluetooth receipt printers (e.g. GOOJPRT, Xprinter, MPT-II, Cat, or POS-58). Make sure your Android device's Bluetooth is switched ON before scanning.
+                        {btStatus.isNative
+                          ? 'Works offline with portable 58mm and 80mm ESC/POS Bluetooth receipt printers (GOOJPRT, Xprinter, MPT-II, POS-58). Pair your printer in Android Settings first, then select it below.'
+                          : 'Connect portable 58mm or 80mm ESC/POS Bluetooth receipt printers. Make sure your device Bluetooth is switched ON before scanning.'}
                       </p>
                     </div>
                   </div>
 
-                  {!btStatus.isSupported && (
+                  {!btStatus.isSupported && !btStatus.isNative && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
                       <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
                       <p className="text-xs text-amber-800">
-                        <strong>Browser Notice:</strong> Web Bluetooth is supported on Google Chrome and Chromium browsers on Android. Open this app inside Google Chrome on your Android device to connect directly to Bluetooth thermal printers.
+                        <strong>Browser Notice:</strong> Web Bluetooth is not supported in this browser environment. For direct Bluetooth thermal printing on Android, please use the installed <strong>SML Cold Store Tablet App</strong>, or open Google Chrome.
                       </p>
                     </div>
                   )}
@@ -851,6 +888,59 @@ export default function Settings() {
                       >
                         Dismiss
                       </button>
+                    </div>
+                  )}
+
+                  {/* Native Paired Devices Selector (Android) */}
+                  {btStatus.isNative && (
+                    <div className="space-y-3 rounded-xl border border-blue-200/80 bg-white p-4 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                          <Bluetooth className="h-3.5 w-3.5 text-blue-600" />
+                          Paired Android Bluetooth Printers
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={isLoadingPaired}
+                          onClick={loadPairedDevices}
+                          className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        >
+                          <RefreshCw className={`h-3 w-3 mr-1 ${isLoadingPaired ? 'animate-spin' : ''}`} />
+                          Refresh Paired List
+                        </Button>
+                      </div>
+
+                      {pairedDevices.length > 0 ? (
+                        <div className="space-y-2">
+                          <select
+                            id="bt-paired-printer-select"
+                            value={selectedDeviceAddress}
+                            onChange={(e) => setSelectedDeviceAddress(e.target.value)}
+                            className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">-- Choose a Paired Printer --</option>
+                            {pairedDevices.map((d) => (
+                              <option key={d.address} value={d.address}>
+                                {d.name} ({d.address})
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-slate-500">
+                            Select your paired printer above. If your printer isn't in this list, pair it in Android Bluetooth Settings first, then tap Refresh.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-amber-50/70 border border-amber-200/80 p-3 text-xs text-amber-800 space-y-1.5">
+                          <p className="font-semibold">No paired Bluetooth printers detected.</p>
+                          <div className="text-[11px] text-amber-700 space-y-1">
+                            <p>1. Turn on your thermal receipt printer.</p>
+                            <p>2. Open Android <strong>Settings → Bluetooth (or Connected Devices)</strong> and pair your printer (PIN: <code>0000</code> or <code>1234</code>).</p>
+                            <p>3. Tap <strong>Refresh Paired List</strong> above and tap Connect.</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -882,16 +972,22 @@ export default function Settings() {
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <Button
                       type="button"
-                      disabled={isConnectingBt || !btStatus.isSupported}
-                      onClick={handleConnectBt}
+                      disabled={
+                        isConnectingBt ||
+                        (!btStatus.isNative && !btStatus.isSupported) ||
+                        (btStatus.isNative && pairedDevices.length > 0 && !selectedDeviceAddress)
+                      }
+                      onClick={() => handleConnectBt()}
                       className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
                     >
                       <Bluetooth className={`h-4 w-4 ${isConnectingBt ? 'animate-spin' : ''}`} />
                       {isConnectingBt
-                        ? 'Searching & Connecting...'
+                        ? 'Connecting...'
                         : btStatus.isConnected
-                          ? 'Reconnect / Change Device'
-                          : 'Scan & Connect Bluetooth Printer'}
+                          ? 'Reconnect / Switch Printer'
+                          : btStatus.isNative
+                            ? 'Connect to Selected Printer'
+                            : 'Scan & Connect Bluetooth Printer'}
                     </Button>
 
                     {btStatus.isConnected && (

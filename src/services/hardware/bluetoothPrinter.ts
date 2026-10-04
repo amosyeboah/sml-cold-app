@@ -1,7 +1,28 @@
 /**
- * Web Bluetooth ESC/POS Thermal Receipt Printer Service
- * Supports 58mm and 80mm portable Bluetooth receipt printers on Android and modern browsers.
+ * Hybrid ESC/POS Thermal Receipt Printer Service
+ * - Native Android: Direct Bluetooth Classic SPP & BLE via Native Capacitor Plugin
+ * - Web Browsers: Web Bluetooth API (Chrome / Edge with GATT)
+ * Supports 58mm and 80mm portable Bluetooth receipt printers.
  */
+
+import { Capacitor, registerPlugin } from '@capacitor/core'
+
+export interface NativeBluetoothDevice {
+  name: string
+  address: string
+}
+
+interface NativeBluetoothPlugin {
+  isAvailable(): Promise<{ available: boolean; enabled: boolean }>
+  listPairedDevices(): Promise<{ devices: NativeBluetoothDevice[] }>
+  connect(options: { address: string }): Promise<{ success: boolean; name: string; address: string }>
+  disconnect(): Promise<{ success: boolean }>
+  getStatus(): Promise<{ isConnected: boolean; deviceName?: string | null; deviceId?: string | null }>
+  printRaw(options: { data: string }): Promise<{ success: boolean }>
+  openCashDrawer(): Promise<{ success: boolean }>
+}
+
+const NativePrinter = registerPlugin<NativeBluetoothPlugin>('NativeBluetoothPrinter')
 
 const KNOWN_PRINTER_SERVICES = [
   '000018f0-0000-1000-8000-00805f9b34fb', // Standard Chinese / ESC-POS printer service (Xprinter, GOOJPRT, POS-58, etc.)
@@ -44,6 +65,7 @@ export type PaperWidth = '58mm' | '80mm'
 
 export interface BluetoothPrinterStatus {
   isSupported: boolean
+  isNative: boolean
   isConnected: boolean
   deviceName: string | null
   deviceId: string | null
@@ -51,9 +73,16 @@ export interface BluetoothPrinterStatus {
 }
 
 class BluetoothPrinterService {
+  // Web Bluetooth state
   private device: any = null
   private server: any = null
   private writeCharacteristic: any = null
+
+  // Native Android state
+  private nativeConnected: boolean = false
+  private nativeDeviceName: string | null = null
+  private nativeDeviceId: string | null = null
+
   private paperWidth: PaperWidth =
     typeof localStorage !== 'undefined'
       ? ((localStorage.getItem('bt_printer_paper_width') as PaperWidth) || '58mm')
@@ -66,20 +95,44 @@ class BluetoothPrinterService {
         this.disconnect().catch(() => {})
       })
     }
+
+    if (this.isNative()) {
+      this.checkNativeStatus().catch(() => {})
+    }
+  }
+
+  public isNative(): boolean {
+    return (
+      typeof Capacitor !== 'undefined' &&
+      typeof Capacitor.isNativePlatform === 'function' &&
+      Capacitor.isNativePlatform()
+    )
   }
 
   public isSupported(): boolean {
+    if (this.isNative()) {
+      return true
+    }
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator
   }
 
   public getStatus(): BluetoothPrinterStatus {
+    const isConn = this.isNative()
+      ? this.nativeConnected
+      : Boolean(this.server?.connected && this.writeCharacteristic)
+
     return {
       isSupported: this.isSupported(),
-      isConnected: Boolean(this.server?.connected && this.writeCharacteristic),
+      isNative: this.isNative(),
+      isConnected: isConn,
       deviceName:
-        this.device?.name || (typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_name') : null) || null,
+        (this.isNative() ? this.nativeDeviceName : this.device?.name) ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_name') : null) ||
+        null,
       deviceId:
-        this.device?.id || (typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') : null) || null,
+        (this.isNative() ? this.nativeDeviceId : this.device?.id) ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') : null) ||
+        null,
       paperWidth: this.paperWidth,
     }
   }
@@ -105,15 +158,111 @@ class BluetoothPrinterService {
     this.notify()
   }
 
+  public async checkNativeStatus(): Promise<void> {
+    if (!this.isNative()) return
+    try {
+      const status = await NativePrinter.getStatus()
+      if (status.isConnected) {
+        this.nativeConnected = true
+        this.nativeDeviceName = status.deviceName || null
+        this.nativeDeviceId = status.deviceId || null
+        this.notify()
+      } else {
+        const savedId = typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') : null
+        if (savedId) {
+          try {
+            const res = await NativePrinter.connect({ address: savedId })
+            if (res.success) {
+              this.nativeConnected = true
+              this.nativeDeviceName = res.name || 'Bluetooth Printer'
+              this.nativeDeviceId = savedId
+              this.notify()
+            }
+          } catch {
+            // ignore background auto-reconnect failure
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   /**
-   * Request Bluetooth device selection and connect to GATT printer service
+   * List paired Bluetooth devices (Available on Android Native)
    */
-  public async connect(): Promise<{ success: boolean; deviceName?: string; error?: string | null; cancelled?: boolean }> {
+  public async listPairedDevices(): Promise<{ success: boolean; devices: NativeBluetoothDevice[]; error?: string }> {
+    if (!this.isNative()) {
+      return { success: false, devices: [], error: 'Listing paired devices is only available on Android native app.' }
+    }
+    try {
+      const res = await NativePrinter.listPairedDevices()
+      return { success: true, devices: res?.devices || [] }
+    } catch (err: any) {
+      return { success: false, devices: [], error: err?.message || 'Failed to list paired Bluetooth devices.' }
+    }
+  }
+
+  /**
+   * Request Bluetooth device selection and connect:
+   * - On Native Android: Connects via direct SPP RFCOMM to paired Bluetooth printer
+   * - On Web Browsers: Connects via Web Bluetooth GATT
+   */
+  public async connect(
+    addressOrOptions?: string | { address?: string }
+  ): Promise<{ success: boolean; deviceName?: string; error?: string | null; cancelled?: boolean }> {
+    const address = typeof addressOrOptions === 'string' ? addressOrOptions : addressOrOptions?.address
+
+    // --- 1. Native Android Path ---
+    if (this.isNative()) {
+      try {
+        let targetAddress = address
+        if (!targetAddress) {
+          const savedAddress = typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') : null
+          if (savedAddress) {
+            targetAddress = savedAddress
+          } else {
+            const paired = await this.listPairedDevices()
+            if (!paired.success) {
+              return { success: false, error: paired.error }
+            }
+            if (paired.devices.length === 0) {
+              return {
+                success: false,
+                error:
+                  'No paired Bluetooth printers found. Please pair your Bluetooth printer in Android Device Settings first (PIN: 0000 or 1234), then try again.',
+              }
+            }
+            targetAddress = paired.devices[0].address
+          }
+        }
+
+        const res = await NativePrinter.connect({ address: targetAddress })
+        if (res.success) {
+          this.nativeConnected = true
+          this.nativeDeviceId = targetAddress
+          this.nativeDeviceName = res.name || 'Bluetooth Printer'
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('bt_printer_name', this.nativeDeviceName)
+            localStorage.setItem('bt_printer_id', targetAddress)
+          }
+          this.notify()
+          return { success: true, deviceName: this.nativeDeviceName }
+        }
+        return { success: false, error: 'Connection failed' }
+      } catch (err: any) {
+        this.nativeConnected = false
+        this.notify()
+        return { success: false, error: err?.message || 'Could not connect to printer.' }
+      }
+    }
+
+    // --- 2. Web Bluetooth Path (Desktop Chrome / Browsers) ---
     if (!this.isSupported()) {
       return {
         success: false,
         error:
-          'Web Bluetooth is not supported in this browser or environment. On Android, please use Chrome or an Android browser with Bluetooth enabled.',
+          'Web Bluetooth is not supported in this browser or environment. On Android, please use the SML Tablet App or open Google Chrome with Bluetooth enabled.',
       }
     }
 
@@ -194,22 +343,21 @@ class BluetoothPrinterService {
       this.notify()
       return { success: true, deviceName: device.name || 'Bluetooth Printer' }
     } catch (err: any) {
-      // Distinguish between user cancellation and actual errors
       const errorMessage = err?.message || ''
-      const isUserCancelled = 
-        err?.name === 'NotAllowedError' || 
+      const isUserCancelled =
+        err?.name === 'NotAllowedError' ||
         errorMessage.includes('cancelled') ||
         errorMessage.includes('Cancelled') ||
         errorMessage.includes('User cancelled')
-      
+
       if (!isUserCancelled) {
         console.error('Failed to connect Bluetooth printer:', err)
       }
-      
+
       this.disconnect().catch(() => {})
       return {
         success: false,
-        error: isUserCancelled ? null : (err?.message || 'Bluetooth connection failed.'),
+        error: isUserCancelled ? null : err?.message || 'Bluetooth connection failed.',
         cancelled: isUserCancelled,
       }
     }
@@ -219,6 +367,17 @@ class BluetoothPrinterService {
    * Disconnect from currently connected Bluetooth printer
    */
   public async disconnect(): Promise<void> {
+    if (this.isNative()) {
+      try {
+        await NativePrinter.disconnect()
+      } catch {}
+      this.nativeConnected = false
+      this.nativeDeviceId = null
+      this.nativeDeviceName = null
+      this.notify()
+      return
+    }
+
     try {
       if (this.device?.gatt?.connected) {
         this.device.gatt.disconnect()
@@ -233,20 +392,53 @@ class BluetoothPrinterService {
   }
 
   /**
-   * Send raw binary data chunks to Bluetooth printer with write mode fallbacks
+   * Send raw binary data chunks to Bluetooth printer
    */
   public async sendRawBytes(bytes: Uint8Array): Promise<{ success: boolean; error?: string }> {
+    if (this.isNative()) {
+      if (!this.nativeConnected) {
+        // Attempt quick auto-reconnect if deviceId is stored
+        const savedId = this.nativeDeviceId || (typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') : null)
+        if (savedId) {
+          const reconn = await this.connect(savedId)
+          if (!reconn.success) {
+            return { success: false, error: 'Bluetooth printer is not connected. Reconnect from Settings.' }
+          }
+        } else {
+          return { success: false, error: 'Bluetooth printer is not connected' }
+        }
+      }
+
+      try {
+        let binary = ''
+        const len = bytes.byteLength
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i])
+        }
+        const base64Data = btoa(binary)
+        const res = await NativePrinter.printRaw({ data: base64Data })
+        return { success: res.success }
+      } catch (err: any) {
+        this.nativeConnected = false
+        this.notify()
+        return { success: false, error: err?.message || 'Failed to send data to printer' }
+      }
+    }
+
     if (!this.writeCharacteristic) {
       return { success: false, error: 'Bluetooth printer is not connected' }
     }
 
-    const CHUNK_SIZE = 64 // Optimal BLE MTU write size across 58mm/80mm thermal printers
+    const CHUNK_SIZE = 64
     try {
       for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
         const chunk = bytes.slice(offset, offset + CHUNK_SIZE)
-        
+
         let written = false
-        if (this.writeCharacteristic.properties?.writeWithoutResponse && typeof this.writeCharacteristic.writeValueWithoutResponse === 'function') {
+        if (
+          this.writeCharacteristic.properties?.writeWithoutResponse &&
+          typeof this.writeCharacteristic.writeValueWithoutResponse === 'function'
+        ) {
           try {
             await this.writeCharacteristic.writeValueWithoutResponse(chunk)
             written = true
@@ -254,7 +446,7 @@ class BluetoothPrinterService {
             written = false
           }
         }
-        
+
         if (!written) {
           if (typeof this.writeCharacteristic.writeValue === 'function') {
             await this.writeCharacteristic.writeValue(chunk)
@@ -273,19 +465,26 @@ class BluetoothPrinterService {
   }
 
   /**
-   * Kick open cash drawer via connected Bluetooth printer (ESC/POS pulse codes for pin 2, pin 5, real-time & BEL)
+   * Kick open cash drawer via connected Bluetooth printer
    */
   public async openCashDrawer(): Promise<{ success: boolean; error?: string }> {
+    if (this.isNative()) {
+      if (!this.nativeConnected) {
+        return { success: false, error: 'Bluetooth printer is not connected' }
+      }
+      try {
+        const res = await NativePrinter.openCashDrawer()
+        return { success: res.success }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to trigger cash drawer' }
+      }
+    }
+
     if (!this.getStatus().isConnected) {
       return { success: false, error: 'Bluetooth printer is not connected' }
     }
 
     try {
-      // Comprehensive ESC/POS cash drawer kick bytecode:
-      // 1. ESC p 0 25 250 (Pin 2 kick)
-      // 2. ESC p 1 25 250 (Pin 5 kick)
-      // 3. DLE DC4 1 0 5 (Real-time pulse kick)
-      // 4. 0x07 (BEL trigger)
       const kickCommand = new Uint8Array([
         0x1b, 0x70, 0x00, 0x19, 0xfa,
         0x1b, 0x70, 0x01, 0x19, 0xfa,
@@ -322,12 +521,14 @@ class BluetoothPrinterService {
       return { success: false, error: 'Bluetooth printer is not connected. Please connect first.' }
     }
 
+    const currentName = this.getStatus().deviceName || 'BT Printer'
     const testHtml = `
       <div style="font-family:monospace;width:100%;">
         <h2 style="text-align:center;">SML COLD STORE</h2>
         <p style="text-align:center;">*** BLUETOOTH TEST PRINT ***</p>
         <hr/>
-        <p>Device: ${this.device?.name || 'BT Printer'}</p>
+        <p>Device: ${currentName}</p>
+        <p>Mode: ${this.isNative() ? 'Android Native SPP' : 'Web Bluetooth BLE'}</p>
         <p>Paper Width: ${this.paperWidth}</p>
         <p>Date: ${new Date().toLocaleString()}</p>
         <hr/>
@@ -336,8 +537,8 @@ class BluetoothPrinterService {
             <tr><th>Item</th><th>Qty</th><th>Total</th></tr>
           </thead>
           <tbody>
-            <tr><td>Test Tilapia 1kg</td><td>1</td><td>GHc 45.00</td></tr>
-            <tr><td>Test Chicken Wings</td><td>2</td><td>GHc 90.00</td></tr>
+            <tr><td>Tilapia 1kg Large</td><td>1</td><td>GHc 45.00</td></tr>
+            <tr><td>Chicken Wings 2kg</td><td>2</td><td>GHc 90.00</td></tr>
           </tbody>
         </table>
         <hr/>

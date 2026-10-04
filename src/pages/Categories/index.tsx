@@ -54,9 +54,9 @@ export default function Categories() {
   // Count of medicines per category
   const medicineCountMap = useMemo(() => {
     const map: Record<string, number> = {}
-    ;(medicines as any[]).forEach((m) => {
-      map[m.categoryId] = (map[m.categoryId] ?? 0) + 1
-    })
+      ; (medicines as any[]).forEach((m) => {
+        map[m.categoryId] = (map[m.categoryId] ?? 0) + 1
+      })
     return map
   }, [medicines])
 
@@ -141,42 +141,39 @@ export default function Categories() {
   const paginatedCategories = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   return (
-    <div className="h-full overflow-y-auto p-6 space-y-6 font-sans">
-      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-6 text-white shadow-lg shadow-blue-500/10" style={{ backgroundColor: '#2563eb' }}>
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl" />
-        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl" />
-        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5" />
+    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
+      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs" style={{ backgroundColor: '#2563eb' }}>
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
 
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-sky-100">
                 Catalogue
               </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
+              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2 py-0.5 text-[9px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
                 Organized flow
               </span>
             </div>
-            <h1 className="text-2xl font-bold leading-tight text-white">Categories</h1>
-            <p className="max-w-xl text-sm text-blue-50/90">
-              Organise your cold store catalogue into clear, searchable categories for faster workflows across POS, inventory, and purchasing.
-            </p>
+            <h1 className="text-lg sm:text-xl font-bold leading-tight text-white">Categories</h1>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-4 py-2.5 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-emerald-100">Total Categories</p>
-              <p className="mt-0.5 text-xl font-bold text-white">{categories.length}</p>
+          <div className="grid grid-cols-2 gap-2 flex-shrink-0">
+            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-3 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-emerald-100 font-medium">Categories</p>
+              <p className="text-base sm:text-lg font-bold text-white mt-0.5">{categories.length}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-4 py-2.5 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-amber-100">Total Products</p>
-              <p className="mt-0.5 text-xl font-bold text-white">{(medicines as any[]).length}</p>
+            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-3 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-amber-100 font-medium">Products</p>
+              <p className="text-base sm:text-lg font-bold text-white mt-0.5">{(medicines as any[]).length}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-3.5">
         {/* Toolbar */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative max-w-sm flex-1">

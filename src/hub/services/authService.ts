@@ -4,13 +4,17 @@ import * as bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 
 export async function login(username: string, password: string, deviceId?: string) {
-  const user = await prisma.user.findUnique({ where: { username } })
+  const cleanUsername = (username || '').trim().toLowerCase()
+  const cleanPassword = (password || '').trim()
+
+  const allUsers = await prisma.user.findMany()
+  const user = allUsers.find((u) => u.username.toLowerCase() === cleanUsername)
   let valid = false
-  if (user) {
+  if (user && cleanPassword) {
     if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
-      valid = await bcrypt.compare(password, user.password)
+      valid = await bcrypt.compare(cleanPassword, user.password)
     } else {
-      valid = password === user.password
+      valid = cleanPassword === user.password
     }
   }
 
@@ -47,17 +51,22 @@ export async function login(username: string, password: string, deviceId?: strin
 }
 
 export async function loginWithPin(pin: string, selectedRole?: string, deviceId?: string) {
+  const cleanPin = (pin || '').trim()
   const allUsers = await prisma.user.findMany()
-  let user = allUsers.find((u) => u.pin === pin)
+  let user = allUsers.find((u) => u.pin === cleanPin && (!selectedRole || u.role === selectedRole))
+
+  if (!user && !selectedRole) {
+    user = allUsers.find((u) => u.pin === cleanPin)
+  }
 
   // Fallback to configured default PINs if user didn't set a custom PIN yet
   if (!user) {
     let targetUsername = ''
-    if ((selectedRole === 'ADMIN' && pin === '1111') || pin === '1111' || pin === '9999') {
+    if (cleanPin === '1111' && (!selectedRole || selectedRole === 'ADMIN')) {
       targetUsername = 'admin'
-    } else if ((selectedRole === 'MANAGER' && pin === '2222') || pin === '2222' || pin === '5555') {
+    } else if (cleanPin === '2222' && (!selectedRole || selectedRole === 'MANAGER')) {
       targetUsername = 'manager'
-    } else if ((selectedRole === 'CASHIER' && pin === '1234') || pin === '1234' || pin === '0000') {
+    } else if (cleanPin === '1234' && (!selectedRole || selectedRole === 'CASHIER')) {
       targetUsername = 'cashier'
     }
     if (targetUsername) {
@@ -73,7 +82,7 @@ export async function loginWithPin(pin: string, selectedRole?: string, deviceId?
       severity: 'WARNING',
       deviceId,
     })
-    throw new Error('Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+    throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
   }
 
   await recordAudit({

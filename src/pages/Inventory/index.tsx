@@ -16,6 +16,8 @@ import {
   Calendar,
   Loader2,
   Pencil,
+  LayoutGrid,
+  List,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,6 +45,15 @@ export default function Inventory() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'out' | 'healthy'>('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    return (localStorage.getItem('sml_inventory_view') as 'list' | 'grid') || 'list'
+  })
+
+  const handleSetViewMode = (mode: 'list' | 'grid') => {
+    setViewMode(mode)
+    localStorage.setItem('sml_inventory_view', mode)
+  }
+
   const [isOpen, setIsOpen] = useState(false)
   const [selectedMedicineForBatch, setSelectedMedicineForBatch] = useState<string>('')
   const [isManageLotsOpen, setIsManageLotsOpen] = useState(false)
@@ -277,43 +288,42 @@ export default function Inventory() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-3 sm:p-4 md:p-6 landscape:p-3.5 space-y-3.5 sm:space-y-4 md:space-y-6 font-sans">
+    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
 
       {/* ── Hero Banner ─────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-3.5 sm:p-5 md:p-6 landscape:py-3 landscape:px-4 text-white shadow-lg shadow-blue-500/10" style={{ backgroundColor: '#2563eb' }}>
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl" />
-        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl" />
-        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5" />
+      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs" style={{ backgroundColor: '#2563eb' }}>
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
 
-        <div className="relative flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between landscape:flex-row landscape:items-center landscape:justify-between">
-          <div className="space-y-1 sm:space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 sm:py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
-                Aggregated Inventory Control
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-sky-100">
+                Cold storage lots
               </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2.5 py-0.5 sm:py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
-                Real-time stock totals
+              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2 py-0.5 text-[9px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
+                Stock healthy
               </span>
             </div>
-            <h2 className="text-lg sm:text-2xl font-bold">Inventory Management</h2>
-            <p className="max-w-2xl text-xs sm:text-sm text-blue-50/90 hidden sm:block landscape:block landscape:text-xs">Monitor aggregated cold store stock levels per product, carton valuation, and reorder thresholds across active lots.</p>
+            <h2 className="text-lg sm:text-xl font-bold leading-tight">Inventory &amp; Stock</h2>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3 flex-shrink-0">
-            <div className="rounded-xl border border-white/10 bg-white/10 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
-              <p className="text-[9px] sm:text-[11px] uppercase tracking-[0.2em] text-sky-100">Total Products</p>
-              <p className="text-base sm:text-lg font-semibold">{totalSKUs}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-shrink-0">
+            <div className="rounded-xl border border-white/10 bg-white/10 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-sky-100 font-medium">Products</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{totalSKUs}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
-              <p className="text-[9px] sm:text-[11px] uppercase tracking-[0.2em] text-emerald-100">Cartons / Units</p>
-              <p className="text-base sm:text-lg font-semibold">{totalStockUnits}</p>
+            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-emerald-100 font-medium">Cartons / Units</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{totalStockUnits}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
-              <p className="text-[9px] sm:text-[11px] uppercase tracking-[0.2em] text-amber-100">Low Stock</p>
-              <p className="text-base sm:text-lg font-semibold">{lowStockCount}</p>
+            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-amber-100 font-medium">Low Stock</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{lowStockCount}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-rose-400/15 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
-              <p className="text-[9px] sm:text-[11px] uppercase tracking-[0.2em] text-rose-100">Out of Stock</p>
-              <p className="text-base sm:text-lg font-semibold">{outOfStockCount}</p>
+            <div className="rounded-xl border border-white/10 bg-rose-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-rose-100 font-medium">Out of Stock</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{outOfStockCount}</p>
             </div>
           </div>
         </div>
@@ -321,14 +331,19 @@ export default function Inventory() {
 
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-2.5">
-        <div>
-          <h3 className="text-base sm:text-lg font-bold text-slate-800">Product Stock Overview</h3>
-          <p className="text-xs sm:text-sm text-slate-500">Aggregated quantities and carton totals across active cold storage lots.</p>
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500" /> In stock
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-medium text-amber-700 ring-1 ring-amber-200">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-amber-500" /> Low stock
+          </span>
         </div>
+
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => openAddBatchModal()} className="gap-1.5 text-white font-medium shadow-sm h-8.5 sm:h-9 text-xs sm:text-sm" style={{ backgroundColor: '#2563eb' }}>
-              <PlusCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Receive Stock Lot
+            <Button onClick={() => openAddBatchModal()} className="gap-1.5 text-white font-medium shadow-xs h-7.5 sm:h-8 px-2.5 sm:px-3 text-xs rounded-lg" style={{ backgroundColor: '#2563eb' }}>
+              <PlusCircle className="w-3.5 h-3.5" /> Receive Stock Lot
             </Button>
           </DialogTrigger>
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto">
@@ -374,23 +389,55 @@ export default function Inventory() {
         </Dialog>
       </div>
 
-      {/* ── Stock Table Card ─────────────────────────────────────────── */}
+      {/* ── Stock Table / Grid Card ─────────────────────────────────── */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="flex flex-col gap-3 pb-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2">
               <Package className="w-5 h-5 text-blue-600" />
               <CardTitle className="text-base font-semibold text-slate-800">Live Inventory Registry</CardTitle>
+              <span className="text-xs text-slate-500 font-medium">({filteredInventory.length} items)</span>
             </div>
-            {/* Search */}
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Search by product, cut/origin, SKU..."
-                value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
-                className="border-slate-200 bg-slate-50 pl-9 text-xs"
-              />
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* View Mode Toggle: List vs Grid */}
+              <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => handleSetViewMode('list')}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${viewMode === 'list'
+                      ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                      : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  title="Table list view"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>List</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetViewMode('grid')}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${viewMode === 'grid'
+                      ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                      : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  title="Product cards grid view"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Grid</span>
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search by product, cut/origin, SKU..."
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
+                  className="border-slate-200 bg-slate-50 pl-9 h-8.5 text-xs"
+                />
+              </div>
             </div>
           </div>
 
@@ -405,7 +452,7 @@ export default function Inventory() {
                 <button
                   key={f}
                   onClick={() => { setStatusFilter(f); setCurrentPage(1) }}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 ${statusFilter === f ? activeClass : `border border-slate-200 bg-white ${inactiveClass}`}`}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all active:scale-95 ${statusFilter === f ? activeClass : `border border-slate-200 bg-white ${inactiveClass}`}`}
                 >
                   {label}
                 </button>
@@ -419,181 +466,190 @@ export default function Inventory() {
             <div className="flex h-48 items-center justify-center">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
             </div>
-          ) : (
-            <>
-              {/* ── Card layout: portrait tablets & small screens ── */}
-              <div className="lg:hidden grid grid-cols-1 sm:grid-cols-2 landscape:grid-cols-2 md:grid-cols-2 gap-3 max-h-[calc(100vh-290px)] landscape:max-h-[calc(100vh-210px)] overflow-y-auto pr-0.5">
-                {paginatedInventory.length === 0 && (
-                  <p className="col-span-full py-10 text-center text-sm text-slate-500">No products match the selected search or filter.</p>
-                )}
-                {paginatedInventory.map((item) => (
-                  <div key={item.medicine.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
-                    {/* Card header row */}
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center flex-shrink-0">
-                            <Package className="w-4 h-4 text-sky-600" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-sm truncate">{item.medicine.name}</p>
-                            <p className="text-xs text-slate-400 truncate">{item.medicine.genericName || 'Standard cut'}</p>
-                          </div>
+          ) : viewMode === 'grid' ? (
+            /* ── Card Grid View ── */
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-0.5">
+              {paginatedInventory.length === 0 && (
+                <p className="col-span-full py-10 text-center text-sm text-slate-500">No products match the selected search or filter.</p>
+              )}
+              {paginatedInventory.map((item) => (
+                <div
+                  key={item.medicine.id}
+                  onClick={() => openManageLotsModal(item.medicine)}
+                  className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between cursor-pointer group"
+                >
+                  {/* Card header row */}
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-sky-50 group-hover:bg-blue-100 flex items-center justify-center flex-shrink-0 transition-colors">
+                          <Package className="w-4 h-4 text-sky-600 group-hover:text-blue-700" />
                         </div>
-                        {statusBadge(item.status)}
-                      </div>
-
-                      {/* Card detail grid */}
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mb-3">
-                        <div>
-                          <span className="text-slate-400">SKU</span>
-                          <p className="font-mono font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 inline-block mt-0.5">{item.medicine.sku}</p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Selling Price</span>
-                          <p className="font-bold text-slate-800">₵{item.medicine.price.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Valid Stock</span>
-                          <p className="font-bold text-slate-800">{item.validStock} units</p>
-                          {item.expiredStock > 0 && (
-                            <p className="text-[10px] text-rose-500">({item.expiredStock} expired excluded)</p>
-                          )}
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Active Lots</span>
-                          <p className="inline-flex items-center gap-1 font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 mt-0.5">
-                            <Layers className="h-3 w-3" /> {item.batchCount} lot(s)
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Reorder Level</span>
-                          <p className="font-semibold text-slate-600">Min: {item.minStock} units</p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-600 transition-colors">{item.medicine.name}</p>
+                          <p className="text-xs text-slate-400 truncate">{item.medicine.genericName || 'Standard cut'}</p>
                         </div>
                       </div>
+                      {statusBadge(item.status)}
                     </div>
 
-                    {/* Action Button */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openManageLotsModal(item.medicine)}
-                      className="w-full h-8.5 text-xs gap-1.5 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/60 active:scale-95 mt-2 font-medium shadow-sm transition-all"
-                    >
-                      <Pencil className="h-3.5 w-3.5 text-blue-600" /> Adjust / Restock
-                    </Button>
+                    {/* Card detail grid */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-2.5 pt-2 border-t border-slate-100">
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase tracking-wider block">Price</span>
+                        <p className="font-bold text-slate-800 text-sm">₵{item.medicine.price.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase tracking-wider block">Valid Stock</span>
+                        <p className="font-bold text-slate-800 text-sm">{item.validStock} units</p>
+                        {item.expiredStock > 0 && (
+                          <p className="text-[10px] text-rose-500">({item.expiredStock} expired)</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
 
-              {/* ── Full table: landscape tablet & desktop ── */}
-              <div className="hidden lg:block max-h-[calc(100vh-320px)] landscape:max-h-[calc(100vh-220px)] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gradient-to-r from-slate-50 via-blue-50 to-indigo-50">
-                      <TableHead className="text-slate-700">Product Item</TableHead>
-                      <TableHead className="text-slate-700">Selling Price</TableHead>
-                      <TableHead className="text-slate-700">Valid Stock Available</TableHead>
-                      <TableHead className="text-slate-700">Active Lots</TableHead>
-                      <TableHead className="text-slate-700">Reorder Level</TableHead>
-                      <TableHead className="text-slate-700">Stock Status</TableHead>
-                      <TableHead className="text-center text-slate-700">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedInventory.map((item) => (
-                      <TableRow key={item.medicine.id} className="border-b border-slate-100 bg-white transition-colors hover:bg-slate-50/80">
-                        <TableCell className="py-2.5 sm:py-3">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-bold text-slate-800 text-sm">{item.medicine.name}</p>
-                              <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-600">
-                                {item.medicine.sku}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400">{item.medicine.genericName || 'N/A'}</p>
+                  {/* Action Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openManageLotsModal(item.medicine)
+                    }}
+                    className="w-full h-8 text-xs gap-1.5 border-slate-200 text-slate-700 group-hover:border-blue-300 group-hover:text-blue-700 group-hover:bg-blue-50/60 active:scale-95 mt-1 font-medium shadow-xs transition-all"
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-blue-600" /> Details &amp; Restock ({item.batchCount} lots)
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* ── Streamlined List / Table View (Only essential columns to fit screen cleanly) ── */
+            <div className="max-h-[calc(100vh-300px)] overflow-y-auto rounded-xl border border-slate-200">
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="text-slate-700 font-semibold text-xs">Product Item</TableHead>
+                    <TableHead className="text-right text-slate-700 font-semibold text-xs">Price</TableHead>
+                    <TableHead className="text-right text-slate-700 font-semibold text-xs">Available Stock</TableHead>
+                    <TableHead className="text-slate-700 font-semibold text-xs">Status</TableHead>
+                    <TableHead className="text-center text-slate-700 font-semibold text-xs w-32">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedInventory.map((item) => (
+                    <TableRow
+                      key={item.medicine.id}
+                      onClick={() => openManageLotsModal(item.medicine)}
+                      className="border-b border-slate-100 bg-white transition-colors hover:bg-blue-50/50 cursor-pointer group"
+                    >
+                      <TableCell className="py-2.5">
+                        <div>
+                          <div className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-blue-600 transition-colors">
+                            {item.medicine.name}
                           </div>
-                        </TableCell>
-                        <TableCell className="font-semibold text-slate-900 py-2.5 sm:py-3">₵{item.medicine.price.toFixed(2)}</TableCell>
-                        <TableCell className="py-2.5 sm:py-3">
-                          <div className="flex flex-col gap-1">
-                            <span className="font-bold text-slate-800 text-sm">{item.validStock} units</span>
-                            {item.expiredStock > 0 && (
-                              <span className="text-[10px] text-rose-500">({item.expiredStock} expired units excluded)</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="inline-flex rounded border border-slate-200 bg-slate-50 px-1.5 py-0.2 font-mono text-[10px] font-medium text-slate-600">
+                              {item.medicine.sku}
+                            </span>
+                            {item.medicine.genericName && (
+                              <span className="text-[11px] text-slate-400 truncate max-w-[150px]">
+                                • {item.medicine.genericName}
+                              </span>
                             )}
                           </div>
-                        </TableCell>
-                        <TableCell className="py-2.5 sm:py-3">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200">
-                            <Layers className="h-3 w-3" /> {item.batchCount} lot(s)
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-500 py-2.5 sm:py-3">Min: {item.minStock} units</TableCell>
-                        <TableCell className="py-2.5 sm:py-3">{statusBadge(item.status)}</TableCell>
-                        <TableCell className="text-center py-2.5 sm:py-3">
-                          <div className="flex items-center justify-center">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openManageLotsModal(item.medicine)}
-                              className="h-8 px-2.5 text-xs gap-1.5 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/60 shadow-sm transition-all"
-                              title="Adjust stock or restock lot"
-                            >
-                              <Pencil className="h-3.5 w-3.5 text-blue-600" />
-                              <span className="font-medium">Adjust / Restock</span>
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {filteredInventory.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={7} className="py-12 text-center text-slate-500">
-                          No cold store products match the selected search or filter.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-bold text-slate-900 text-xs sm:text-sm text-right py-2.5">
+                        ₵{item.medicine.price.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-right">
+                        <div className="flex flex-col items-end">
+                          <span className="font-bold text-slate-800 text-xs sm:text-sm">{item.validStock} cartons</span>
+                          {item.expiredStock > 0 && (
+                            <span className="text-[10px] text-rose-500 font-medium">({item.expiredStock} expired)</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2.5">{statusBadge(item.status)}</TableCell>
+                      <TableCell className="text-center py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openManageLotsModal(item.medicine)}
+                            className="h-7 px-2.5 text-xs gap-1.5 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/60 shadow-xs transition-all"
+                            title="View lot details or restock"
+                          >
+                            <Pencil className="h-3.5 w-3.5 text-blue-600" />
+                            <span className="font-medium">Details / Lots</span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredInventory.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-10 text-center text-slate-500 text-sm">
+                        No cold store products match the selected search or filter.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* ── Pagination Footer ────────────────────────────────────────── */}
       {filteredInventory.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:py-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs sm:text-sm text-slate-600">
             Showing <span className="font-semibold text-slate-800">{startIndex + 1}</span>
             {' '}-<span className="font-semibold text-slate-800">{Math.min(startIndex + ITEMS_PER_PAGE, filteredInventory.length)}</span>
             {' '}of <span className="font-semibold text-slate-800">{filteredInventory.length}</span> products
           </p>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Button
               variant="outline" size="sm"
               onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
               disabled={safeCurrentPage === 1}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-md p-0"
+              className="h-8 w-8 sm:h-8.5 sm:w-8.5 rounded-md p-0"
             >
               <ChevronsLeft className="h-4 w-4" />
             </Button>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-              <Button
-                key={page}
-                variant={page === safeCurrentPage ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCurrentPage(page)}
-                className={page === safeCurrentPage ? 'h-8 min-w-8 sm:h-9 sm:min-w-9 bg-blue-600 text-white hover:bg-blue-700' : 'h-8 min-w-8 sm:h-9 sm:min-w-9'}
-              >
-                {page}
-              </Button>
-            ))}
+            {(() => {
+              const getVisiblePages = (current: number, total: number) => {
+                if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+                if (current <= 4) return [1, 2, 3, 4, 5, '...', total]
+                if (current >= total - 3) return [1, '...', total - 4, total - 3, total - 2, total - 1, total]
+                return [1, '...', current - 1, current, current + 1, '...', total]
+              }
+              return getVisiblePages(safeCurrentPage, totalPages).map((page, idx) => {
+                if (page === '...') {
+                  return <span key={`dots-${idx}`} className="px-1 text-xs text-slate-400">...</span>
+                }
+                const pageNum = page as number
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={pageNum === safeCurrentPage ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={pageNum === safeCurrentPage ? 'h-8 min-w-8 sm:h-8.5 sm:min-w-8.5 bg-blue-600 text-white hover:bg-blue-700 px-2 text-xs font-semibold' : 'h-8 min-w-8 sm:h-8.5 sm:min-w-8.5 px-2 text-xs'}
+                  >
+                    {pageNum}
+                  </Button>
+                )
+              })
+            })()}
             <Button
               variant="outline" size="sm"
               onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
               disabled={safeCurrentPage === totalPages}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-md p-0"
+              className="h-8 w-8 sm:h-8.5 sm:w-8.5 rounded-md p-0"
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>
@@ -622,7 +678,11 @@ export default function Inventory() {
               </div>
             </div>
             {/* Quick stats banner in modal */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-2">
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Selling Price</span>
+                <p className="text-base sm:text-lg font-extrabold text-slate-900">₵{(selectedMedicineForLots?.price || 0).toFixed(2)}</p>
+              </div>
               <div className="rounded-lg bg-blue-50/70 border border-blue-100 px-3 py-2">
                 <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">Valid Stock</span>
                 <p className="text-base sm:text-lg font-extrabold text-blue-900">{selectedMedValidStock} <span className="text-xs font-normal">cartons</span></p>
@@ -631,7 +691,7 @@ export default function Inventory() {
                 <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Active Lots</span>
                 <p className="text-base sm:text-lg font-extrabold text-slate-800">{lotsForSelectedMedicine.length} <span className="text-xs font-normal">lot(s)</span></p>
               </div>
-              <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 col-span-2 sm:col-span-1">
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
                 <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Reorder Min</span>
                 <p className="text-base sm:text-lg font-extrabold text-slate-800">{selectedMedicineForLots?.minStockLevel || 10} <span className="text-xs font-normal">cartons</span></p>
               </div>
@@ -642,11 +702,10 @@ export default function Inventory() {
               <button
                 type="button"
                 onClick={() => setModalTab('lots')}
-                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
-                  modalTab === 'lots'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${modalTab === 'lots'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+                  }`}
               >
                 <Layers className="w-3.5 h-3.5 text-blue-600" />
                 <span>Existing Lots &amp; Adjust ({lotsForSelectedMedicine.length})</span>
@@ -654,11 +713,10 @@ export default function Inventory() {
               <button
                 type="button"
                 onClick={() => setModalTab('restock')}
-                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
-                  modalTab === 'restock'
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${modalTab === 'restock'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+                  }`}
               >
                 <PlusCircle className="w-3.5 h-3.5 text-blue-600" />
                 <span>Receive / Restock Lot</span>
@@ -706,11 +764,10 @@ export default function Inventory() {
                     return (
                       <div
                         key={batch.id}
-                        className={`rounded-xl border transition-all ${
-                          isEditing
-                            ? 'border-blue-300 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
-                            : 'border-slate-200 bg-white hover:border-slate-300'
-                        } p-3.5`}
+                        className={`rounded-xl border transition-all ${isEditing
+                          ? 'border-blue-300 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                          } p-3.5`}
                       >
                         {isEditing ? (
                           <div className="space-y-3">

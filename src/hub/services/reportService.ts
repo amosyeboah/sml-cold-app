@@ -206,6 +206,23 @@ export async function getDashboardStats() {
   }
 }
 
+function eachDay(start: Date, end: Date): Date[] {
+  const days: Date[] = []
+  const cursor = new Date(start)
+  cursor.setHours(0, 0, 0, 0)
+  const endDay = new Date(end)
+  endDay.setHours(0, 0, 0, 0)
+  while (cursor <= endDay) {
+    days.push(new Date(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return days
+}
+
+function formatDayLabel(date: Date): string {
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+}
+
 export async function getReportsData(startDate: string, endDate: string) {
   const start = new Date(startDate)
   start.setHours(0, 0, 0, 0)
@@ -216,13 +233,16 @@ export async function getReportsData(startDate: string, endDate: string) {
   const prevStart = new Date(start.getTime() - diffMs)
   const prevEnd = new Date(start.getTime() - 1)
 
-  const [sales, prevSales, purchases, prevPurchases, expiringBatches] = await Promise.all([
+  const [sales, prevSales, purchases, prevPurchases, expiringBatches, allActiveBatches, allMedicines] = await Promise.all([
     prisma.sale.findMany({
       where: { date: { gte: start, lte: end } },
       include: { items: { include: { batch: { include: { medicine: true } } } }, customer: true, payments: true },
       orderBy: { date: 'asc' },
     }),
-    prisma.sale.findMany({ where: { date: { gte: prevStart, lte: prevEnd } } }),
+    prisma.sale.findMany({
+      where: { date: { gte: prevStart, lte: prevEnd } },
+      include: { items: { include: { batch: { include: { medicine: true } } } } },
+    }),
     prisma.purchase.findMany({
       where: { date: { gte: start, lte: end } },
       include: { supplier: true, items: true },
@@ -235,43 +255,382 @@ export async function getReportsData(startDate: string, endDate: string) {
       orderBy: { expiryDate: 'asc' },
       take: 10,
     }),
+    prisma.batch.findMany({
+      where: { quantity: { gt: 0 } },
+      include: { medicine: true },
+    }),
+    prisma.medicine.findMany({
+      include: { category: true, batches: true },
+    }),
   ])
 
-  const sum = (arr: any[], field = 'total') => arr.reduce((acc, x) => acc + (x[field] || 0), 0)
-  const totalSales = sum(sales)
-  const prevTotalSales = sum(prevSales)
-  const totalPurchases = sum(purchases)
-  const prevTotalPurchases = sum(prevPurchases)
-  const grossProfit = totalSales - totalPurchases
-  const prevGrossProfit = prevTotalSales - prevTotalPurchases
+  const totalSales = sales.reduce((acc, sale) => acc + sale.total, 0)
+  const prevTotalSales = prevSales.reduce((acc, sale) => acc + sale.total, 0)
+  const totalPurchases = purchases.reduce((acc, purchase) => acc + purchase.total, 0)
+  const prevTotalPurchases = prevPurchases.reduce((acc, purchase) => acc + purchase.total, 0)
   const transactions = sales.length
   const prevTransactions = prevSales.length
-  const daysDiff = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-  const avgDailySales = totalSales / daysDiff
-  const prevAvgDaily = prevTotalSales / daysDiff
+  const days = eachDay(start, end)
+  const dayCount = Math.max(1, days.length)
+  const avgDailySales = totalSales / dayCount
+  const prevAvgDaily = prevTotalSales / dayCount
 
-  const calcTrend = (cur: number, prev: number) => {
-    if (prev === 0) return cur > 0 ? '+100%' : '0%'
-    const v = ((cur - prev) / prev) * 100
-    return v > 0 ? `+${v.toFixed(1)}%` : `${v.toFixed(1)}%`
+  // 1. Calculate COGS and product sales for the current period
+  let totalCogs = 0
+  const salesByDay = new Map<string, number>()
+  const cogsByDay = new Map<string, number>()
+  const purchasesByDay = new Map<string, number>()
+  const transactionsByDay = new Map<string, number>()
+  const productSalesMap = new Map<string, { qty: number; revenue: number; cogs: number }>()
+
+  for (const sale of sales) {
+    const key = formatDayLabel(sale.date)
+    salesByDay.set(key, (salesByDay.get(key) || 0) + sale.total)
+    transactionsByDay.set(key, (transactionsByDay.get(key) || 0) + 1)
+
+    let saleCogs = 0
+    for (const item of sale.items) {
+      const med = item.batch?.medicine
+      const medId = med?.id || 'unknown'
+      const qty = item.quantity || 0
+      const price = item.price || med?.price || 0
+      const unitCost = med?.cost || 0
+
+      const itemCogs = qty * unitCost
+      saleCogs += itemCogs
+
+      const existingProd = productSalesMap.get(medId) || { qty: 0, revenue: 0, cogs: 0 }
+      existingProd.qty += qty
+      existingProd.revenue += qty * price
+      existingProd.cogs += itemCogs
+      productSalesMap.set(medId, existingProd)
+    }
+    totalCogs += saleCogs
+    cogsByDay.set(key, (cogsByDay.get(key) || 0) + saleCogs)
+  }
+
+  // 2. Previous period COGS for trend analysis
+  let prevTotalCogs = 0
+  for (const sale of prevSales) {
+    for (const item of sale.items) {
+      const med = item.batch?.medicine
+      const qty = item.quantity || 0
+      const unitCost = med?.cost || 0
+      prevTotalCogs += qty * unitCost
+    }
+  }
+
+  for (const purchase of purchases) {
+    const key = formatDayLabel(purchase.date)
+    purchasesByDay.set(key, (purchasesByDay.get(key) || 0) + purchase.total)
+  }
+
+  // 3. Profit Earned (Realized Gross Profit on sales: Total Sales - COGS)
+  const profitEarned = totalCogs > 0 ? (totalSales - totalCogs) : (totalSales - totalPurchases)
+  const prevProfitEarned = prevTotalCogs > 0 ? (prevTotalSales - prevTotalCogs) : (prevTotalSales - prevTotalPurchases)
+  const profitMargin = totalSales > 0 ? (profitEarned / totalSales) * 100 : 0
+  const grossProfit = profitEarned
+  const prevGrossProfit = prevProfitEarned
+
+  // 4. Current Inventory Stock Valuation and Profits Expected
+  const stockByProduct = new Map<string, number>()
+  for (const batch of allActiveBatches) {
+    const qty = batch.quantity || 0
+    if (qty > 0 && batch.medicineId) {
+      stockByProduct.set(batch.medicineId, (stockByProduct.get(batch.medicineId) || 0) + qty)
+    }
+  }
+
+  let inventoryCost = 0
+  let expectedInventoryRevenue = 0
+  for (const med of allMedicines) {
+    const stock = stockByProduct.get(med.id) || 0
+    const cost = Number(med.cost) || 0
+    const price = Number(med.price) || 0
+    inventoryCost += stock * cost
+    expectedInventoryRevenue += stock * price
+  }
+  const profitsExpected = Math.max(0, expectedInventoryRevenue - inventoryCost)
+
+  // 5. Product-by-product P&L breakdown
+  const profitBreakdown = allMedicines.map((med) => {
+    const salesData = productSalesMap.get(med.id) || { qty: 0, revenue: 0, cogs: 0 }
+    const itemProfitEarned = salesData.revenue - salesData.cogs
+    const marginPercent = salesData.revenue > 0 ? (itemProfitEarned / salesData.revenue) * 100 : 0
+    const currentStock = stockByProduct.get(med.id) || 0
+    const unitCost = Number(med.cost) || 0
+    const unitPrice = Number(med.price) || 0
+    const stockCost = currentStock * unitCost
+    const expRevenue = currentStock * unitPrice
+    const expectedProfit = Math.max(0, expRevenue - stockCost)
+
+    return {
+      id: med.id,
+      name: med.name,
+      category: med.category?.name || 'General',
+      quantitySold: salesData.qty,
+      revenue: salesData.revenue,
+      cogs: salesData.cogs,
+      profitEarned: itemProfitEarned,
+      marginPercent,
+      currentStock,
+      stockCost,
+      expectedProfit,
+    }
+  }).filter((p) => p.quantitySold > 0 || p.currentStock > 0)
+    .sort((a, b) => b.profitEarned - a.profitEarned || b.revenue - a.revenue)
+
+  const calcTrend = (cur: number, prev: number): number => {
+    if (prev === 0) return cur > 0 ? 100 : 0
+    return ((cur - prev) / prev) * 100
+  }
+
+  const salesOverview = days.map((day) => {
+    const label = formatDayLabel(day)
+    const daySales = salesByDay.get(label) || 0
+    const dayPurchases = purchasesByDay.get(label) || 0
+    const dayCogs = cogsByDay.get(label) || 0
+    const dayProfit = dayCogs > 0 ? (daySales - dayCogs) : (daySales - dayPurchases)
+    return {
+      date: label,
+      sales: daySales,
+      purchases: dayPurchases,
+      cogs: dayCogs,
+      profit: dayProfit,
+      transactions: transactionsByDay.get(label) || 0,
+    }
+  })
+
+  let cashTotal = 0
+  let mobileTotal = 0
+  for (const sale of sales) {
+    if ((sale as any).payments && (sale as any).payments.length > 0) {
+      for (const p of (sale as any).payments) {
+        const method = (p.method || 'CASH').toUpperCase()
+        if (method.includes('MOBILE') || method.includes('MOMO')) {
+          mobileTotal += Number(p.amount) || 0
+        } else {
+          cashTotal += Number(p.amount) || 0
+        }
+      }
+    } else {
+      const pm = (sale.paymentMethod || 'CASH').toUpperCase()
+      const tot = Number(sale.total) || 0
+      if (pm.startsWith('SPLIT:')) {
+        const cashMatch = pm.match(/CASH[=:]\s*([0-9.]+)/i)
+        const mobileMatch = pm.match(/MOBILE[=:]\s*([0-9.]+)/i)
+        const c = cashMatch ? parseFloat(cashMatch[1]) : 0
+        const m = mobileMatch ? parseFloat(mobileMatch[1]) : 0
+        if (c > 0 || m > 0) {
+          cashTotal += c
+          mobileTotal += m
+        } else {
+          cashTotal += tot / 2
+          mobileTotal += tot / 2
+        }
+      } else if (pm === 'SPLIT') {
+        cashTotal += tot / 2
+        mobileTotal += tot / 2
+      } else if (pm.includes('MOBILE') || pm.includes('MOMO')) {
+        mobileTotal += tot
+      } else {
+        cashTotal += tot
+      }
+    }
+  }
+
+  const paymentBreakdown = [
+    {
+      name: 'Cash',
+      value: cashTotal,
+      percent: totalSales > 0 ? (cashTotal / totalSales) * 100 : 0,
+      color: '#22c55e',
+    },
+    {
+      name: 'Mobile Money',
+      value: mobileTotal,
+      percent: totalSales > 0 ? (mobileTotal / totalSales) * 100 : 0,
+      color: '#f59e0b',
+    },
+  ]
+
+  const topMedicines = Array.from(productSalesMap.entries())
+    .map(([id, d]) => {
+      const med = allMedicines.find((m) => m.id === id)
+      return {
+        name: med?.name || 'Cold Store Item',
+        qty: d.qty,
+        revenue: d.revenue,
+      }
+    })
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5)
+
+  const recentTransactions = sales.slice(-8).reverse().map((s) => ({
+    id: `INV-${s.id.slice(0, 8).toUpperCase()}`,
+    customer: s.customer?.name || 'Walk-in Customer',
+    amount: s.total,
+    payment: s.paymentMethod || 'Cash',
+    time: s.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+  }))
+
+  // 6. Comprehensive Cold Store Inventory Report
+  const inventoryItems = allMedicines.map((med: any) => {
+    const medBatches = med.batches || []
+    const currentStock = stockByProduct.get(med.id) || 0
+    const unitCost = Number(med.cost) || 0
+    const unitPrice = Number(med.price) || 0
+    const minStockLevel = Number(med.minStockLevel) || 10
+    const totalCostValue = currentStock * unitCost
+    const totalRetailValue = currentStock * unitPrice
+    const potentialProfit = Math.max(0, totalRetailValue - totalCostValue)
+    const marginPercent = totalRetailValue > 0 ? (potentialProfit / totalRetailValue) * 100 : 0
+
+    let status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'IN_STOCK'
+    if (currentStock === 0) {
+      status = 'OUT_OF_STOCK'
+    } else if (currentStock <= minStockLevel) {
+      status = 'LOW_STOCK'
+    }
+
+    const batches = medBatches.map((b: any) => {
+      const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      let batchStatus: 'HEALTHY' | 'EXPIRING_SOON' | 'EXPIRED' = 'HEALTHY'
+      if (days <= 0) {
+        batchStatus = 'EXPIRED'
+      } else if (days <= 60) {
+        batchStatus = 'EXPIRING_SOON'
+      }
+      return {
+        id: b.id,
+        batchNumber: b.batchNumber || 'N/A',
+        quantity: Number(b.quantity) || 0,
+        expiryDate: new Date(b.expiryDate).toISOString(),
+        daysToExpiry: days,
+        status: batchStatus,
+      }
+    }).sort((a: any, b: any) => a.daysToExpiry - b.daysToExpiry)
+
+    return {
+      id: med.id,
+      name: med.name,
+      sku: med.sku || 'N/A',
+      category: med.category?.name || 'General',
+      currentStock,
+      minStockLevel,
+      unitCost,
+      unitPrice,
+      totalCostValue,
+      totalRetailValue,
+      potentialProfit,
+      marginPercent,
+      status,
+      batchCount: batches.length,
+      batches,
+    }
+  }).sort((a: any, b: any) => b.totalCostValue - a.totalCostValue || a.name.localeCompare(b.name))
+
+  const totalCartons = inventoryItems.reduce((acc: number, i: any) => acc + i.currentStock, 0)
+  const invTotalCostValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalCostValue, 0)
+  const invTotalRetailValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalRetailValue, 0)
+  const invTotalPotentialProfit = Math.max(0, invTotalRetailValue - invTotalCostValue)
+  const invPotentialMarginPercent = invTotalRetailValue > 0 ? (invTotalPotentialProfit / invTotalRetailValue) * 100 : 0
+  const healthyCount = inventoryItems.filter((i: any) => i.status === 'IN_STOCK').length
+  const lowStockCount = inventoryItems.filter((i: any) => i.status === 'LOW_STOCK').length
+  const outOfStockCount = inventoryItems.filter((i: any) => i.status === 'OUT_OF_STOCK').length
+
+  const categoryMap = new Map<string, { itemCount: number; totalStock: number; totalCostValue: number; totalRetailValue: number }>()
+  for (const item of inventoryItems) {
+    const cat = item.category || 'General'
+    const existing = categoryMap.get(cat) || { itemCount: 0, totalStock: 0, totalCostValue: 0, totalRetailValue: 0 }
+    existing.itemCount += 1
+    existing.totalStock += item.currentStock
+    existing.totalCostValue += item.totalCostValue
+    existing.totalRetailValue += item.totalRetailValue
+    categoryMap.set(cat, existing)
+  }
+
+  const categoriesSummary = Array.from(categoryMap.entries()).map(([category, catData]) => ({
+    category,
+    itemCount: catData.itemCount,
+    totalStock: catData.totalStock,
+    totalCostValue: catData.totalCostValue,
+    totalRetailValue: catData.totalRetailValue,
+    percentOfTotalValue: invTotalCostValue > 0 ? (catData.totalCostValue / invTotalCostValue) * 100 : 0,
+  })).sort((a, b) => b.totalCostValue - a.totalCostValue)
+
+  const expiringBatchesCount = allActiveBatches.filter((b: any) => {
+    const d = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    return (Number(b.quantity) || 0) > 0 && d > 0 && d <= 60
+  }).length
+  const expiredBatchesCount = allActiveBatches.filter((b: any) => {
+    const d = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    return (Number(b.quantity) || 0) > 0 && d <= 0
+  }).length
+
+  const inventoryReport = {
+    totalProducts: inventoryItems.length,
+    totalCartons,
+    totalCostValue: invTotalCostValue,
+    totalRetailValue: invTotalRetailValue,
+    totalPotentialProfit: invTotalPotentialProfit,
+    potentialMarginPercent: invPotentialMarginPercent,
+    healthyCount,
+    lowStockCount,
+    outOfStockCount,
+    expiringBatchesCount,
+    expiredBatchesCount,
+    categories: categoriesSummary,
+    items: inventoryItems,
   }
 
   return {
     kpis: {
       totalSales,
+      cashSales: cashTotal,
+      mobileSales: mobileTotal,
       totalPurchases,
+      cogs: totalCogs,
+      profitEarned,
+      profitsExpected,
+      profitMargin,
+      inventoryCost: invTotalCostValue,
+      expectedInventoryRevenue: invTotalRetailValue,
+      inventoryCartons: totalCartons,
+      inventoryItemsCount: inventoryItems.length,
+      inventoryHealthyCount: healthyCount,
+      inventoryLowStockCount: lowStockCount,
+      inventoryOutOfStockCount: outOfStockCount,
       grossProfit,
       transactions,
       avgDailySales,
       salesTrend: calcTrend(totalSales, prevTotalSales),
       purchasesTrend: calcTrend(totalPurchases, prevTotalPurchases),
       profitTrend: calcTrend(grossProfit, prevGrossProfit),
+      cogsTrend: calcTrend(totalCogs, prevTotalCogs),
+      profitEarnedTrend: calcTrend(profitEarned, prevProfitEarned),
       transactionsTrend: calcTrend(transactions, prevTransactions),
       avgDailyTrend: calcTrend(avgDailySales, prevAvgDaily),
+      salesSparkline: salesOverview.map((d) => d.sales),
+      purchasesSparkline: salesOverview.map((d) => d.purchases),
+      cogsSparkline: salesOverview.map((d) => d.cogs || 0),
+      profitSparkline: salesOverview.map((d) => d.profit),
+      transactionsSparkline: salesOverview.map((d) => d.transactions),
+      avgDailySparkline: salesOverview.map((d) => (d.sales > 0 ? d.sales : 0)),
     },
-    salesOverview: [],
+    salesOverview,
+    paymentBreakdown,
+    topMedicines,
+    recentTransactions,
     expiringBatches,
-    recentSales: sales.slice(-20),
-    purchases: purchases.slice(-20),
+    purchases: purchases.slice(0, 20).map((p) => ({
+      id: p.id,
+      date: p.date.toISOString(),
+      supplier: p.supplier.name,
+      total: p.total,
+      status: p.status,
+    })),
+    profitBreakdown,
+    inventoryReport,
   }
 }

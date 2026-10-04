@@ -131,6 +131,22 @@ export async function updateProduct(
       })
     }
 
+    if ((data.name && data.name !== existing.name) || (data.sku && data.sku !== existing.sku)) {
+      await tx.auditLog.create({
+        data: {
+          id: randomUUID(),
+          action: 'PRODUCT_UPDATE',
+          category: 'INVENTORY',
+          details: `Product "${existing.name}" details updated${data.name && data.name !== existing.name ? ` (New name: "${data.name}")` : ''}`,
+          username: meta?.username || 'ADMIN',
+          userRole: meta?.userRole || 'ADMIN',
+          severity: 'INFO',
+          deviceId: meta?.deviceId || null,
+          metadata: JSON.stringify({ productId: id, oldName: existing.name, newName: data.name, oldSku: existing.sku, newSku: data.sku }),
+        },
+      })
+    }
+
     await enqueueOutboxItem(
       tx,
       'PRODUCT',
@@ -403,16 +419,51 @@ export async function getCategories() {
   })
 }
 
-export async function createCategory(data: { name: string }) {
-  return await prisma.category.create({ data })
+export async function createCategory(data: { name: string }, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const cat = await prisma.category.create({ data })
+  await recordAudit({
+    action: 'CATEGORY_CREATE',
+    category: 'INVENTORY',
+    details: `Created product category "${cat.name}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { categoryId: cat.id, name: cat.name },
+  }).catch(() => {})
+  return cat
 }
 
-export async function updateCategory(id: string, data: { name: string }) {
-  return await prisma.category.update({ where: { id }, data })
+export async function updateCategory(id: string, data: { name: string }, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.category.findUnique({ where: { id } })
+  const cat = await prisma.category.update({ where: { id }, data })
+  await recordAudit({
+    action: 'CATEGORY_UPDATE',
+    category: 'INVENTORY',
+    details: `Updated category "${existing?.name || id}" to "${cat.name}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { categoryId: id, oldName: existing?.name, newName: cat.name },
+  }).catch(() => {})
+  return cat
 }
 
-export async function deleteCategory(id: string) {
-  return await prisma.category.delete({ where: { id } })
+export async function deleteCategory(id: string, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.category.findUnique({ where: { id } })
+  const res = await prisma.category.delete({ where: { id } })
+  await recordAudit({
+    action: 'CATEGORY_DELETE',
+    category: 'INVENTORY',
+    details: `Deleted product category "${existing?.name || id}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'WARNING',
+    deviceId: meta?.deviceId,
+    metadata: { categoryId: id, name: existing?.name },
+  }).catch(() => {})
+  return res
 }
 
 // ─── Customers ──────────────────────────────────────────────────────────────
@@ -423,16 +474,51 @@ export async function getCustomers() {
   })
 }
 
-export async function createCustomer(data: { name: string; phone?: string }) {
-  return await prisma.customer.create({ data })
+export async function createCustomer(data: { name: string; phone?: string }, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const cust = await prisma.customer.create({ data })
+  await recordAudit({
+    action: 'CUSTOMER_CREATE',
+    category: 'SALES',
+    details: `Registered customer "${cust.name}"${cust.phone ? ` (${cust.phone})` : ''}`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { customerId: cust.id, name: cust.name, phone: cust.phone },
+  }).catch(() => {})
+  return cust
 }
 
-export async function updateCustomer(id: string, data: { name: string; phone?: string }) {
-  return await prisma.customer.update({ where: { id }, data })
+export async function updateCustomer(id: string, data: { name: string; phone?: string }, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.customer.findUnique({ where: { id } })
+  const cust = await prisma.customer.update({ where: { id }, data })
+  await recordAudit({
+    action: 'CUSTOMER_UPDATE',
+    category: 'SALES',
+    details: `Updated customer profile for "${existing?.name || cust.name}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { customerId: id, name: cust.name, phone: cust.phone },
+  }).catch(() => {})
+  return cust
 }
 
-export async function deleteCustomer(id: string) {
-  return await prisma.customer.delete({ where: { id } })
+export async function deleteCustomer(id: string, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.customer.findUnique({ where: { id } })
+  const res = await prisma.customer.delete({ where: { id } })
+  await recordAudit({
+    action: 'CUSTOMER_DELETE',
+    category: 'SALES',
+    details: `Deleted customer "${existing?.name || id}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'WARNING',
+    deviceId: meta?.deviceId,
+    metadata: { customerId: id, name: existing?.name },
+  }).catch(() => {})
+  return res
 }
 
 // ─── Suppliers ──────────────────────────────────────────────────────────────
@@ -443,16 +529,51 @@ export async function getSuppliers() {
   })
 }
 
-export async function createSupplier(data: any) {
-  return await prisma.supplier.create({ data })
+export async function createSupplier(data: any, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const sup = await prisma.supplier.create({ data })
+  await recordAudit({
+    action: 'SUPPLIER_CREATE',
+    category: 'PURCHASES',
+    details: `Registered new supplier "${sup.name}"${sup.contact ? ` (Contact: ${sup.contact})` : ''}`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { supplierId: sup.id, name: sup.name },
+  }).catch(() => {})
+  return sup
 }
 
-export async function updateSupplier(id: string, data: any) {
-  return await prisma.supplier.update({ where: { id }, data })
+export async function updateSupplier(id: string, data: any, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.supplier.findUnique({ where: { id } })
+  const sup = await prisma.supplier.update({ where: { id }, data })
+  await recordAudit({
+    action: 'SUPPLIER_UPDATE',
+    category: 'PURCHASES',
+    details: `Updated supplier profile for "${existing?.name || sup.name}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'INFO',
+    deviceId: meta?.deviceId,
+    metadata: { supplierId: id, name: sup.name },
+  }).catch(() => {})
+  return sup
 }
 
-export async function deleteSupplier(id: string) {
-  return await prisma.supplier.delete({ where: { id } })
+export async function deleteSupplier(id: string, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const existing = await prisma.supplier.findUnique({ where: { id } })
+  const res = await prisma.supplier.delete({ where: { id } })
+  await recordAudit({
+    action: 'SUPPLIER_DELETE',
+    category: 'PURCHASES',
+    details: `Deleted supplier "${existing?.name || id}"`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'WARNING',
+    deviceId: meta?.deviceId,
+    metadata: { supplierId: id, name: existing?.name },
+  }).catch(() => {})
+  return res
 }
 
 // ─── Settings ───────────────────────────────────────────────────────────────
@@ -464,8 +585,8 @@ export async function getSettings(): Promise<Record<string, string>> {
   return map
 }
 
-export async function setSettings(updates: Record<string, string>) {
-  return await prisma.$transaction(async (tx) => {
+export async function setSettings(updates: Record<string, string>, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  const res = await prisma.$transaction(async (tx) => {
     for (const [key, value] of Object.entries(updates)) {
       await tx.setting.upsert({
         where: { key },
@@ -474,4 +595,15 @@ export async function setSettings(updates: Record<string, string>) {
       })
     }
   })
+  await recordAudit({
+    action: 'SETTINGS_UPDATE',
+    category: 'SYSTEM',
+    details: `Cold store system settings updated (${Object.keys(updates).join(', ')})`,
+    username: meta?.username || 'ADMIN',
+    userRole: meta?.userRole || 'ADMIN',
+    severity: 'WARNING',
+    deviceId: meta?.deviceId,
+    metadata: { keys: Object.keys(updates) },
+  }).catch(() => {})
+  return res
 }

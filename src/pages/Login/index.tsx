@@ -63,14 +63,19 @@ export default function LoginPage() {
       if (typeof apiClient.loginWithPin === 'function') {
         res = await apiClient.loginWithPin(pinValue, selectedPinRole || undefined)
       } else {
-        let username = 'cashier'
-        let password = 'cashier123'
-        if (selectedPinRole === 'ADMIN' || pinValue === '1111' || pinValue === '9999') {
+        let username = ''
+        let password = ''
+        if (pinValue === '1111' && (!selectedPinRole || selectedPinRole === 'ADMIN')) {
           username = 'admin'
           password = 'admin1234'
-        } else if (selectedPinRole === 'MANAGER' || pinValue === '2222' || pinValue === '5555') {
+        } else if (pinValue === '2222' && (!selectedPinRole || selectedPinRole === 'MANAGER')) {
           username = 'manager'
           password = 'manager123'
+        } else if (pinValue === '1234' && (!selectedPinRole || selectedPinRole === 'CASHIER')) {
+          username = 'cashier'
+          password = 'cashier123'
+        } else {
+          throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
         }
         res = await apiClient.login(username, password)
       }

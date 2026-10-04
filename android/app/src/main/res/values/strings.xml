@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Pharmacy Tablet</string>
-    <string name="title_activity_main">Pharmacy Tablet</string>
-    <string name="package_name">com.pharmacy.tablet</string>
-    <string name="custom_url_scheme">com.pharmacy.tablet</string>
+    <string name="app_name">SML Legacy Cold Store</string>
+    <string name="title_activity_main">SML Legacy Cold Store</string>
+    <string name="package_name">com.smllegacy.coldstore</string>
+    <string name="custom_url_scheme">com.smllegacy.coldstore</string>
 </resources>

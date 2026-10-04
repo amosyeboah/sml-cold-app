@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Bell, Search, Plus, Maximize2, AlertTriangle, Clock, Package, User, RefreshCw } from 'lucide-react'
+import { Bell, Search, Plus, Maximize2, AlertTriangle, Clock, Package, User, RefreshCw, Menu } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { useUIStore } from '@/store/uiStore'
 import { Command } from 'cmdk'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useQuery } from '@tanstack/react-query'
@@ -40,6 +41,7 @@ export default function TopBar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
+  const { sidebarCollapsed, toggleSidebar } = useUIStore()
   const isDashboard = pathname === '/dashboard'
 
   // Fullscreen
@@ -133,51 +135,71 @@ export default function TopBar() {
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => window.api.getCustomers() })
 
   return (
-    <header className="h-auto bg-white border-b border-slate-100 flex items-center justify-between px-4 sm:px-6 md:px-7 py-3 md:py-4 flex-shrink-0 z-30 gap-3 md:gap-6">
-      {/* Left: greeting/title */}
-      <div className="flex-1 min-w-0">
-        {isDashboard ? (
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">
-              {greetingText()}, {user?.username ?? 'Admin'}! 👋
-            </h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              {routeSubtitles[pathname]}
-            </p>
-          </div>
-        ) : (
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 capitalize">
-              {pathname === '/products' || pathname === '/medicines' ? 'Products' : pathname.replace('/', '')}
-            </h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              {routeSubtitles[pathname] ?? ''}
-            </p>
-          </div>
-        )}
+    <header className="h-16 md:h-18 bg-white border-b border-slate-100 flex items-center justify-between px-3 sm:px-5 md:px-6 py-2.5 flex-shrink-0 z-30 gap-2 sm:gap-4">
+      {/* Left: Sidebar toggle button + greeting/title */}
+      <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+        <button
+          onClick={toggleSidebar}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all flex-shrink-0 cursor-pointer shadow-xs active:scale-95"
+        >
+          <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          {isDashboard ? (
+            <div>
+              <h1 className="text-sm sm:text-base md:text-xl font-bold text-slate-800 truncate">
+                <span className="hidden sm:inline">{greetingText()}, </span>
+                <span className="sm:hidden">Hi, </span>
+                {user?.username ?? 'Admin'}! 👋
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5 truncate hidden md:block">
+                {routeSubtitles[pathname]}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h1 className="text-sm sm:text-base md:text-xl font-bold text-slate-800 capitalize truncate">
+                {pathname === '/products' || pathname === '/medicines' ? 'Products' : pathname.replace('/', '')}
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5 truncate hidden md:block">
+                {routeSubtitles[pathname] ?? ''}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Search bar */}
+      {/* Center/Right: Search bar (full on wide screens, compact icon button on smaller/tablet viewports) */}
       <div 
         onClick={() => setSearchOpen(true)}
-        className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 w-72 group focus-within:border-indigo-300 focus-within:bg-white transition-all cursor-pointer"
+        className="hidden xl:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 w-56 2xl:w-72 group focus-within:border-indigo-300 focus-within:bg-white transition-all cursor-pointer flex-shrink-0"
       >
-        <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
-        <span className="flex-1 text-sm text-slate-400 min-w-0 text-left">Search everything...</span>
+        <Search className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+        <span className="flex-1 text-xs text-slate-400 min-w-0 text-left truncate">Search everything...</span>
         <span className="text-[10px] text-slate-400 bg-slate-200 rounded px-1.5 py-0.5 font-mono flex-shrink-0">⌘K</span>
       </div>
 
+      <button
+        onClick={() => setSearchOpen(true)}
+        title="Search (⌘K)"
+        className="xl:hidden flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all flex-shrink-0 cursor-pointer active:scale-95"
+      >
+        <Search className="w-4 h-4" />
+      </button>
+
       {/* Actions */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
         {/* Live Cloud Sync Chip */}
         <Link
           to="/sync"
           title="Click to manage offline sync & cloud settings"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-xs font-semibold shadow-xs"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-xs font-semibold shadow-xs flex-shrink-0"
         >
           <span
             className={cn(
-              "h-2 w-2 rounded-full",
+              "h-2 w-2 rounded-full flex-shrink-0",
               syncState.isSyncing || manualSyncing
                 ? "bg-blue-500 animate-spin"
                 : syncState.pendingCount > 0
@@ -185,7 +207,7 @@ export default function TopBar() {
                 : "bg-emerald-500"
             )}
           />
-          <span className="hidden sm:inline text-slate-700">
+          <span className="hidden md:inline text-slate-700">
             {syncState.isSyncing || manualSyncing
               ? "Syncing..."
               : syncState.pendingCount > 0
@@ -199,21 +221,25 @@ export default function TopBar() {
           onClick={handleManualSync}
           disabled={manualSyncing || syncState.isSyncing}
           title="Manual Sync: Force sync all offline and cloud transactions now"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 transition-all text-xs font-semibold shadow-xs disabled:opacity-60 cursor-pointer active:scale-95"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 transition-all text-xs font-semibold shadow-xs disabled:opacity-60 cursor-pointer active:scale-95 flex-shrink-0"
         >
           <RefreshCw
             className={cn(
-              "w-3.5 h-3.5 transition-transform duration-500",
+              "w-3.5 h-3.5 transition-transform duration-500 flex-shrink-0",
               (manualSyncing || syncState.isSyncing) && "animate-spin text-indigo-600"
             )}
           />
-          <span className="hidden md:inline">
+          <span className="hidden xl:inline">
             {manualSyncing ? "Syncing..." : syncSuccessMsg || "Sync Now"}
           </span>
         </button>
 
         {/* Fullscreen toggle */}
-        <button onClick={toggleFullScreen} className="w-9 h-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all">
+        <button
+          onClick={toggleFullScreen}
+          title="Toggle Fullscreen"
+          className="hidden sm:flex w-9 h-9 rounded-xl border border-slate-200 bg-white items-center justify-center text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all flex-shrink-0 cursor-pointer"
+        >
           <Maximize2 className="w-4 h-4" />
         </button>
 
@@ -221,7 +247,8 @@ export default function TopBar() {
         <div className="relative" ref={notifRef}>
           <button 
             onClick={() => setShowNotifications(!showNotifications)}
-            className="relative w-9 h-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all"
+            className="relative w-9 h-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all flex-shrink-0 cursor-pointer"
+            title="Alerts and notifications"
           >
             <Bell className="w-4 h-4" />
             {alertCount > 0 && (
@@ -274,12 +301,11 @@ export default function TopBar() {
         {/* New Sale CTA */}
         <Link to="/pos" className="flex-shrink-0" title="New Sale (POS)">
           <button
-            className="flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-white shadow-md sm:shadow-lg shadow-blue-500/25 transition-all hover:brightness-110 active:scale-95 whitespace-nowrap"
+            className="flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition-all hover:brightness-110 active:scale-95 whitespace-nowrap cursor-pointer"
             style={{ backgroundColor: '#2563eb' }}
           >
-            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-            <span className="hidden sm:inline">New Sale</span>
-            <span className="sm:hidden font-semibold">Sale</span>
+            <Plus className="w-4 h-4 flex-shrink-0" />
+            <span className="font-semibold">New Sale</span>
           </button>
         </Link>
       </div>

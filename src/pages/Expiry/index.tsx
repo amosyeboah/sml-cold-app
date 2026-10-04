@@ -109,38 +109,37 @@ export default function Expiry() {
   const paginatedBatches = priorityBatches.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   return (
-    <div className="h-full overflow-y-auto p-3 sm:p-5 lg:p-6 space-y-4 sm:space-y-6 font-sans">
+    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
       {/* ── Responsive Header Banner ── */}
-      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-4 sm:p-6 text-white shadow-lg shadow-blue-500/10" style={{ backgroundColor: '#2563eb' }}>
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl" />
-        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl" />
-        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5" />
+      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs" style={{ backgroundColor: '#2563eb' }}>
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
 
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2 sm:space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-sky-100">
                 Product safety
               </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
+              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2 py-0.5 text-[9px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
                 Batch oversight
               </span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold">Expiry Management</h2>
-            <p className="max-w-2xl text-xs sm:text-sm text-blue-50/90">Monitor batch expiry metrics, stock lifecycle, and urgent attention items before they become losses.</p>
+            <h2 className="text-lg sm:text-xl font-bold leading-tight">Expiry Management</h2>
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            <div className="rounded-xl border border-white/10 bg-rose-400/15 px-2.5 sm:px-3 py-2 backdrop-blur">
-              <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-rose-100">Expired</p>
-              <p className="text-base sm:text-lg font-semibold">{expiredBatches.length}</p>
+          <div className="grid grid-cols-3 gap-2 flex-shrink-0">
+            <div className="rounded-xl border border-white/10 bg-rose-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-rose-100 font-medium">Expired</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{expiredBatches.length}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-2.5 sm:px-3 py-2 backdrop-blur">
-              <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-amber-100">Soon</p>
-              <p className="text-base sm:text-lg font-semibold">{expiringSoonBatches.length}</p>
+            <div className="rounded-xl border border-white/10 bg-amber-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-amber-100 font-medium">Soon</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{expiringSoonBatches.length}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 sm:px-3 py-2 backdrop-blur">
-              <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-emerald-100">Healthy</p>
-              <p className="text-base sm:text-lg font-semibold">{healthyBatches.length}</p>
+            <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 py-1.5 backdrop-blur">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-emerald-100 font-medium">Healthy</p>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{healthyBatches.length}</p>
             </div>
           </div>
         </div>

@@ -17,6 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   TrendingUp,
+  Trash2,
+  Edit2,
+  ClipboardList,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,6 +33,7 @@ const ITEMS_PER_PAGE = 15
 export default function AuditTrail() {
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [activityTypeFilter, setActivityTypeFilter] = useState('all')
   const [severityFilter, setSeverityFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -43,9 +47,29 @@ export default function AuditTrail() {
     }),
   })
 
-  // Filtered in-memory by search term
+  // Filtered in-memory by search term & activity type
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
+      // Activity type filter
+      if (activityTypeFilter === 'deletions' && !log.action.includes('DELETE')) return false
+      if (
+        activityTypeFilter === 'edits' &&
+        !log.action.includes('UPDATE') &&
+        !log.action.includes('CHANGE') &&
+        !log.action.includes('ADJUSTMENT') &&
+        !log.action.includes('SETTING')
+      )
+        return false
+      if (
+        activityTypeFilter === 'creations' &&
+        !log.action.includes('CREATE') &&
+        !log.action.includes('RECEIVE') &&
+        !log.action.includes('SALE')
+      )
+        return false
+      if (activityTypeFilter === 'critical' && log.severity !== 'CRITICAL' && log.severity !== 'WARNING')
+        return false
+
       const matchSearch =
         !searchTerm.trim() ||
         log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -55,7 +79,7 @@ export default function AuditTrail() {
 
       return matchSearch
     })
-  }, [logs, searchTerm])
+  }, [logs, searchTerm, activityTypeFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / ITEMS_PER_PAGE))
   const safeCurrentPage = Math.min(currentPage, totalPages)
@@ -64,9 +88,19 @@ export default function AuditTrail() {
 
   // KPI calculations
   const totalCount = logs.length
-  const criticalCount = logs.filter((l) => l.severity === 'CRITICAL' || l.severity === 'WARNING').length
-  const priceChangesCount = logs.filter((l) => l.category === 'PRICING').length
-  const highValueCount = logs.filter((l) => l.action === 'HIGH_VALUE_SALE').length
+  const deletionsCount = logs.filter((l) => l.action.includes('DELETE')).length
+  const editsCount = logs.filter((l) =>
+    l.action.includes('UPDATE') ||
+    l.action.includes('CHANGE') ||
+    l.action.includes('ADJUSTMENT') ||
+    l.action.includes('SETTING')
+  ).length
+  const majorActivitiesCount = logs.filter((l) =>
+    l.action.includes('CREATE') ||
+    l.action.includes('RECEIVE') ||
+    l.action.includes('SALE') ||
+    l.action.includes('LOGIN')
+  ).length
 
   const getSeverityBadge = (severity: AuditSeverity) => {
     switch (severity) {
@@ -110,11 +144,31 @@ export default function AuditTrail() {
 
   const getActionTag = (action: string, category: string) => {
     let color = 'bg-slate-100 text-slate-700 border-slate-200'
-    if (category === 'PRICING') color = 'bg-amber-50 text-amber-800 border-amber-200'
-    if (category === 'AUTH') color = 'bg-purple-50 text-purple-800 border-purple-200'
-    if (category === 'SALES') color = 'bg-emerald-50 text-emerald-800 border-emerald-200'
-    if (category === 'INVENTORY') color = 'bg-cyan-50 text-cyan-800 border-cyan-200'
-    if (category === 'SYSTEM') color = 'bg-indigo-50 text-indigo-800 border-indigo-200'
+
+    if (action.includes('DELETE')) {
+      color = 'bg-rose-50 text-rose-800 border-rose-200 font-bold'
+    } else if (
+      action.includes('UPDATE') ||
+      action.includes('CHANGE') ||
+      action.includes('ADJUSTMENT') ||
+      action.includes('SETTING')
+    ) {
+      color = 'bg-amber-50 text-amber-800 border-amber-200 font-semibold'
+    } else if (action.includes('CREATE') || action.includes('RECEIVE') || action.includes('SALE')) {
+      color = 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold'
+    } else if (category === 'PRICING') {
+      color = 'bg-amber-50 text-amber-800 border-amber-200'
+    } else if (category === 'AUTH') {
+      color = 'bg-purple-50 text-purple-800 border-purple-200'
+    } else if (category === 'SALES') {
+      color = 'bg-emerald-50 text-emerald-800 border-emerald-200'
+    } else if (category === 'PURCHASES') {
+      color = 'bg-sky-50 text-sky-800 border-sky-200'
+    } else if (category === 'INVENTORY') {
+      color = 'bg-cyan-50 text-cyan-800 border-cyan-200'
+    } else if (category === 'SYSTEM') {
+      color = 'bg-indigo-50 text-indigo-800 border-indigo-200'
+    }
 
     return (
       <span className={`inline-block font-mono text-[11px] font-semibold px-2 py-0.5 rounded border ${color}`}>
@@ -146,49 +200,57 @@ export default function AuditTrail() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 font-sans">
-      {/* ── Top Header Banner ────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-6 text-white shadow-lg shadow-blue-500/10" style={{ backgroundColor: '#1e40af' }}>
-        <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-cyan-400/20 blur-2xl" />
-        <div className="absolute -bottom-12 left-10 h-32 w-32 rounded-full bg-indigo-400/20 blur-2xl" />
+    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
+      {/* ── Top Header Banner ── */}
+      <div
+        className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs"
+        style={{ backgroundColor: '#2563eb' }}
+      >
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
 
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-sky-100">
                 Loss Prevention &amp; Compliance
               </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
-                High-Importance Activities Only
+              <span className="inline-flex items-center rounded-full bg-emerald-400/20 px-2 py-0.5 text-[9px] font-medium text-emerald-100 ring-1 ring-inset ring-emerald-200/30">
+                Real-Time Monitoring
               </span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-bold flex items-center gap-2.5">
-              <ShieldCheck className="w-7 h-7 text-cyan-300" />
-              SML Cold Store Audit Trail
-            </h2>
-            <p className="max-w-2xl text-xs sm:text-sm text-blue-100/90 leading-relaxed">
-              Tamper-evident log recording critical cold store operations: selling price &amp; cost updates, batch deletions,
-              high-value customer invoices (≥ GH₵500), purchase restock orders, and staff account security.
-            </p>
+            <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-sky-100" />
+              Audit Trail &amp; Activity Log
+            </h1>
           </div>
 
           {/* Metric Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-blue-100">Total Audited</p>
-              <p className="text-lg font-semibold">{totalCount}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-shrink-0">
+            <div className="rounded-xl border border-white/10 bg-white/10 px-2.5 py-1.5 backdrop-blur-sm">
+              <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-sky-100 font-medium">
+                <Layers className="h-3 w-3" /> Total Events
+              </div>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{totalCount}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-rose-400/20 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-rose-100">Warnings/Crit</p>
-              <p className="text-lg font-semibold">{criticalCount}</p>
+            <div className="rounded-xl border border-white/10 bg-rose-400/20 px-2.5 py-1.5 backdrop-blur-sm">
+              <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-rose-100 font-medium">
+                <Trash2 className="h-3 w-3" /> Deletions
+              </div>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{deletionsCount}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-amber-400/20 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-amber-100">Price Adjusts</p>
-              <p className="text-lg font-semibold">{priceChangesCount}</p>
+            <div className="rounded-xl border border-white/10 bg-amber-400/20 px-2.5 py-1.5 backdrop-blur-sm">
+              <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-amber-100 font-medium">
+                <Edit2 className="h-3 w-3" /> Edits / Updates
+              </div>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{editsCount}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-emerald-400/20 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-100">Sales ≥₵500</p>
-              <p className="text-lg font-semibold">{highValueCount}</p>
+            <div className="rounded-xl border border-white/10 bg-emerald-400/20 px-2.5 py-1.5 backdrop-blur-sm">
+              <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-emerald-100 font-medium">
+                <TrendingUp className="h-3 w-3" /> Major Ops
+              </div>
+              <p className="text-base sm:text-lg font-bold mt-0.5">{majorActivitiesCount}</p>
             </div>
           </div>
         </div>
@@ -199,7 +261,7 @@ export default function AuditTrail() {
         <CardContent className="p-4 sm:p-6 space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             {/* Search Input */}
-            <div className="relative w-full lg:w-96">
+            <div className="relative w-full lg:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
                 placeholder="Search action, details, staff member..."
@@ -214,8 +276,28 @@ export default function AuditTrail() {
 
             {/* Filters */}
             <div className="flex flex-wrap items-center gap-2.5">
+              {/* Activity Type Filter */}
               <div className="flex items-center gap-1.5">
                 <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-600">Activity:</span>
+                <select
+                  value={activityTypeFilter}
+                  onChange={(e) => {
+                    setActivityTypeFilter(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Activities</option>
+                  <option value="deletions">🗑️ Deletions Only</option>
+                  <option value="edits">✏️ Edits &amp; Updates</option>
+                  <option value="creations">📋 Additions &amp; Restocks</option>
+                  <option value="critical">⚠️ Warnings &amp; Critical</option>
+                </select>
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-slate-600">Category:</span>
                 <select
                   value={categoryFilter}
@@ -228,12 +310,14 @@ export default function AuditTrail() {
                   <option value="all">All Categories</option>
                   <option value="PRICING">Pricing &amp; Cost</option>
                   <option value="INVENTORY">Inventory &amp; Batches</option>
-                  <option value="SALES">High-Value Sales</option>
+                  <option value="PURCHASES">Procurement &amp; Suppliers</option>
+                  <option value="SALES">Sales, POS &amp; Customers</option>
                   <option value="AUTH">Staff &amp; Authentication</option>
-                  <option value="SYSTEM">System &amp; Backups</option>
+                  <option value="SYSTEM">System &amp; Settings</option>
                 </select>
               </div>
 
+              {/* Severity Filter */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-slate-600">Severity:</span>
                 <select

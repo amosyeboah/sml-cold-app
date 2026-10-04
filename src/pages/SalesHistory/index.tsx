@@ -246,82 +246,94 @@ export default function SalesHistory() {
   const momoRevenue = filteredSales.reduce((sum, s) => sum + getSaleBreakdown(s).momo, 0)
   const otherRevenue = filteredSales.reduce((sum, s) => sum + getSaleBreakdown(s).other, 0)
 
+  const getVisiblePages = (current: number, total: number) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1)
+    }
+    const pages: (number | string)[] = [1]
+    if (current > 3) pages.push('ellipsis-start')
+    const start = Math.max(2, current - 1)
+    const end = Math.min(total - 1, current + 1)
+    for (let i = start; i <= end; i++) {
+      pages.push(i)
+    }
+    if (current < total - 2) pages.push('ellipsis-end')
+    pages.push(total)
+    return pages
+  }
+
   return (
-    <div className="h-full overflow-y-auto p-6 space-y-6 font-sans bg-slate-50">
-      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-6 text-white shadow-lg shadow-blue-500/10" style={{ backgroundColor: '#2563eb' }}>
+    <div className="h-full overflow-y-auto overflow-x-hidden p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50 max-w-full">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs" style={{ backgroundColor: '#2563eb' }}>
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl" />
         <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl" />
-        <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5" />
 
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-100">
-                Sales Ledger
-              </span>
-            </div>
-            <h2 className="text-2xl font-bold">Sales History</h2>
-            <p className="max-w-2xl text-sm text-blue-50/90">View all past transactions, search by invoice or customer.</p>
+        <div className="relative flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="space-y-1">
+
+            <h2 className="text-lg sm:text-xl font-bold">Sales History</h2>
           </div>
-          <div className={`grid grid-cols-2 ${otherRevenue > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
-            <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/20 to-white/5 px-4 py-3 backdrop-blur shadow-sm">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-sky-100 font-medium">Transactions</p>
-              <p className="text-2xl font-bold text-white mt-1">{filteredSales.length}</p>
+          <div className={`grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 ${otherRevenue > 0 ? 'xl:grid-cols-5' : 'xl:grid-cols-4'} gap-1.5 sm:gap-2 flex-1 xl:max-w-3xl`}>
+            <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/20 to-white/5 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur shadow-2xs">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-sky-100 font-medium">Transactions</p>
+              <p className="text-base sm:text-lg font-bold text-white mt-0.5">{filteredSales.length}</p>
             </div>
-            <div className="rounded-xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/30 to-emerald-400/10 px-4 py-3 backdrop-blur shadow-sm">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-100 font-medium">Total Sales</p>
-              <p className="text-2xl font-bold text-emerald-50 mt-1">₵{totalRevenue.toFixed(2)}</p>
+            <div className="rounded-xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/30 to-emerald-400/10 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur shadow-2xs">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-emerald-100 font-medium">Total Sales</p>
+              <p className="text-base sm:text-lg font-bold text-emerald-50 mt-0.5">₵{totalRevenue.toFixed(2)}</p>
             </div>
-            <div className="rounded-xl border border-amber-400/20 bg-gradient-to-br from-amber-500/30 to-amber-400/10 px-4 py-3 backdrop-blur shadow-sm">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-amber-100 font-medium">Cash Sales</p>
-              <p className="text-2xl font-bold text-amber-50 mt-1">₵{cashRevenue.toFixed(2)}</p>
+            <div className="rounded-xl border border-amber-400/20 bg-gradient-to-br from-amber-500/30 to-amber-400/10 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur shadow-2xs">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-amber-100 font-medium">Cash Sales</p>
+              <p className="text-base sm:text-lg font-bold text-amber-50 mt-0.5">₵{cashRevenue.toFixed(2)}</p>
             </div>
-            <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-500/30 to-sky-400/10 px-4 py-3 backdrop-blur shadow-sm">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-sky-100 font-medium">MoMo Sales</p>
-              <p className="text-2xl font-bold text-sky-50 mt-1">₵{momoRevenue.toFixed(2)}</p>
+            <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-500/30 to-sky-400/10 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur shadow-2xs">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-sky-100 font-medium">MoMo Sales</p>
+              <p className="text-base sm:text-lg font-bold text-sky-50 mt-0.5">₵{momoRevenue.toFixed(2)}</p>
             </div>
             {otherRevenue > 0 && (
-              <div className="rounded-xl border border-purple-400/20 bg-gradient-to-br from-purple-500/30 to-purple-400/10 px-4 py-3 backdrop-blur shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-purple-100 font-medium">Other Sales</p>
-                <p className="text-2xl font-bold text-purple-50 mt-1">₵{otherRevenue.toFixed(2)}</p>
+              <div className="rounded-xl border border-purple-400/20 bg-gradient-to-br from-purple-500/30 to-purple-400/10 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur shadow-2xs">
+                <p className="text-[9px] sm:text-[10px] uppercase tracking-wider text-purple-100 font-medium">Other Sales</p>
+                <p className="text-base sm:text-lg font-bold text-purple-50 mt-0.5">₵{otherRevenue.toFixed(2)}</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardContent className="p-6">
-          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="border-slate-200 shadow-2xs overflow-hidden">
+        <CardContent className="p-3.5 sm:p-5">
+          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-slate-800">Transactions</h2>
-              <p className="text-sm text-slate-500">Search and review past sales.</p>
+              <h2 className="text-base sm:text-lg font-bold text-slate-800">Transactions</h2>
+              <p className="text-xs text-slate-500">Search and review past sales.</p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <div className="flex flex-wrap items-center gap-2 max-w-full">
+              {/* Date Filters */}
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
                 {dateFilter === 'CUSTOM' ? (
                   <div className="flex items-center gap-1">
-                    <Input 
-                      type="date" 
-                      value={customStartDate} 
-                      onChange={(e) => setCustomStartDate(e.target.value)} 
-                      className="h-8 text-xs px-2 w-32 border-slate-200"
+                    <Input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="h-7 text-xs px-1.5 w-28 border-slate-200"
                     />
-                    <span className="text-slate-400">-</span>
-                    <Input 
-                      type="date" 
-                      value={customEndDate} 
-                      onChange={(e) => setCustomEndDate(e.target.value)} 
-                      className="h-8 text-xs px-2 w-32 border-slate-200"
+                    <span className="text-slate-400 text-xs">-</span>
+                    <Input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="h-7 text-xs px-1.5 w-28 border-slate-200"
                     />
-                    <Button variant="ghost" size="sm" onClick={() => { setDateFilter('WEEK'); setCustomStartDate(''); setCustomEndDate(''); }} className="text-red-500 hover:text-red-700 h-8 px-2 font-bold">✕</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setDateFilter('WEEK'); setCustomStartDate(''); setCustomEndDate(''); }} className="text-red-500 hover:text-red-700 h-7 px-1.5 font-bold">✕</Button>
                   </div>
                 ) : (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => { setDateFilter('CUSTOM'); setCurrentPage(1); }}
-                    className="text-slate-600 hover:bg-slate-200"
+                    className="h-7 px-2 text-xs text-slate-600 hover:bg-slate-200"
                   >
                     Custom Date
                   </Button>
@@ -330,7 +342,7 @@ export default function SalesHistory() {
                   variant={dateFilter === 'TODAY' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setDateFilter('TODAY'); setCurrentPage(1); }}
-                  className={dateFilter === 'TODAY' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${dateFilter === 'TODAY' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   Today
                 </Button>
@@ -338,7 +350,7 @@ export default function SalesHistory() {
                   variant={dateFilter === 'WEEK' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setDateFilter('WEEK'); setCurrentPage(1); }}
-                  className={dateFilter === 'WEEK' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${dateFilter === 'WEEK' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   This Week
                 </Button>
@@ -346,18 +358,19 @@ export default function SalesHistory() {
                   variant={dateFilter === 'MONTH' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setDateFilter('MONTH'); setCurrentPage(1); }}
-                  className={dateFilter === 'MONTH' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${dateFilter === 'MONTH' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   This Month
                 </Button>
               </div>
 
+              {/* Payment Method Filters */}
               <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
                 <Button
                   variant={paymentFilter === 'ALL' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setPaymentFilter('ALL'); setCurrentPage(1); }}
-                  className={paymentFilter === 'ALL' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${paymentFilter === 'ALL' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   All Methods
                 </Button>
@@ -365,7 +378,7 @@ export default function SalesHistory() {
                   variant={paymentFilter === 'CASH' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setPaymentFilter('CASH'); setCurrentPage(1); }}
-                  className={paymentFilter === 'CASH' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${paymentFilter === 'CASH' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   Cash
                 </Button>
@@ -373,13 +386,15 @@ export default function SalesHistory() {
                   variant={paymentFilter === 'MOBILE' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => { setPaymentFilter('MOBILE'); setCurrentPage(1); }}
-                  className={paymentFilter === 'MOBILE' ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-slate-600'}
+                  className={`h-7 px-2 text-xs ${paymentFilter === 'MOBILE' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
                 >
                   Mobile
                 </Button>
               </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+
+              {/* Search Box */}
+              <div className="relative flex-1 sm:flex-initial sm:w-56 md:w-64 min-w-[180px]">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
                   placeholder="Search invoice or customer..."
                   value={searchTerm}
@@ -387,7 +402,7 @@ export default function SalesHistory() {
                     setSearchTerm(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="border-slate-200 bg-slate-50 pl-9"
+                  className="h-8 text-xs border-slate-200 bg-slate-50 pl-8 rounded-lg"
                 />
               </div>
             </div>
@@ -395,49 +410,49 @@ export default function SalesHistory() {
 
           {isLoading ? (
             <div className="flex h-48 items-center justify-center">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
             </div>
           ) : (
-            <div className="max-h-[min(60vh,560px)] overflow-x-auto overflow-y-auto rounded-xl border border-slate-200">
-              <Table>
+            <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <Table className="w-full text-xs">
                 <TableHeader>
-                  <TableRow className="bg-gradient-to-r from-indigo-100 via-purple-50 to-pink-50">
-                    <TableHead className="text-slate-700">Invoice</TableHead>
-                    <TableHead className="text-slate-700">Date & Time</TableHead>
-                    <TableHead className="text-slate-700">Customer</TableHead>
-                    <TableHead className="text-slate-700">Items</TableHead>
-                    <TableHead className="text-slate-700">Total</TableHead>
-                    <TableHead className="text-slate-700">Payment</TableHead>
+                  <TableRow className="bg-slate-50 border-b border-slate-200">
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[110px]">Invoice</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[130px]">Date & Time</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[120px]">Customer</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[80px]">Items</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[80px]">Total</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[120px]">Payment</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedSales.map((sale) => (
-                    <TableRow 
-                      key={sale.id} 
-                      className="border-b border-slate-100 bg-white transition-colors hover:bg-indigo-50 cursor-pointer"
+                    <TableRow
+                      key={sale.id}
+                      className="border-b border-slate-100 bg-white transition-colors hover:bg-blue-50/50 cursor-pointer"
                       onClick={() => setSelectedSale(sale)}
                     >
-                      <TableCell className="font-semibold text-slate-800">
+                      <TableCell className="font-semibold text-slate-800 py-2 px-3 whitespace-nowrap">
                         INV-{sale.id.slice(0, 8).toUpperCase()}
                       </TableCell>
-                      <TableCell className="text-slate-600">
+                      <TableCell className="text-slate-600 py-2 px-3 whitespace-nowrap">
                         {format(new Date(sale.date), 'dd MMM yyyy HH:mm')}
                       </TableCell>
-                      <TableCell className="font-medium text-slate-700">
+                      <TableCell className="font-medium text-slate-700 py-2 px-3 whitespace-nowrap">
                         {sale.customer?.name || 'Walk-in Customer'}
                       </TableCell>
-                      <TableCell className="text-slate-600">
+                      <TableCell className="text-slate-600 py-2 px-3 whitespace-nowrap">
                         {sale.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0} units
                       </TableCell>
-                      <TableCell className="font-semibold text-slate-800">
+                      <TableCell className="font-bold text-slate-900 py-2 px-3 whitespace-nowrap">
                         ₵{Number(sale.total).toFixed(2)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 whitespace-nowrap">
                         {(() => {
                           const bd = getSaleBreakdown(sale)
                           return (
                             <span
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${getPaymentMethodColor(sale.paymentMethod)}`}
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${getPaymentMethodColor(sale.paymentMethod)}`}
                               title={bd.displayLabel}
                             >
                               {bd.isSplit ? (
@@ -464,44 +479,57 @@ export default function SalesHistory() {
           )}
 
           {filteredSales.length > 0 && (
-            <div className="mt-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-slate-600">
+            <div className="mt-4 flex flex-col gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-2xs sm:flex-row sm:items-center sm:justify-between text-xs">
+              <p className="text-slate-600">
                 Showing <span className="font-semibold text-slate-800">{startIndex + 1}</span>
                 {' '}-<span className="font-semibold text-slate-800">{Math.min(startIndex + ITEMS_PER_PAGE, filteredSales.length)}</span>
                 {' '}of <span className="font-semibold text-slate-800">{filteredSales.length}</span> transactions
               </p>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                   disabled={safeCurrentPage === 1}
-                  className="h-8 w-8 rounded-md p-0"
+                  className="h-7 w-7 rounded-md p-0"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
 
-                {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                  <Button
-                    key={page}
-                    variant={page === safeCurrentPage ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setCurrentPage(page)}
-                    className={page === safeCurrentPage ? 'h-8 min-w-8 bg-indigo-600 text-white hover:bg-indigo-700' : 'h-8 min-w-8'}
-                  >
-                    {page}
-                  </Button>
-                ))}
+                {getVisiblePages(safeCurrentPage, totalPages).map((p) => {
+                  if (typeof p === 'string') {
+                    return (
+                      <span key={p} className="px-1 text-slate-400">
+                        ...
+                      </span>
+                    )
+                  }
+                  return (
+                    <Button
+                      key={p}
+                      variant={p === safeCurrentPage ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setCurrentPage(p)}
+                      className={
+                        p === safeCurrentPage
+                          ? 'h-7 min-w-7 px-2 bg-blue-600 text-white hover:bg-blue-700 text-xs'
+                          : 'h-7 min-w-7 px-2 text-slate-600 text-xs'
+                      }
+                    >
+                      {p}
+                    </Button>
+                  )
+                })}
 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                   disabled={safeCurrentPage === totalPages}
-                  className="h-8 w-8 rounded-md p-0"
+                  className="h-7 w-7 rounded-md p-0"
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
@@ -598,10 +626,10 @@ export default function SalesHistory() {
                       selectedSale.payments && selectedSale.payments.length > 0
                         ? selectedSale.payments.filter((p: any) => Number(p.amount) > 0)
                         : [
-                            ...(bd.cash > 0 ? [{ method: 'CASH', amount: bd.cash }] : []),
-                            ...(bd.momo > 0 ? [{ method: 'MOBILE', amount: bd.momo }] : []),
-                            ...(bd.other > 0 ? [{ method: 'OTHER', amount: bd.other }] : []),
-                          ]
+                          ...(bd.cash > 0 ? [{ method: 'CASH', amount: bd.cash }] : []),
+                          ...(bd.momo > 0 ? [{ method: 'MOBILE', amount: bd.momo }] : []),
+                          ...(bd.other > 0 ? [{ method: 'OTHER', amount: bd.other }] : []),
+                        ]
 
                     return (
                       <div className="mt-4 text-sm text-slate-600 border-t pt-3 space-y-2">
@@ -629,8 +657,8 @@ export default function SalesHistory() {
 
               <DialogFooter className="border-t pt-4 sm:justify-between items-center gap-2">
                 {enableRefund ? (
-                  <Button 
-                    variant="destructive" 
+                  <Button
+                    variant="destructive"
                     onClick={() => {
                       if (confirm('Are you sure you want to refund this transaction? This will return items to stock and delete the transaction.')) {
                         refundMutation.mutate(selectedSale.id)

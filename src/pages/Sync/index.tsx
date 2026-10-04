@@ -233,52 +233,49 @@ export default function SyncPage() {
   })
 
   return (
-    <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 font-sans">
-      {/* ── Top Header Banner ────────────────────────────────────────── */}
+    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
+      {/* ── Top Header Banner ── */}
       <div
-        className="relative overflow-hidden rounded-2xl border border-blue-200 p-6 text-white shadow-lg shadow-blue-500/10"
+        className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs"
         style={{ backgroundColor: '#2563eb' }}
       >
-        <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-cyan-300/20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-12 left-10 h-36 w-36 rounded-full bg-violet-300/20 blur-3xl pointer-events-none" />
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-300/20 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 left-10 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl pointer-events-none" />
         <div className="absolute right-14 top-10 h-20 w-20 rounded-full border border-white/20 bg-white/5 pointer-events-none" />
 
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sky-100">
-                Authoritative SQLite ↔ Supabase Sync Engine
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-100">
+                Authoritative SQLite ↔ Supabase
               </span>
-              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-mono text-white">
+              <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-mono text-white">
                 Depot: {status.depotId}
               </span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold flex items-center gap-3 tracking-tight">
-              <Cloud className="w-8 h-8 text-cyan-200 shrink-0" />
+            <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2 tracking-tight">
+              <Cloud className="w-5 h-5 text-cyan-200 shrink-0" />
               Depot Cloud Synchronization
             </h2>
-            <p className="text-xs sm:text-sm text-blue-50/90 max-w-2xl leading-relaxed">
-              Local SQLite is the authoritative source for on-site transactions. Cloud writes are guaranteed idempotent, stock changes sync via immutable movements, and network failures retry with exponential backoff.
-            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
             <Button
               onClick={handleFlushOutbox}
               disabled={isFlushing}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-950/20 h-10 px-4 rounded-xl text-xs sm:text-sm"
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-xs h-8 px-3 rounded-lg text-xs"
             >
-              <RefreshCw className={`w-4 h-4 ${isFlushing ? 'animate-spin' : ''}`} />
-              {isFlushing ? 'Flushing Outbox...' : 'Push Outbox'}
+              <RefreshCw className={`w-3.5 h-3.5 ${isFlushing ? 'animate-spin' : ''}`} />
+              {isFlushing ? 'Flushing...' : 'Push Outbox'}
             </Button>
 
             <Button
               onClick={handleRunReconciliation}
               disabled={isReconciling}
               variant="outline"
-              className="gap-2 border-white/20 bg-white/10 hover:bg-white/20 text-white font-semibold h-10 px-4 rounded-xl text-xs sm:text-sm"
+              className="gap-1.5 border-white/20 bg-white/10 hover:bg-white/20 text-white font-semibold h-8 px-3 rounded-lg text-xs"
             >
-              <FileCheck2 className={`w-4 h-4 ${isReconciling ? 'animate-spin' : ''}`} />
+              <FileCheck2 className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
               {isReconciling ? 'Auditing...' : 'Reconcile'}
             </Button>
           </div>

@@ -5,7 +5,12 @@ import { isCloudHosting } from './hubClient'
 import { bluetoothPrinter } from '../hardware/bluetoothPrinter'
 
 // Web & Mobile compatible password hashing using standard Web Crypto PBKDF2
+const passwordHashCache = new Map<string, string>()
+
 async function hashPassword(password: string): Promise<string> {
+  if (passwordHashCache.has(password)) {
+    return passwordHashCache.get(password)!
+  }
   try {
     const enc = new TextEncoder()
     const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -17,22 +22,26 @@ async function hashPassword(password: string): Promise<string> {
     )
     const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('')
     const hashHex = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('')
-    return `webcrypto:${saltHex}:${hashHex}`
+    const result = `webcrypto:${saltHex}:${hashHex}`
+    passwordHashCache.set(password, result)
+    return result
   } catch {
     return password
   }
 }
 
 async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  if (!stored) return false
+  if (!stored || !password) return false
 
   // 1. Plaintext check
   if (password === stored) return true
 
   // 2. Check PBKDF2 Web Crypto format
   if (stored.startsWith('webcrypto:')) {
+    if (passwordHashCache.get(password) === stored) return true
     try {
       const [, saltHex, hashHex] = stored.split(':')
+      if (!saltHex || !hashHex) return false
       const salt = new Uint8Array(saltHex.match(/.{2}/g)!.map(h => parseInt(h, 16)))
       const enc = new TextEncoder()
       const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits'])
@@ -48,8 +57,18 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
     }
   }
 
-  // 3. Fallback for default seed credentials
-  if (password === 'admin1234' || password === 'admin123' || password === 'manager123' || password === 'cashier123') return true
+  // 3. Bcrypt format (e.g. from SQLite or Supabase)
+  if (stored.startsWith('$2a$') || stored.startsWith('$2b$')) {
+    try {
+      const bcrypt = await import('bcryptjs')
+      const compare = (bcrypt as any).compare || (bcrypt as any).default?.compare
+      if (typeof compare === 'function') {
+        return await compare(password, stored)
+      }
+    } catch {
+      return false
+    }
+  }
 
   return false
 }
@@ -93,9 +112,10 @@ const isOnline = (): boolean => (typeof navigator !== 'undefined' ? Boolean(navi
 
 /** Fetches the live cloud sales mirror without persisting or merging browser sales. */
 export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
+  const localSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
   const client = getSupabaseClient()
   if (!client || !isOnline()) {
-    return []
+    return localSales
   }
 
   try {
@@ -104,8 +124,8 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
       client.from('cloud_sale_items').select('*'),
     ])
 
-    if (salesRes.error || !salesRes.data) {
-      return []
+    if (salesRes.error || !salesRes.data || salesRes.data.length === 0) {
+      return localSales
     }
 
     const cloudSales = salesRes.data || []
@@ -171,7 +191,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
     return mappedSales
   } catch (err) {
     console.warn('Failed to fetch cloud sales in mobileStorage:', err)
-    return []
+    return localSales
   }
 }
 
@@ -528,7 +548,7 @@ async function seedInitialDataIfNeeded() {
 
     const adminUser = users.find(u => u.username && u.username.toLowerCase() === 'admin')
     if (adminUser) {
-      adminUser.password = adminPassword
+      adminUser.password = adminUser.password || adminPassword
       adminUser.pin = adminUser.pin || '1111'
       adminUser.role = 'ADMIN'
     } else {
@@ -537,7 +557,7 @@ async function seedInitialDataIfNeeded() {
 
     const cashierUser = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
     if (cashierUser) {
-      cashierUser.password = cashierPassword
+      cashierUser.password = cashierUser.password || cashierPassword
       cashierUser.pin = cashierUser.pin || '1234'
       cashierUser.role = 'CASHIER'
     } else {
@@ -546,7 +566,7 @@ async function seedInitialDataIfNeeded() {
 
     const managerUser = users.find(u => u.username && u.username.toLowerCase() === 'manager')
     if (managerUser) {
-      managerUser.password = managerPassword
+      managerUser.password = managerUser.password || managerPassword
       managerUser.pin = managerUser.pin || '2222'
       managerUser.role = 'MANAGER'
     } else {
@@ -691,6 +711,56 @@ async function seedInitialDataIfNeeded() {
 // Initialize seed on module load
 seedInitialDataIfNeeded()
 
+// ─── Local Audit Logger Helper ───────────────────────────────────────────────
+function getCurrentOperator(): { username: string; userRole: string } {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('sml-coldstore-auth')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed?.state?.user) {
+          return {
+            username: parsed.state.user.username || 'System',
+            userRole: parsed.state.user.role || 'CASHIER',
+          }
+        }
+      }
+    }
+  } catch {}
+  return { username: 'System', userRole: 'ADMIN' }
+}
+
+function logAuditAction(entry: {
+  action: string
+  category: string
+  details: string
+  username?: string
+  userRole?: string
+  severity?: 'INFO' | 'WARNING' | 'CRITICAL'
+  metadata?: any
+}) {
+  try {
+    const logs = getItem<any[]>(STORAGE_KEYS.AUDIT_LOGS, [])
+    const op = getCurrentOperator()
+    const newLog = {
+      id: generateId(),
+      action: entry.action,
+      category: entry.category,
+      details: entry.details,
+      username: entry.username || op.username,
+      userRole: entry.userRole || op.userRole,
+      severity: entry.severity || 'INFO',
+      metadata: entry.metadata ? (typeof entry.metadata === 'string' ? entry.metadata : JSON.stringify(entry.metadata)) : null,
+      createdAt: new Date().toISOString(),
+    }
+    logs.unshift(newLog)
+    setItem(STORAGE_KEYS.AUDIT_LOGS, logs.slice(0, 500))
+    enqueueSyncItem('AUDIT_LOG', 'INSERT', newLog)
+  } catch (err) {
+    console.warn('Failed to record audit log:', err)
+  }
+}
+
 export const mobileApi = {
   seedInitialDataIfNeeded: async () => seedInitialDataIfNeeded(),
   // Auth
@@ -706,37 +776,44 @@ export const mobileApi = {
     const cleanUsername = (username || '').trim().toLowerCase()
     const cleanPassword = (password || '').trim()
 
-    // Infallible fallback for standard admin credentials
-    if (cleanUsername === 'admin' && (cleanPassword === 'admin1234' || cleanPassword === 'admin123' || cleanPassword === 'admin' || cleanPassword === '1111')) {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'admin')
-      return existing
-        ? { id: existing.id, username: 'admin', role: 'ADMIN', pin: existing.pin || '1111' }
-        : { id: 'admin-default', username: 'admin', role: 'ADMIN', pin: '1111' }
-    }
-
-    // Infallible fallback for standard cashier credentials
-    if (cleanUsername === 'cashier' && (cleanPassword === 'cashier123' || cleanPassword === 'cashier' || cleanPassword === '1234')) {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
-      return existing
-        ? { id: existing.id, username: 'cashier', role: 'CASHIER', pin: existing.pin || '1234' }
-        : { id: 'cashier-default', username: 'cashier', role: 'CASHIER', pin: '1234' }
-    }
-
-    // Infallible fallback for manager credentials
-    if (cleanUsername === 'manager' && (cleanPassword === 'manager123' || cleanPassword === 'manager' || cleanPassword === '2222')) {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'manager')
-      return existing
-        ? { id: existing.id, username: 'manager', role: 'MANAGER', pin: existing.pin || '2222' }
-        : { id: 'manager-default', username: 'manager', role: 'MANAGER', pin: '2222' }
+    if (!cleanUsername || !cleanPassword) {
+      throw new Error('Username and password are required')
     }
 
     const user = users.find(u => u.username && u.username.toLowerCase() === cleanUsername)
-    if (!user) throw new Error('Invalid username or password')
-
-    const isMatch = await verifyPassword(cleanPassword, user.password).catch(() => false)
-    if (!isMatch && user.password !== cleanPassword && user.password !== password) {
+    if (!user) {
+      logAuditAction({
+        action: 'LOGIN_FAILED',
+        category: 'AUTH',
+        details: `Failed sign-in attempt for username "${username}"`,
+        username,
+        userRole: 'UNKNOWN',
+        severity: 'WARNING',
+      })
       throw new Error('Invalid username or password')
     }
+
+    const isMatch = await verifyPassword(cleanPassword, user.password).catch(() => false)
+    if (!isMatch) {
+      logAuditAction({
+        action: 'LOGIN_FAILED',
+        category: 'AUTH',
+        details: `Failed sign-in attempt for staff user "${user.username}"`,
+        username: user.username,
+        userRole: user.role,
+        severity: 'WARNING',
+      })
+      throw new Error('Invalid username or password')
+    }
+
+    logAuditAction({
+      action: 'LOGIN_SUCCESS',
+      category: 'AUTH',
+      details: `Staff user "${user.username}" signed in with role [${user.role}]`,
+      username: user.username,
+      userRole: user.role,
+      severity: 'INFO',
+    })
 
     const { password: _, ...userWithoutPassword } = user
     return userWithoutPassword
@@ -751,35 +828,41 @@ export const mobileApi = {
     }
 
     const cleanPin = (pin || '').trim()
-
-    // Infallible fallback for Admin PIN
-    if (cleanPin === '1111' || cleanPin === '9999' || cleanPin === 'admin' || cleanPin === 'admin1234' || (selectedRole === 'ADMIN' && (cleanPin === '1111' || cleanPin === '1234'))) {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'admin')
-      return existing
-        ? { id: existing.id, username: 'admin', role: 'ADMIN', pin: cleanPin }
-        : { id: 'admin-default', username: 'admin', role: 'ADMIN', pin: cleanPin }
+    if (!cleanPin) {
+      throw new Error('PIN is required')
     }
 
-    // Infallible fallback for Cashier PIN
-    if (cleanPin === '1234' || cleanPin === '0000' || cleanPin === 'cashier' || cleanPin === 'cashier123' || selectedRole === 'CASHIER') {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
-      return existing
-        ? { id: existing.id, username: 'cashier', role: 'CASHIER', pin: cleanPin }
-        : { id: 'cashier-default', username: 'cashier', role: 'CASHIER', pin: cleanPin }
+    // Match user by PIN and optional role
+    let user = users.find(u => u.pin === cleanPin && (!selectedRole || u.role === selectedRole))
+
+    // Fallback across all users if role wasn't strictly selected
+    if (!user && !selectedRole) {
+      user = users.find(u => u.pin === cleanPin)
     }
 
-    // Infallible fallback for Manager PIN
-    if (cleanPin === '2222' || cleanPin === '5555' || selectedRole === 'MANAGER') {
-      const existing = users.find(u => u.username && u.username.toLowerCase() === 'manager')
-      return existing
-        ? { id: existing.id, username: 'manager', role: 'MANAGER', pin: cleanPin }
-        : { id: 'manager-default', username: 'manager', role: 'MANAGER', pin: cleanPin }
-    }
-
-    let user = users.find(u => u.pin === cleanPin)
+    // Default seeded PIN fallbacks if user didn't set a custom PIN yet
     if (!user) {
-      throw new Error('Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+      if (cleanPin === '1111' && (!selectedRole || selectedRole === 'ADMIN')) {
+        user = users.find(u => u.username && u.username.toLowerCase() === 'admin')
+      } else if (cleanPin === '2222' && (!selectedRole || selectedRole === 'MANAGER')) {
+        user = users.find(u => u.username && u.username.toLowerCase() === 'manager')
+      } else if (cleanPin === '1234' && (!selectedRole || selectedRole === 'CASHIER')) {
+        user = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
+      }
     }
+
+    if (!user) {
+      throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
+    }
+
+    logAuditAction({
+      action: 'LOGIN_SUCCESS_PIN',
+      category: 'AUTH',
+      details: `Staff user "${user.username}" signed in via PIN pad [${user.role}]`,
+      username: user.username,
+      userRole: user.role,
+      severity: 'INFO',
+    })
 
     const { password: _, ...userWithoutPassword } = user
     return userWithoutPassword
@@ -1015,24 +1098,47 @@ export const mobileApi = {
     list.push(newItem)
     setItem(STORAGE_KEYS.CATEGORIES, list)
     pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', list).catch(() => {})
+    logAuditAction({
+      action: 'CATEGORY_CREATE',
+      category: 'INVENTORY',
+      details: `Created product category "${newItem.name}"`,
+      severity: 'INFO',
+      metadata: { categoryId: newItem.id, name: newItem.name },
+    })
     return newItem
   },
   updateCategory: async (id: string, data: { name: string }) => {
     const list = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
     const idx = list.findIndex(i => i.id === id)
     if (idx !== -1) {
+      const oldName = list[idx].name
       list[idx] = { ...list[idx], ...data }
       setItem(STORAGE_KEYS.CATEGORIES, list)
       pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', list).catch(() => {})
+      logAuditAction({
+        action: 'CATEGORY_UPDATE',
+        category: 'INVENTORY',
+        details: `Updated category "${oldName}" to "${data.name}"`,
+        severity: 'INFO',
+        metadata: { categoryId: id, oldName, newName: data.name },
+      })
       return list[idx]
     }
     throw new Error('Category not found')
   },
   deleteCategory: async (id: string) => {
     const list = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
+    const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.CATEGORIES, newList)
     pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', newList).catch(() => {})
+    logAuditAction({
+      action: 'CATEGORY_DELETE',
+      category: 'INVENTORY',
+      details: `Deleted product category "${target?.name || id}"`,
+      severity: 'WARNING',
+      metadata: { categoryId: id, name: target?.name },
+    })
   },
 
   // Medicines
@@ -1081,6 +1187,15 @@ export const mobileApi = {
         updated_at: new Date().toISOString()
       }).then(() => {}).catch(() => {})
     }
+
+    logAuditAction({
+      action: 'PRODUCT_CREATE',
+      category: 'INVENTORY',
+      details: `Added new product "${newMed.name}" (SKU: ${newMed.sku}) with selling price GH₵${Number(newMed.price || 0).toFixed(2)}`,
+      severity: 'INFO',
+      metadata: { productId: newMed.id, name: newMed.name, price: newMed.price, cost: newMed.cost },
+    })
+
     return newMed
   },
   updateMedicine: async (id: string, data: any) => {
@@ -1088,15 +1203,47 @@ export const mobileApi = {
     const categories = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
     const idx = medicines.findIndex(m => m.id === id)
     if (idx !== -1) {
-      const cat = categories.find(c => c.id === data.categoryId) || categories.find(c => c.id === medicines[idx].categoryId)
-      const oldName = medicines[idx].name
+      const oldMed = medicines[idx]
+      const cat = categories.find(c => c.id === data.categoryId) || categories.find(c => c.id === oldMed.categoryId)
+      const oldName = oldMed.name
+      const priceChanged = data.price !== undefined && Number(data.price) !== Number(oldMed.price)
+      const costChanged = data.cost !== undefined && Number(data.cost) !== Number(oldMed.cost)
+
       medicines[idx] = {
-        ...medicines[idx],
+        ...oldMed,
         ...data,
-        categoryName: cat?.name || data.categoryName || medicines[idx].categoryName || 'General'
+        categoryName: cat?.name || data.categoryName || oldMed.categoryName || 'General'
       }
       setItem(STORAGE_KEYS.MEDICINES, medicines)
       enqueueSyncItem('PRODUCT', 'UPDATE', medicines[idx])
+
+      if (priceChanged) {
+        logAuditAction({
+          action: 'PRICE_CHANGE',
+          category: 'PRICING',
+          details: `Selling price for "${oldMed.name}" changed from GH₵${Number(oldMed.price).toFixed(2)} to GH₵${Number(data.price).toFixed(2)}`,
+          severity: 'WARNING',
+          metadata: { productId: id, oldPrice: oldMed.price, newPrice: data.price },
+        })
+      }
+      if (costChanged) {
+        logAuditAction({
+          action: 'COST_CHANGE',
+          category: 'PRICING',
+          details: `Unit purchase cost for "${oldMed.name}" changed from GH₵${Number(oldMed.cost).toFixed(2)} to GH₵${Number(data.cost).toFixed(2)}`,
+          severity: 'WARNING',
+          metadata: { productId: id, oldCost: oldMed.cost, newCost: data.cost },
+        })
+      }
+      if (!priceChanged && !costChanged) {
+        logAuditAction({
+          action: 'PRODUCT_UPDATE',
+          category: 'INVENTORY',
+          details: `Product "${oldMed.name}" details updated`,
+          severity: 'INFO',
+          metadata: { productId: id, name: oldMed.name },
+        })
+      }
 
       // Also propagate the updated product name to existing local sales so historical views reflect the new name immediately
       const sales = getItem<any[]>(STORAGE_KEYS.SALES, [])
@@ -1150,10 +1297,19 @@ export const mobileApi = {
     }
 
     const medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+    const target = medicines.find(m => m.id === id)
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
     setItem(STORAGE_KEYS.MEDICINES, medicines.filter(m => m.id !== id))
     setItem(STORAGE_KEYS.BATCHES, batches.filter(b => b.medicineId !== id))
     enqueueSyncItem('PRODUCT', 'DELETE', { id })
+
+    logAuditAction({
+      action: 'PRODUCT_DELETE',
+      category: 'INVENTORY',
+      details: `Deleted product "${target?.name || id}" (SKU: ${target?.sku || 'N/A'}) from inventory`,
+      severity: 'CRITICAL',
+      metadata: { productId: id, name: target?.name, sku: target?.sku },
+    })
 
     const client = getSupabaseClient()
     if (client && isOnline()) {
@@ -1190,6 +1346,14 @@ export const mobileApi = {
     setItem(STORAGE_KEYS.BATCHES, batches)
     enqueueSyncItem('BATCH', 'INSERT', newBatch)
 
+    logAuditAction({
+      action: 'BATCH_CREATE',
+      category: 'INVENTORY',
+      details: `Created batch #${newBatch.batchNumber} with ${newBatch.quantity} items`,
+      severity: 'INFO',
+      metadata: { batchId: newBatch.id, batchNumber: newBatch.batchNumber },
+    })
+
     const client = getSupabaseClient()
     if (client && isOnline()) {
       client.from('cloud_batches').upsert({
@@ -1207,6 +1371,27 @@ export const mobileApi = {
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
     const idx = batches.findIndex(b => b.id === id)
     if (idx !== -1) {
+      const oldBatch = batches[idx]
+      const qtyChanged = data.quantity !== undefined && Number(data.quantity) !== Number(oldBatch.quantity)
+      if (qtyChanged) {
+        const delta = Number(data.quantity) - Number(oldBatch.quantity)
+        logAuditAction({
+          action: 'STOCK_ADJUSTMENT',
+          category: 'INVENTORY',
+          details: `Batch "${oldBatch.batchNumber}" stock adjusted from ${oldBatch.quantity} to ${data.quantity} (${delta > 0 ? '+' : ''}${delta})`,
+          severity: 'WARNING',
+          metadata: { batchId: id, oldQty: oldBatch.quantity, newQty: data.quantity, delta },
+        })
+      } else {
+        logAuditAction({
+          action: 'BATCH_UPDATE',
+          category: 'INVENTORY',
+          details: `Updated details for batch "${oldBatch.batchNumber}"`,
+          severity: 'INFO',
+          metadata: { batchId: id, batchNumber: oldBatch.batchNumber },
+        })
+      }
+
       batches[idx] = { ...batches[idx], ...data }
       setItem(STORAGE_KEYS.BATCHES, batches)
       enqueueSyncItem('BATCH', 'UPDATE', batches[idx])
@@ -1234,7 +1419,16 @@ export const mobileApi = {
     }
 
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
+    const target = batches.find(b => b.id === id)
     setItem(STORAGE_KEYS.BATCHES, batches.filter(b => b.id !== id))
+
+    logAuditAction({
+      action: 'BATCH_DELETE',
+      category: 'INVENTORY',
+      details: `Deleted batch "${target?.batchNumber || id}" (Stock was: ${target?.quantity ?? 0})`,
+      severity: 'CRITICAL',
+      metadata: { batchId: id, batchNumber: target?.batchNumber, lastStock: target?.quantity },
+    })
 
     const client = getSupabaseClient()
     if (client && isOnline()) {
@@ -1254,24 +1448,52 @@ export const mobileApi = {
     list.push(newItem)
     setItem(STORAGE_KEYS.SUPPLIERS, list)
     pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', list).catch(() => {})
+
+    logAuditAction({
+      action: 'SUPPLIER_CREATE',
+      category: 'PURCHASES',
+      details: `Registered new supplier "${newItem.name}"${newItem.contact ? ` (Contact: ${newItem.contact})` : ''}`,
+      severity: 'INFO',
+      metadata: { supplierId: newItem.id, name: newItem.name },
+    })
+
     return newItem
   },
   updateSupplier: async (id: string, data: any) => {
     const list = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
     const idx = list.findIndex(i => i.id === id)
     if (idx !== -1) {
-      list[idx] = { ...list[idx], ...data }
+      const oldSup = list[idx]
+      list[idx] = { ...oldSup, ...data }
       setItem(STORAGE_KEYS.SUPPLIERS, list)
       pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', list).catch(() => {})
+
+      logAuditAction({
+        action: 'SUPPLIER_UPDATE',
+        category: 'PURCHASES',
+        details: `Updated supplier profile for "${oldSup.name}"`,
+        severity: 'INFO',
+        metadata: { supplierId: id, name: list[idx].name },
+      })
+
       return list[idx]
     }
     throw new Error('Supplier not found')
   },
   deleteSupplier: async (id: string) => {
     const list = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
+    const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.SUPPLIERS, newList)
     pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', newList).catch(() => {})
+
+    logAuditAction({
+      action: 'SUPPLIER_DELETE',
+      category: 'PURCHASES',
+      details: `Deleted supplier "${target?.name || id}"`,
+      severity: 'WARNING',
+      metadata: { supplierId: id, name: target?.name },
+    })
   },
 
   // Customers
@@ -1282,24 +1504,52 @@ export const mobileApi = {
     list.push(newItem)
     setItem(STORAGE_KEYS.CUSTOMERS, list)
     pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', list).catch(() => {})
+
+    logAuditAction({
+      action: 'CUSTOMER_CREATE',
+      category: 'SALES',
+      details: `Registered customer "${newItem.name}"${newItem.phone ? ` (${newItem.phone})` : ''}`,
+      severity: 'INFO',
+      metadata: { customerId: newItem.id, name: newItem.name },
+    })
+
     return newItem
   },
   updateCustomer: async (id: string, data: any) => {
     const list = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
     const idx = list.findIndex(i => i.id === id)
     if (idx !== -1) {
-      list[idx] = { ...list[idx], ...data }
+      const oldCust = list[idx]
+      list[idx] = { ...oldCust, ...data }
       setItem(STORAGE_KEYS.CUSTOMERS, list)
       pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', list).catch(() => {})
+
+      logAuditAction({
+        action: 'CUSTOMER_UPDATE',
+        category: 'SALES',
+        details: `Updated customer profile for "${oldCust.name}"`,
+        severity: 'INFO',
+        metadata: { customerId: id, name: list[idx].name },
+      })
+
       return list[idx]
     }
     throw new Error('Customer not found')
   },
   deleteCustomer: async (id: string) => {
     const list = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
+    const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.CUSTOMERS, newList)
     pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', newList).catch(() => {})
+
+    logAuditAction({
+      action: 'CUSTOMER_DELETE',
+      category: 'SALES',
+      details: `Deleted customer "${target?.name || id}"`,
+      severity: 'WARNING',
+      metadata: { customerId: id, name: target?.name },
+    })
   },
 
   // Sales (POS)
@@ -1450,6 +1700,15 @@ export const mobileApi = {
       setItem(STORAGE_KEYS.PRESCRIPTIONS, prescriptions)
     }
 
+    const saleTotal = Number(newSale.total) || 0
+    logAuditAction({
+      action: saleTotal >= 500 ? 'HIGH_VALUE_SALE' : 'POS_SALE',
+      category: 'SALES',
+      details: `POS transaction completed: GH₵${saleTotal.toFixed(2)} (${newSale.items.length} items, ${newSale.paymentMethod})`,
+      severity: saleTotal >= 500 ? 'WARNING' : 'INFO',
+      metadata: { saleId: newSale.id, total: saleTotal, paymentMethod: newSale.paymentMethod, customer: newSale.customerName },
+    })
+
     return newSale
   },
 
@@ -1485,6 +1744,14 @@ export const mobileApi = {
     sales.splice(saleIndex, 1)
     setItem(STORAGE_KEYS.SALES, sales)
     pushCloudStateMirror('STATE_SALES', 'SALES', 'sales', sales).catch(() => {})
+
+    logAuditAction({
+      action: 'SALE_REFUND',
+      category: 'SALES',
+      details: `Sale transaction #${id.slice(0, 8)} for GH₵${Number(sale.total || 0).toFixed(2)} was refunded and cancelled`,
+      severity: 'WARNING',
+      metadata: { saleId: id, total: sale.total },
+    })
 
     // Delete from Supabase if online
     const client = getSupabaseClient()
@@ -1618,6 +1885,14 @@ export const mobileApi = {
     setItem(STORAGE_KEYS.PURCHASES, list)
     pushCloudStateMirror('STATE_PURCHASES', 'PURCHASES', 'purchases', list).catch(() => {})
 
+    logAuditAction({
+      action: 'BATCH_RECEIVE',
+      category: 'PURCHASES',
+      details: `Restocked ${newPurchase.items?.length || 0} items from supplier (Total: GH₵${Number(newPurchase.total).toFixed(2)})`,
+      severity: 'INFO',
+      metadata: { purchaseId: newPurchase.id, supplierId: newPurchase.supplierId, total: newPurchase.total, itemsCount: newPurchase.items?.length },
+    })
+
     return newPurchase
   },
 
@@ -1628,6 +1903,15 @@ export const mobileApi = {
       list[idx] = { ...list[idx], ...data }
       setItem(STORAGE_KEYS.PURCHASES, list)
       pushCloudStateMirror('STATE_PURCHASES', 'PURCHASES', 'purchases', list).catch(() => {})
+
+      logAuditAction({
+        action: 'PURCHASE_UPDATE',
+        category: 'PURCHASES',
+        details: `Purchase order #${id.slice(0, 8)} updated (New total: GH₵${Number(data.total || 0).toFixed(2)})`,
+        severity: 'WARNING',
+        metadata: { purchaseId: id, total: data.total },
+      })
+
       return list[idx]
     }
     throw new Error('Purchase not found')
@@ -1654,6 +1938,14 @@ export const mobileApi = {
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.PURCHASES, newList)
     pushCloudStateMirror('STATE_PURCHASES', 'PURCHASES', 'purchases', newList).catch(() => {})
+
+    logAuditAction({
+      action: 'PURCHASE_DELETE',
+      category: 'PURCHASES',
+      details: `Purchase order #${id.slice(0, 8)} for GH₵${Number(target?.total || 0).toFixed(2)} was deleted`,
+      severity: 'WARNING',
+      metadata: { purchaseId: id, total: target?.total },
+    })
   },
 
   // Users
@@ -1668,6 +1960,15 @@ export const mobileApi = {
     users.push(newUser)
     setItem(STORAGE_KEYS.USERS, users)
     pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', users).catch(() => {})
+
+    logAuditAction({
+      action: 'USER_CREATE',
+      category: 'AUTH',
+      details: `New staff user "${data.username}" created with role "${data.role || 'CASHIER'}"`,
+      severity: 'WARNING',
+      metadata: { userId: newUser.id, username: data.username, role: data.role },
+    })
+
     const { password, ...userNoPass } = newUser
     return userNoPass
   },
@@ -1682,6 +1983,15 @@ export const mobileApi = {
       users[idx] = { ...users[idx], ...data }
       setItem(STORAGE_KEYS.USERS, users)
       pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', users).catch(() => {})
+
+      logAuditAction({
+        action: 'USER_UPDATE',
+        category: 'AUTH',
+        details: `Updated operator account "${users[idx].username}" (Role: ${data.role || users[idx].role})`,
+        severity: 'WARNING',
+        metadata: { userId: id, username: users[idx].username, role: data.role },
+      })
+
       const { password, ...userNoPass } = users[idx]
       return userNoPass
     }
@@ -1689,9 +1999,18 @@ export const mobileApi = {
   },
   deleteUser: async (id: string) => {
     const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
+    const target = users.find(u => u.id === id)
     const newUsers = users.filter(u => u.id !== id)
     setItem(STORAGE_KEYS.USERS, newUsers)
     pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', newUsers).catch(() => {})
+
+    logAuditAction({
+      action: 'USER_DELETE',
+      category: 'AUTH',
+      details: `Deleted staff operator account "${target?.username || id}" (Role: ${target?.role || 'UNKNOWN'})`,
+      severity: 'CRITICAL',
+      metadata: { userId: id, username: target?.username, role: target?.role },
+    })
   },
 
   // Reports
@@ -1733,7 +2052,6 @@ export const mobileApi = {
 
     const totalSales = sales.reduce((acc, s) => acc + (s.total || 0), 0)
     const totalPurchases = purchases.reduce((acc, p) => acc + (p.total || 0), 0)
-    const grossProfit = totalSales - totalPurchases
     const transactions = sales.length
     const days = eachDay(start, end)
     const dayCount = Math.max(1, days.length)
@@ -1741,18 +2059,54 @@ export const mobileApi = {
 
     const prevTotalSales = prevSales.reduce((acc, s) => acc + (s.total || 0), 0)
     const prevTotalPurchases = prevPurchases.reduce((acc, p) => acc + (p.total || 0), 0)
-    const prevGrossProfit = prevTotalSales - prevTotalPurchases
     const prevTransactions = prevSales.length
     const prevAvgDaily = prevTotalSales / dayCount
 
+    // 1. Calculate COGS and product sales for the current period
+    let totalCogs = 0
     const salesByDay = new Map<string, number>()
+    const cogsByDay = new Map<string, number>()
     const purchasesByDay = new Map<string, number>()
     const transactionsByDay = new Map<string, number>()
+    const productSalesMap = new Map<string, { qty: number; revenue: number; cogs: number }>()
 
     for (const sale of sales) {
       const key = formatDayLabel(parseDate(sale.date))
       salesByDay.set(key, (salesByDay.get(key) || 0) + (sale.total || 0))
       transactionsByDay.set(key, (transactionsByDay.get(key) || 0) + 1)
+
+      let saleCogs = 0
+      for (const item of (sale.items || [])) {
+        const batch = allBatches.find(b => b.id === item.batchId)
+        const med = allMedicines.find(m => m.id === (batch?.medicineId || item.medicineId) || (item.name && m.name.toLowerCase() === item.name.toLowerCase()))
+        const medId = med?.id || item.medicineId || item.name || 'unknown'
+        const qty = Number(item.quantity) || 0
+        const price = Number(item.price) || Number(med?.price) || 0
+        const unitCost = Number(item.cost ?? item.unitCost ?? item.unit_cost ?? batch?.medicine?.cost ?? med?.cost ?? 0)
+
+        const itemCogs = qty * unitCost
+        saleCogs += itemCogs
+
+        const existingProd = productSalesMap.get(medId) || { qty: 0, revenue: 0, cogs: 0 }
+        existingProd.qty += qty
+        existingProd.revenue += qty * price
+        existingProd.cogs += itemCogs
+        productSalesMap.set(medId, existingProd)
+      }
+      totalCogs += saleCogs
+      cogsByDay.set(key, (cogsByDay.get(key) || 0) + saleCogs)
+    }
+
+    // 2. Previous period COGS for trend analysis
+    let prevTotalCogs = 0
+    for (const sale of prevSales) {
+      for (const item of (sale.items || [])) {
+        const batch = allBatches.find(b => b.id === item.batchId)
+        const med = allMedicines.find(m => m.id === (batch?.medicineId || item.medicineId) || (item.name && m.name.toLowerCase() === item.name.toLowerCase()))
+        const qty = Number(item.quantity) || 0
+        const unitCost = Number(item.cost ?? item.unitCost ?? item.unit_cost ?? batch?.medicine?.cost ?? med?.cost ?? 0)
+        prevTotalCogs += qty * unitCost
+      }
     }
 
     for (const purchase of purchases) {
@@ -1760,15 +2114,73 @@ export const mobileApi = {
       purchasesByDay.set(key, (purchasesByDay.get(key) || 0) + (purchase.total || 0))
     }
 
+    // 3. Profit Earned (Realized Gross Profit on sales: Total Sales - COGS)
+    const profitEarned = totalCogs > 0 ? (totalSales - totalCogs) : (totalSales - totalPurchases)
+    const prevProfitEarned = prevTotalCogs > 0 ? (prevTotalSales - prevTotalCogs) : (prevTotalSales - prevTotalPurchases)
+    const profitMargin = totalSales > 0 ? (profitEarned / totalSales) * 100 : 0
+    const grossProfit = profitEarned
+    const prevGrossProfit = prevProfitEarned
+
+    // 4. Current Inventory Stock Valuation and Profits Expected
+    const stockByProduct = new Map<string, number>()
+    for (const batch of allBatches) {
+      const qty = Number(batch.quantity) || 0
+      if (qty > 0 && batch.medicineId) {
+        stockByProduct.set(batch.medicineId, (stockByProduct.get(batch.medicineId) || 0) + qty)
+      }
+    }
+
+    let inventoryCost = 0
+    let expectedInventoryRevenue = 0
+    for (const med of allMedicines) {
+      const stock = stockByProduct.get(med.id) !== undefined ? stockByProduct.get(med.id)! : (Number(med.stockQuantity) || 0)
+      const cost = Number(med.cost) || 0
+      const price = Number(med.price) || 0
+      inventoryCost += stock * cost
+      expectedInventoryRevenue += stock * price
+    }
+    const profitsExpected = Math.max(0, expectedInventoryRevenue - inventoryCost)
+
+    // 5. Product-by-product P&L breakdown
+    const profitBreakdown = allMedicines.map(med => {
+      const salesData = productSalesMap.get(med.id) || { qty: 0, revenue: 0, cogs: 0 }
+      const itemProfitEarned = salesData.revenue - salesData.cogs
+      const marginPercent = salesData.revenue > 0 ? (itemProfitEarned / salesData.revenue) * 100 : 0
+      const currentStock = stockByProduct.get(med.id) !== undefined ? stockByProduct.get(med.id)! : (Number(med.stockQuantity) || 0)
+      const unitCost = Number(med.cost) || 0
+      const unitPrice = Number(med.price) || 0
+      const stockCost = currentStock * unitCost
+      const expRevenue = currentStock * unitPrice
+      const expectedProfit = Math.max(0, expRevenue - stockCost)
+
+      return {
+        id: med.id,
+        name: med.name,
+        category: med.categoryName || 'General',
+        quantitySold: salesData.qty,
+        revenue: salesData.revenue,
+        cogs: salesData.cogs,
+        profitEarned: itemProfitEarned,
+        marginPercent,
+        currentStock,
+        stockCost,
+        expectedProfit,
+      }
+    }).filter(p => p.quantitySold > 0 || p.currentStock > 0)
+      .sort((a, b) => b.profitEarned - a.profitEarned || b.revenue - a.revenue)
+
     const salesOverview = days.map((day) => {
       const label = formatDayLabel(day)
       const daySales = salesByDay.get(label) || 0
       const dayPurchases = purchasesByDay.get(label) || 0
+      const dayCogs = cogsByDay.get(label) || 0
+      const dayProfit = dayCogs > 0 ? (daySales - dayCogs) : (daySales - dayPurchases)
       return {
         date: label,
         sales: daySales,
         purchases: dayPurchases,
-        profit: daySales - dayPurchases,
+        cogs: dayCogs,
+        profit: dayProfit,
         transactions: transactionsByDay.get(label) || 0,
       }
     })
@@ -1896,22 +2308,146 @@ export const mobileApi = {
       status: purchase.status || 'Completed',
     }))
 
+    // 6. Comprehensive Cold Store Inventory Report
+    const inventoryItems = allMedicines.map(med => {
+      const medBatches = allBatches.filter(b => b.medicineId === med.id)
+      const batchStockSum = medBatches.reduce((acc, b) => acc + (Number(b.quantity) || 0), 0)
+      const currentStock = stockByProduct.get(med.id) !== undefined
+        ? stockByProduct.get(med.id)!
+        : (batchStockSum > 0 ? batchStockSum : (Number(med.stockQuantity) || 0))
+
+      const unitCost = Number(med.cost) || 0
+      const unitPrice = Number(med.price) || 0
+      const minStockLevel = Number(med.minStockLevel) || 10
+      const totalCostValue = currentStock * unitCost
+      const totalRetailValue = currentStock * unitPrice
+      const potentialProfit = Math.max(0, totalRetailValue - totalCostValue)
+      const marginPercent = totalRetailValue > 0 ? (potentialProfit / totalRetailValue) * 100 : 0
+
+      let status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'IN_STOCK'
+      if (currentStock === 0) {
+        status = 'OUT_OF_STOCK'
+      } else if (currentStock <= minStockLevel) {
+        status = 'LOW_STOCK'
+      }
+
+      const batches = medBatches
+        .map(b => {
+          const days = daysUntil(parseDate(b.expiryDate))
+          let batchStatus: 'HEALTHY' | 'EXPIRING_SOON' | 'EXPIRED' = 'HEALTHY'
+          if (days <= 0) {
+            batchStatus = 'EXPIRED'
+          } else if (days <= 60) {
+            batchStatus = 'EXPIRING_SOON'
+          }
+          return {
+            id: b.id,
+            batchNumber: b.batchNumber || 'N/A',
+            quantity: Number(b.quantity) || 0,
+            expiryDate: new Date(b.expiryDate).toISOString(),
+            daysToExpiry: days,
+            status: batchStatus,
+          }
+        })
+        .sort((a, b) => a.daysToExpiry - b.daysToExpiry)
+
+      return {
+        id: med.id,
+        name: med.name,
+        sku: med.sku || 'N/A',
+        category: med.categoryName || med.category?.name || 'General',
+        currentStock,
+        minStockLevel,
+        unitCost,
+        unitPrice,
+        totalCostValue,
+        totalRetailValue,
+        potentialProfit,
+        marginPercent,
+        status,
+        batchCount: batches.length,
+        batches,
+      }
+    }).sort((a, b) => b.totalCostValue - a.totalCostValue || a.name.localeCompare(b.name))
+
+    const totalCartons = inventoryItems.reduce((acc, i) => acc + i.currentStock, 0)
+    const invTotalCostValue = inventoryItems.reduce((acc, i) => acc + i.totalCostValue, 0)
+    const invTotalRetailValue = inventoryItems.reduce((acc, i) => acc + i.totalRetailValue, 0)
+    const invTotalPotentialProfit = Math.max(0, invTotalRetailValue - invTotalCostValue)
+    const invPotentialMarginPercent = invTotalRetailValue > 0 ? (invTotalPotentialProfit / invTotalRetailValue) * 100 : 0
+    const healthyCount = inventoryItems.filter(i => i.status === 'IN_STOCK').length
+    const lowStockCount = inventoryItems.filter(i => i.status === 'LOW_STOCK').length
+    const outOfStockCount = inventoryItems.filter(i => i.status === 'OUT_OF_STOCK').length
+
+    const categoryMap = new Map<string, { itemCount: number; totalStock: number; totalCostValue: number; totalRetailValue: number }>()
+    for (const item of inventoryItems) {
+      const cat = item.category || 'General'
+      const existing = categoryMap.get(cat) || { itemCount: 0, totalStock: 0, totalCostValue: 0, totalRetailValue: 0 }
+      existing.itemCount += 1
+      existing.totalStock += item.currentStock
+      existing.totalCostValue += item.totalCostValue
+      existing.totalRetailValue += item.totalRetailValue
+      categoryMap.set(cat, existing)
+    }
+
+    const categoriesSummary = Array.from(categoryMap.entries()).map(([category, catData]) => ({
+      category,
+      itemCount: catData.itemCount,
+      totalStock: catData.totalStock,
+      totalCostValue: catData.totalCostValue,
+      totalRetailValue: catData.totalRetailValue,
+      percentOfTotalValue: invTotalCostValue > 0 ? (catData.totalCostValue / invTotalCostValue) * 100 : 0,
+    })).sort((a, b) => b.totalCostValue - a.totalCostValue)
+
+    const expiringBatchesCount = allBatches.filter(b => (Number(b.quantity) || 0) > 0 && daysUntil(parseDate(b.expiryDate)) > 0 && daysUntil(parseDate(b.expiryDate)) <= 60).length
+    const expiredBatchesCount = allBatches.filter(b => (Number(b.quantity) || 0) > 0 && daysUntil(parseDate(b.expiryDate)) <= 0).length
+
+    const inventoryReport = {
+      totalProducts: inventoryItems.length,
+      totalCartons,
+      totalCostValue: invTotalCostValue,
+      totalRetailValue: invTotalRetailValue,
+      totalPotentialProfit: invTotalPotentialProfit,
+      potentialMarginPercent: invPotentialMarginPercent,
+      healthyCount,
+      lowStockCount,
+      outOfStockCount,
+      expiringBatchesCount,
+      expiredBatchesCount,
+      categories: categoriesSummary,
+      items: inventoryItems,
+    }
+
     return {
       kpis: {
         totalSales,
         cashSales: cashTotal,
         mobileSales: mobileTotal,
         totalPurchases,
+        cogs: totalCogs,
+        profitEarned,
+        profitsExpected,
+        profitMargin,
+        inventoryCost: invTotalCostValue,
+        expectedInventoryRevenue: invTotalRetailValue,
+        inventoryCartons: totalCartons,
+        inventoryItemsCount: inventoryItems.length,
+        inventoryHealthyCount: healthyCount,
+        inventoryLowStockCount: lowStockCount,
+        inventoryOutOfStockCount: outOfStockCount,
         grossProfit,
         transactions,
         avgDailySales,
         salesTrend: calcTrend(totalSales, prevTotalSales),
         purchasesTrend: calcTrend(totalPurchases, prevTotalPurchases),
         profitTrend: calcTrend(grossProfit, prevGrossProfit),
+        cogsTrend: calcTrend(totalCogs, prevTotalCogs),
+        profitEarnedTrend: calcTrend(profitEarned, prevProfitEarned),
         transactionsTrend: calcTrend(transactions, prevTransactions),
         avgDailyTrend: calcTrend(avgDailySales, prevAvgDaily),
         salesSparkline: salesOverview.map((d) => d.sales),
         purchasesSparkline: salesOverview.map((d) => d.purchases),
+        cogsSparkline: salesOverview.map((d) => d.cogs || 0),
         profitSparkline: salesOverview.map((d) => d.profit),
         transactionsSparkline: salesOverview.map((d) => d.transactions),
         avgDailySparkline: salesOverview.map((d) => (d.sales > 0 ? d.sales : 0)),
@@ -1922,25 +2458,51 @@ export const mobileApi = {
       recentTransactions,
       expiringBatches,
       purchases: purchaseRows,
+      profitBreakdown,
+      inventoryReport,
     }
   },
   exportReportsExcel: async (startDate: string, endDate: string) => {
     try {
       const data = await mobileApi.getReportsData(startDate, endDate)
+      const inv = data.inventoryReport
       const csvRows: string[] = [
         'Report Summary',
         `Date Range,${startDate} to ${endDate}`,
         `Total Sales,${data.kpis.totalSales}`,
         `Total Cash Sales,${data.kpis.cashSales ?? 0}`,
         `Total Mobile Money Sales,${data.kpis.mobileSales ?? 0}`,
+        `Cost of Goods Sold (COGS),${data.kpis.cogs ?? 0}`,
+        `Profit Earned,${data.kpis.profitEarned ?? 0}`,
+        `Profit Margin,${(data.kpis.profitMargin ?? 0).toFixed(1)}%`,
+        `Profits Expected (On Stock),${data.kpis.profitsExpected ?? 0}`,
+        `Inventory Cost Valuation,${data.kpis.inventoryCost ?? 0}`,
+        `Inventory Retail Valuation,${data.kpis.expectedInventoryRevenue ?? 0}`,
+        `Total Inventory Cartons,${data.kpis.inventoryCartons ?? inv?.totalCartons ?? 0}`,
         `Total Purchases,${data.kpis.totalPurchases}`,
         `Gross Profit,${data.kpis.grossProfit}`,
         `Transactions,${data.kpis.transactions}`,
         `Avg Daily Sales,${data.kpis.avgDailySales.toFixed(2)}`,
         '',
+        'Comprehensive Inventory Valuation & Stock Report',
+        'Product,Category,SKU,Cartons On Hand,Min Stock Alert,Unit Cost (GHS),Unit Price (GHS),Valuation Cost (GHS),Valuation Retail (GHS),Expected Profit (GHS),Margin %,Stock Status,Batch Lots Count',
+        ...(inv?.items || []).map(i =>
+          `"${i.name}","${i.category}","${i.sku}",${i.currentStock},${i.minStockLevel},${i.unitCost},${i.unitPrice},${i.totalCostValue},${i.totalRetailValue},${i.potentialProfit},${i.marginPercent.toFixed(1)}%,"${i.status}",${i.batchCount}`
+        ),
+        '',
+        'Inventory Category Breakdown',
+        'Category,Product Count,Total Cartons,Cost Valuation (GHS),Retail Valuation (GHS),% of Stock Value',
+        ...(inv?.categories || []).map(c =>
+          `"${c.category}",${c.itemCount},${c.totalStock},${c.totalCostValue},${c.totalRetailValue},${c.percentOfTotalValue.toFixed(1)}%`
+        ),
+        '',
+        'Profit & Loss Breakdown',
+        'Product,Category,Qty Sold,Revenue,COGS,Profit Earned,Margin %,Stock on Hand,Expected Profit',
+        ...(data.profitBreakdown || []).map(p => `"${p.name}","${p.category}",${p.quantitySold},${p.revenue},${p.cogs},${p.profitEarned},${p.marginPercent.toFixed(1)}%,${p.currentStock},${p.expectedProfit}`),
+        '',
         'Daily Overview',
-        'Date,Sales,Purchases,Profit,Transactions',
-        ...data.salesOverview.map(d => `${d.date},${d.sales},${d.purchases},${d.profit},${d.transactions}`),
+        'Date,Sales,Purchases,COGS,Profit,Transactions',
+        ...data.salesOverview.map(d => `${d.date},${d.sales},${d.purchases},${d.cogs || 0},${d.profit},${d.transactions}`),
         '',
         'Payment Breakdown',
         'Method,Total,Percent',
@@ -2000,9 +2562,10 @@ export const mobileApi = {
   },
 
   // Bluetooth Printer Controls
-  connectBluetoothPrinter: async () => bluetoothPrinter.connect(),
+  connectBluetoothPrinter: async (address?: string) => bluetoothPrinter.connect(address),
   disconnectBluetoothPrinter: async () => bluetoothPrinter.disconnect(),
   getBluetoothPrinterStatus: () => bluetoothPrinter.getStatus(),
+  listBluetoothPrinters: async () => bluetoothPrinter.listPairedDevices(),
   testBluetoothPrinter: async () => bluetoothPrinter.testPrint(),
   setBluetoothPaperWidth: (width: '58mm' | '80mm') => bluetoothPrinter.setPaperWidth(width),
 
@@ -2053,6 +2616,15 @@ export const mobileApi = {
     const updated = { ...current, ...updates }
     setItem(STORAGE_KEYS.SETTINGS, updated)
     pushCloudStateMirror('STATE_SETTINGS', 'SYSTEM', 'settings', updated).catch(() => {})
+
+    logAuditAction({
+      action: 'SETTINGS_UPDATE',
+      category: 'SYSTEM',
+      details: `Cold store system settings updated (${Object.keys(updates).join(', ')})`,
+      severity: 'WARNING',
+      metadata: { updatedKeys: Object.keys(updates) },
+    })
+
     return updated
   },
 
@@ -2146,8 +2718,8 @@ export const mobileApi = {
   // Cloud Sync Backend Credentials (.env / Environment)
   getCloudCredentials: async () => {
     return {
-      url: (import.meta as any).env?.VITE_SUPABASE_URL || 'https://yhglbervaljjkmttzonk.supabase.co',
-      anonKey: (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZ2xiZXJ2YWxqamttdHR6b25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDA4MzIsImV4cCI6MjEwNTYxNjgzMn0.8STKvBtPKL3J9BH7Mdvadrna-zcYYFqGXGaBx4y_Wis',
+      url: (import.meta as any).env?.VITE_SUPABASE_URL || 'https://porlaindujqtgrtiuzjz.supabase.co',
+      anonKey: (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk',
     }
   },
 

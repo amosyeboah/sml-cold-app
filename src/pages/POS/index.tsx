@@ -142,37 +142,64 @@ function MedicineCard({ product, onAdd }: { product: any; onAdd: () => void }) {
   const inStock = product.totalStock > 0
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
-      <div className={cn('relative flex h-[110px] items-center justify-center bg-gradient-to-br', getCardGradient(med.id))}>
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/70 shadow-sm backdrop-blur-sm">
-          <Package className="h-8 w-8 text-sky-600/80" />
+    <div
+      onClick={inStock ? onAdd : undefined}
+      title={med.name}
+      className={cn(
+        'group flex flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-2xs transition-all select-none',
+        inStock
+          ? 'cursor-pointer hover:border-blue-400 hover:shadow-md hover:-translate-y-0.5'
+          : 'opacity-60 cursor-not-allowed'
+      )}
+    >
+      {/* Compact Header Visual Banner */}
+      <div className={cn('relative flex h-[50px] sm:h-[56px] items-center justify-center bg-gradient-to-br', getCardGradient(med.id))}>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/80 shadow-2xs backdrop-blur-xs group-hover:scale-105 transition-transform">
+          <Package className="h-4 w-4 text-sky-600/90" />
         </div>
+        {inStock && (
+          <span className="absolute top-1 right-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[9px] font-bold text-slate-700 shadow-2xs">
+            {product.totalStock} ctn
+          </span>
+        )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-3.5">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold leading-tight text-slate-800">{med.name}</p>
-          <p className="mt-0.5 truncate text-[11px] text-slate-400">
-            {med.genericName || med.category?.name || `${product.batchCount} batch(es)`}
+
+      {/* Content Body */}
+      <div className="flex flex-1 flex-col justify-between p-2 gap-1.5">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-bold leading-tight text-slate-800 group-hover:text-blue-600 transition-colors">
+            {med.name}
+          </p>
+          <p className="mt-0.5 truncate text-[10px] text-slate-400">
+            {med.genericName || med.category?.name || `${product.batchCount} lot(s)`}
           </p>
         </div>
-        <div className="flex items-end justify-between gap-2">
-          <div>
-            <p className="text-base font-bold text-slate-900">₵{med.price.toFixed(2)}</p>
-            <p className={cn('mt-0.5 text-[11px] font-medium', inStock ? 'text-slate-500' : 'text-red-500')}>
-              {inStock ? `Stock: ${product.totalStock} cartons` : 'Out of Stock'}
+
+        <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-extrabold text-slate-900 leading-none">
+              ₵{med.price.toFixed(2)}
+            </p>
+            <p className={cn('text-[9px] font-semibold mt-0.5', inStock ? 'text-emerald-600' : 'text-rose-500')}>
+              {inStock ? 'In Stock' : 'Out of stock'}
             </p>
           </div>
+
           <button
-            onClick={onAdd}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              if (inStock) onAdd()
+            }}
             disabled={!inStock}
             className={cn(
-              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-all',
+              'flex h-6 w-6 sm:h-6.5 sm:w-6.5 flex-shrink-0 items-center justify-center rounded-full transition-all',
               inStock
-                ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700 active:scale-95'
+                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700 active:scale-90 group-hover:bg-blue-700'
                 : 'cursor-not-allowed bg-slate-100 text-slate-300'
             )}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -180,7 +207,7 @@ function MedicineCard({ product, onAdd }: { product: any; onAdd: () => void }) {
   )
 }
 
-const PAGE_SIZE = 12
+const PAGE_SIZE = 24
 
 function CartPanelContent({
   cart,
@@ -1120,6 +1147,27 @@ export default function POS() {
     })
   }
 
+  // Crisp POS audio feedback for barcode scans
+  const playScannerBeep = (success = true) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioCtx) return
+      const ctx = new AudioCtx()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(success ? 1400 : 320, ctx.currentTime)
+      gain.gain.setValueAtTime(0.08, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (success ? 0.09 : 0.22))
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + (success ? 0.09 : 0.22))
+    } catch {
+      // AudioContext autoplay fallback
+    }
+  }
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -1131,11 +1179,14 @@ export default function POS() {
       const target = exactMatch || (filteredProducts.length === 1 ? filteredProducts[0] : null)
       if (target) {
         addToCart(target)
+        playScannerBeep(true)
         setSearchQuery('')
         setToast({ type: 'success', message: `Added ${target.medicine.name} to cart` })
       } else if (filteredProducts.length > 1) {
+        playScannerBeep(false)
         setToast({ type: 'error', message: `Multiple matches (${filteredProducts.length}). Select product from list.` })
       } else {
+        playScannerBeep(false)
         setToast({ type: 'error', message: 'No matching product found.' })
       }
     }
@@ -1206,6 +1257,82 @@ export default function POS() {
   const handleDeleteHeldSale = (id: string) => {
     setHeldSales((prev) => prev.filter((h) => h.id !== id))
   }
+
+  // ─── Global Hardware Barcode Scanner & POS Hotkeys ────────────────────────
+  useEffect(() => {
+    let barcodeBuffer = ''
+    let lastKeyTime = 0
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 1. Hotkeys: F1 (Clear Cart), F2 (Hold Sale), F4 / Ctrl+K (Focus Search)
+      if (e.key === 'F1') {
+        e.preventDefault()
+        clearCart()
+        setToast({ type: 'success', message: 'Cart cleared' })
+        return
+      }
+      if (e.key === 'F2') {
+        e.preventDefault()
+        handleHoldSale()
+        return
+      }
+      if (e.key === 'F4' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+        return
+      }
+
+      // 2. Identify active focused element
+      const target = e.target as HTMLElement | null
+      const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+      const isSearchInput = target === searchRef.current
+
+      const now = Date.now()
+      const timeDiff = now - lastKeyTime
+      lastKeyTime = now
+
+      // Hardware barcode scanners send keys with very short delays (< 65ms per character)
+      if (e.key === 'Enter') {
+        if (barcodeBuffer.trim().length >= 3) {
+          const scannedCode = barcodeBuffer.trim().toLowerCase()
+          // Search in active product catalog by SKU/barcode or exact name
+          const matched = productsList.find(
+            (p) => p.medicine.sku?.toLowerCase() === scannedCode || p.medicine.name.toLowerCase() === scannedCode
+          )
+
+          if (matched) {
+            e.preventDefault()
+            addToCart(matched)
+            playScannerBeep(true)
+            setToast({ type: 'success', message: `Scanned: ${matched.medicine.name}` })
+            setSearchQuery('')
+            if (isSearchInput) {
+              searchRef.current?.blur()
+            }
+          } else {
+            // Only alert if we weren't just pressing enter on search with a query
+            if (!isSearchInput) {
+              playScannerBeep(false)
+              setToast({ type: 'error', message: `No product found for barcode: "${barcodeBuffer.trim()}"` })
+            }
+          }
+          barcodeBuffer = ''
+          return
+        }
+        barcodeBuffer = ''
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // If characters arrive slowly (> 70ms apart) and we're not inside the search input, reset buffer
+        if (timeDiff > 70 && !isSearchInput) {
+          barcodeBuffer = ''
+        }
+        barcodeBuffer += e.key
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [productsList, clearCart, handleHoldSale, addToCart])
 
   const handleCheckout = () => {
     if (cart.length === 0) return
@@ -1759,42 +1886,44 @@ export default function POS() {
                 <p className="mt-1 text-xs">All cartons or batches may be out of stock or past freezer shelf life</p>
               </div>
             ) : viewMode === 'grid' ? (
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-2.5">
                 {pageProducts.map((prod: any) => (
                   <MedicineCard key={prod.id} product={prod} onAdd={() => addToCart(prod)} />
                 ))}
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {pageProducts.map((prod: any) => (
                   <div
                     key={prod.id}
-                    className="flex items-center gap-3 sm:gap-4 rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-200"
+                    className="flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200/80 bg-white p-2 sm:p-2.5 shadow-2xs transition-all hover:border-blue-300"
                   >
                     <div
                       className={cn(
-                        'flex h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br',
+                        'flex h-8 w-8 sm:h-9 sm:w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br',
                         getCardGradient(prod.medicine.id)
                       )}
                     >
-                      <Package className="h-4 w-4 sm:h-5 sm:w-5 text-sky-600/80" />
+                      <Package className="h-4 w-4 text-sky-600/90" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs sm:text-sm font-bold text-slate-800">{prod.medicine.name}</p>
-                      <p className="truncate text-[11px] text-slate-400">
+                      <p className="truncate text-[10px] text-slate-400">
                         {prod.medicine.genericName || prod.medicine.category?.name} • {prod.batchCount} lot(s)
                       </p>
                     </div>
                     <div className="flex-shrink-0 text-right">
-                      <p className="text-xs sm:text-sm font-bold text-slate-800">{currencySymbol}{prod.medicine.price.toFixed(2)}</p>
-                      <p className="text-[11px] text-slate-400">Stock: {prod.totalStock}</p>
+                      <p className="text-xs sm:text-sm font-extrabold text-slate-900">{currencySymbol}{prod.medicine.price.toFixed(2)}</p>
+                      <p className={cn('text-[10px] font-medium', prod.totalStock > 0 ? 'text-slate-500' : 'text-rose-500')}>
+                        {prod.totalStock > 0 ? `Stock: ${prod.totalStock}` : 'Out of Stock'}
+                      </p>
                     </div>
                     <button
                       onClick={() => addToCart(prod)}
                       disabled={prod.totalStock <= 0}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 active:scale-95 disabled:opacity-30"
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 active:scale-95 disabled:opacity-30 cursor-pointer"
                     >
-                      <Plus className="h-4 w-4" />
+                      <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}

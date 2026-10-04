@@ -85,34 +85,116 @@ export interface DashboardStats {
   todaySalesCount: number
 }
 
+export interface ProductProfitBreakdown {
+  id: string
+  name: string
+  category: string
+  quantitySold: number
+  revenue: number
+  cogs: number
+  profitEarned: number
+  marginPercent: number
+  currentStock: number
+  stockCost: number
+  expectedProfit: number
+}
+
 export interface ReportsKPIs {
   totalSales: number
   cashSales?: number
   mobileSales?: number
   totalPurchases: number
+  cogs: number
+  profitEarned: number
+  profitsExpected: number
+  profitMargin?: number
+  inventoryCost?: number
+  expectedInventoryRevenue?: number
+  inventoryCartons?: number
+  inventoryItemsCount?: number
+  inventoryHealthyCount?: number
+  inventoryLowStockCount?: number
+  inventoryOutOfStockCount?: number
   grossProfit: number
   transactions: number
   avgDailySales: number
   salesTrend: number
   purchasesTrend: number
   profitTrend: number
+  cogsTrend?: number
+  profitEarnedTrend?: number
   transactionsTrend: number
   avgDailyTrend: number
   salesSparkline: number[]
   purchasesSparkline: number[]
   profitSparkline: number[]
+  cogsSparkline?: number[]
   transactionsSparkline: number[]
   avgDailySparkline: number[]
 }
 
+export interface InventoryBatchDetail {
+  id: string
+  batchNumber: string
+  quantity: number
+  expiryDate: string
+  daysToExpiry: number
+  status: 'HEALTHY' | 'EXPIRING_SOON' | 'EXPIRED'
+}
+
+export interface InventoryReportItem {
+  id: string
+  name: string
+  sku: string
+  category: string
+  currentStock: number
+  minStockLevel: number
+  unitCost: number
+  unitPrice: number
+  totalCostValue: number
+  totalRetailValue: number
+  potentialProfit: number
+  marginPercent: number
+  status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'
+  batchCount: number
+  batches: InventoryBatchDetail[]
+}
+
+export interface InventoryCategorySummary {
+  category: string
+  itemCount: number
+  totalStock: number
+  totalCostValue: number
+  totalRetailValue: number
+  percentOfTotalValue: number
+}
+
+export interface InventoryReportData {
+  totalProducts: number
+  totalCartons: number
+  totalCostValue: number
+  totalRetailValue: number
+  totalPotentialProfit: number
+  potentialMarginPercent: number
+  healthyCount: number
+  lowStockCount: number
+  outOfStockCount: number
+  expiringBatchesCount: number
+  expiredBatchesCount: number
+  categories: InventoryCategorySummary[]
+  items: InventoryReportItem[]
+}
+
 export interface ReportsData {
   kpis: ReportsKPIs
-  salesOverview: { date: string; sales: number; purchases: number; profit: number; transactions: number }[]
+  salesOverview: { date: string; sales: number; purchases: number; cogs?: number; profit: number; transactions: number }[]
   paymentBreakdown: { name: string; value: number; percent: number; color: string }[]
   topMedicines: { name: string; qty: number; revenue: number }[]
   recentTransactions: { id: string; customer: string; amount: number; payment: string; time: string }[]
   expiringBatches: { name: string; batch: string; days: number }[]
   purchases: { id: string; date: string; supplier: string; total: number; status: string }[]
+  profitBreakdown?: ProductProfitBreakdown[]
+  inventoryReport?: InventoryReportData
 }
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL'

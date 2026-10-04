@@ -36,9 +36,10 @@ export function getApi() {
       },
 
       // Bluetooth printer methods
-      connectBluetoothPrinter: () => mobileApi.connectBluetoothPrinter(),
+      connectBluetoothPrinter: (address?: string) => mobileApi.connectBluetoothPrinter(address),
       disconnectBluetoothPrinter: () => mobileApi.disconnectBluetoothPrinter(),
       getBluetoothPrinterStatus: () => mobileApi.getBluetoothPrinterStatus(),
+      listBluetoothPrinters: () => mobileApi.listBluetoothPrinters(),
       testBluetoothPrinter: () => mobileApi.testBluetoothPrinter(),
       setBluetoothPaperWidth: (w: any) => mobileApi.setBluetoothPaperWidth(w),
 

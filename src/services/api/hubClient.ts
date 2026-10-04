@@ -390,9 +390,10 @@ export const hubClient = {
   },
 
   // Bluetooth Printer Controls
-  connectBluetoothPrinter: async () => bluetoothPrinter.connect(),
+  connectBluetoothPrinter: async (address?: string) => bluetoothPrinter.connect(address),
   disconnectBluetoothPrinter: async () => bluetoothPrinter.disconnect(),
   getBluetoothPrinterStatus: () => bluetoothPrinter.getStatus(),
+  listBluetoothPrinters: async () => bluetoothPrinter.listPairedDevices(),
   testBluetoothPrinter: async () => bluetoothPrinter.testPrint(),
   setBluetoothPaperWidth: (width: '58mm' | '80mm') => bluetoothPrinter.setPaperWidth(width),
 

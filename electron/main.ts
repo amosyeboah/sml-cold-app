@@ -56,6 +56,32 @@ function resolveDatabasePath(): string {
 }
 
 async function initDatabase(): Promise<void> {
+  const targetDbPath = resolveDatabasePath()
+  const dbDir = path.dirname(targetDbPath)
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true })
+  }
+
+  // Ensure fresh production installs copy the initial template database with seeded schema and catalog
+  if (!is.dev && !fs.existsSync(targetDbPath)) {
+    const candidates = [
+      path.join(process.resourcesPath, 'database', 'pharmacy.db'),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'database', 'pharmacy.db'),
+      path.join(__dirname, '../../database/pharmacy.db')
+    ]
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        try {
+          fs.copyFileSync(cand, targetDbPath)
+          console.log(`✅ Seeded production database from template: ${cand}`)
+          break
+        } catch (copyErr) {
+          console.error(`⚠️ Failed to copy initial database from ${cand}:`, copyErr)
+        }
+      }
+    }
+  }
+
   const dbUrl = resolveDatabaseUrl()
   process.env.DATABASE_URL = dbUrl
 
@@ -174,13 +200,17 @@ app.on('window-all-closed', async () => {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 ipcMain.handle('auth:login', async (_, username: string, password: string) => {
-  const user = await prisma.user.findUnique({ where: { username } })
+  const cleanUsername = (username || '').trim().toLowerCase()
+  const cleanPassword = (password || '').trim()
+
+  const allUsers = await prisma.user.findMany()
+  const user = allUsers.find(u => u.username.toLowerCase() === cleanUsername)
   let valid = false
-  if (user) {
+  if (user && cleanPassword) {
     if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
-      valid = await bcrypt.compare(password, user.password)
+      valid = await bcrypt.compare(cleanPassword, user.password)
     } else {
-      valid = password === user.password
+      valid = cleanPassword === user.password
     }
   }
 
@@ -215,17 +245,22 @@ ipcMain.handle('auth:login', async (_, username: string, password: string) => {
 })
 
 ipcMain.handle('auth:loginWithPin', async (_, pin: string, selectedRole?: string) => {
+  const cleanPin = (pin || '').trim()
   const allUsers = await prisma.user.findMany()
-  let user = allUsers.find(u => u.pin === pin)
+  let user = allUsers.find(u => u.pin === cleanPin && (!selectedRole || u.role === selectedRole))
 
-  // Fallback to hardcoded PINs if user didn't set a custom PIN yet
+  if (!user && !selectedRole) {
+    user = allUsers.find(u => u.pin === cleanPin)
+  }
+
+  // Fallback to hardcoded default PINs if user didn't set a custom PIN yet
   if (!user) {
     let targetUsername = ''
-    if ((selectedRole === 'ADMIN' && pin === '1111') || pin === '1111' || pin === '9999') {
+    if (cleanPin === '1111' && (!selectedRole || selectedRole === 'ADMIN')) {
       targetUsername = 'admin'
-    } else if ((selectedRole === 'MANAGER' && pin === '2222') || pin === '2222' || pin === '5555') {
+    } else if (cleanPin === '2222' && (!selectedRole || selectedRole === 'MANAGER')) {
       targetUsername = 'manager'
-    } else if ((selectedRole === 'CASHIER' && pin === '1234') || pin === '1234' || pin === '0000') {
+    } else if (cleanPin === '1234' && (!selectedRole || selectedRole === 'CASHIER')) {
       targetUsername = 'cashier'
     }
     if (targetUsername) {
@@ -234,7 +269,7 @@ ipcMain.handle('auth:loginWithPin', async (_, pin: string, selectedRole?: string
   }
 
   if (!user) {
-    throw new Error('Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+    throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
   }
 
   await recordAudit({
@@ -321,15 +356,41 @@ ipcMain.handle('categories:getAll', async () => {
 })
 
 ipcMain.handle('categories:create', async (_, data: { name: string }) => {
-  return prisma.category.create({ data })
+  const cat = await prisma.category.create({ data })
+  await recordAudit({
+    action: 'CATEGORY_CREATE',
+    category: 'INVENTORY',
+    details: `Created product category "${cat.name}"`,
+    severity: 'INFO',
+    metadata: { categoryId: cat.id, name: cat.name },
+  })
+  return cat
 })
 
 ipcMain.handle('categories:update', async (_, id: string, data: { name: string }) => {
-  return prisma.category.update({ where: { id }, data })
+  const existing = await prisma.category.findUnique({ where: { id } })
+  const cat = await prisma.category.update({ where: { id }, data })
+  await recordAudit({
+    action: 'CATEGORY_UPDATE',
+    category: 'INVENTORY',
+    details: `Updated category "${existing?.name || id}" to "${cat.name}"`,
+    severity: 'INFO',
+    metadata: { categoryId: id, oldName: existing?.name, newName: cat.name },
+  })
+  return cat
 })
 
 ipcMain.handle('categories:delete', async (_, id: string) => {
-  return prisma.category.delete({ where: { id } })
+  const existing = await prisma.category.findUnique({ where: { id } })
+  const res = await prisma.category.delete({ where: { id } })
+  await recordAudit({
+    action: 'CATEGORY_DELETE',
+    category: 'INVENTORY',
+    details: `Deleted product category "${existing?.name || id}"`,
+    severity: 'WARNING',
+    metadata: { categoryId: id, name: existing?.name },
+  })
+  return res
 })
 
 // ─── Batches ──────────────────────────────────────────────────────────────────
@@ -365,15 +426,41 @@ ipcMain.handle('suppliers:getAll', async () => {
 })
 
 ipcMain.handle('suppliers:create', async (_, data: any) => {
-  return prisma.supplier.create({ data })
+  const sup = await prisma.supplier.create({ data })
+  await recordAudit({
+    action: 'SUPPLIER_CREATE',
+    category: 'PURCHASES',
+    details: `Registered new supplier "${sup.name}"${sup.contact ? ` (Contact: ${sup.contact})` : ''}`,
+    severity: 'INFO',
+    metadata: { supplierId: sup.id, name: sup.name },
+  })
+  return sup
 })
 
 ipcMain.handle('suppliers:update', async (_, id: string, data: any) => {
-  return prisma.supplier.update({ where: { id }, data })
+  const existing = await prisma.supplier.findUnique({ where: { id } })
+  const sup = await prisma.supplier.update({ where: { id }, data })
+  await recordAudit({
+    action: 'SUPPLIER_UPDATE',
+    category: 'PURCHASES',
+    details: `Updated supplier profile for "${existing?.name || sup.name}"`,
+    severity: 'INFO',
+    metadata: { supplierId: id, name: sup.name, changes: data },
+  })
+  return sup
 })
 
 ipcMain.handle('suppliers:delete', async (_, id: string) => {
-  return prisma.supplier.delete({ where: { id } })
+  const existing = await prisma.supplier.findUnique({ where: { id } })
+  const res = await prisma.supplier.delete({ where: { id } })
+  await recordAudit({
+    action: 'SUPPLIER_DELETE',
+    category: 'PURCHASES',
+    details: `Deleted supplier "${existing?.name || id}"`,
+    severity: 'WARNING',
+    metadata: { supplierId: id, name: existing?.name },
+  })
+  return res
 })
 
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -382,15 +469,41 @@ ipcMain.handle('customers:getAll', async () => {
 })
 
 ipcMain.handle('customers:create', async (_, data: any) => {
-  return prisma.customer.create({ data })
+  const cust = await prisma.customer.create({ data })
+  await recordAudit({
+    action: 'CUSTOMER_CREATE',
+    category: 'SALES',
+    details: `Registered customer "${cust.name}"${cust.phone ? ` (${cust.phone})` : ''}`,
+    severity: 'INFO',
+    metadata: { customerId: cust.id, name: cust.name, phone: cust.phone },
+  })
+  return cust
 })
 
 ipcMain.handle('customers:update', async (_, id: string, data: any) => {
-  return prisma.customer.update({ where: { id }, data })
+  const existing = await prisma.customer.findUnique({ where: { id } })
+  const cust = await prisma.customer.update({ where: { id }, data })
+  await recordAudit({
+    action: 'CUSTOMER_UPDATE',
+    category: 'SALES',
+    details: `Updated customer profile for "${existing?.name || cust.name}"`,
+    severity: 'INFO',
+    metadata: { customerId: id, name: cust.name, phone: cust.phone },
+  })
+  return cust
 })
 
 ipcMain.handle('customers:delete', async (_, id: string) => {
-  return prisma.customer.delete({ where: { id } })
+  const existing = await prisma.customer.findUnique({ where: { id } })
+  const res = await prisma.customer.delete({ where: { id } })
+  await recordAudit({
+    action: 'CUSTOMER_DELETE',
+    category: 'SALES',
+    details: `Deleted customer "${existing?.name || id}"`,
+    severity: 'WARNING',
+    metadata: { customerId: id, name: existing?.name },
+  })
+  return res
 })
 
 // ─── Sales (POS) ──────────────────────────────────────────────────────────────
@@ -420,7 +533,15 @@ ipcMain.handle('sales:getAll', async () => {
 })
 
 ipcMain.handle('sales:refund', async (_, id: string) => {
-  return await saleService.refundSale(id)
+  const res = await saleService.refundSale(id)
+  await recordAudit({
+    action: 'SALE_REFUND',
+    category: 'SALES',
+    details: `Sale transaction #${id.slice(0, 8)} was refunded and reversed`,
+    severity: 'WARNING',
+    metadata: { saleId: id },
+  })
+  return res
 })
 
 // ─── Dashboard Stats ─────────────────────────────────────────────────────────
@@ -718,6 +839,13 @@ ipcMain.handle('purchases:update', async (_, id: string, data: { supplierId: str
         },
       })
     }
+    await recordAudit({
+      action: 'PURCHASE_UPDATE',
+      category: 'PURCHASES',
+      details: `Purchase order #${id.slice(0, 8)} updated (New total: GH₵${data.total.toFixed(2)}, ${data.items.length} items)`,
+      severity: 'WARNING',
+      metadata: { purchaseId: id, total: data.total, itemCount: data.items.length },
+    })
     return purchase
   })
 })
@@ -1107,7 +1235,7 @@ async function buildReportsData(startDate: string, endDate: string) {
   const prevStart = new Date(prevEnd.getTime() - periodMs)
   prevStart.setHours(0, 0, 0, 0)
 
-  const [sales, purchases, prevSales, prevPurchases, expiringBatches, recentSales] = await Promise.all([
+  const [sales, purchases, prevSales, prevPurchases, expiringBatches, recentSales, allActiveBatches, allMedicines] = await Promise.all([
     prisma.sale.findMany({
       where: { date: { gte: start, lte: end } },
       include: {
@@ -1122,7 +1250,12 @@ async function buildReportsData(startDate: string, endDate: string) {
       include: { supplier: true },
       orderBy: { date: 'desc' },
     }),
-    prisma.sale.findMany({ where: { date: { gte: prevStart, lte: prevEnd } } }),
+    prisma.sale.findMany({
+      where: { date: { gte: prevStart, lte: prevEnd } },
+      include: {
+        items: { include: { batch: { include: { medicine: true } } } },
+      },
+    }),
     prisma.purchase.findMany({ where: { date: { gte: prevStart, lte: prevEnd } } }),
     prisma.batch.findMany({
       where: {
@@ -1139,29 +1272,70 @@ async function buildReportsData(startDate: string, endDate: string) {
       orderBy: { date: 'desc' },
       take: 8,
     }),
+    prisma.batch.findMany({
+      where: { quantity: { gt: 0 } },
+      include: { medicine: true },
+    }),
+    prisma.medicine.findMany({
+      include: { category: true, batches: true },
+    }),
   ])
 
   const totalSales = sales.reduce((acc, sale) => acc + sale.total, 0)
   const totalPurchases = purchases.reduce((acc, purchase) => acc + purchase.total, 0)
-  const grossProfit = totalSales - totalPurchases
   const transactions = sales.length
-  const dayCount = Math.max(1, eachDay(start, end).length)
+  const days = eachDay(start, end)
+  const dayCount = Math.max(1, days.length)
   const avgDailySales = totalSales / dayCount
 
   const prevTotalSales = prevSales.reduce((acc, sale) => acc + sale.total, 0)
   const prevTotalPurchases = prevPurchases.reduce((acc, purchase) => acc + purchase.total, 0)
-  const prevGrossProfit = prevTotalSales - prevTotalPurchases
   const prevTransactions = prevSales.length
   const prevAvgDaily = prevTotalSales / dayCount
 
+  // 1. Calculate COGS and product sales for the current period
+  let totalCogs = 0
   const salesByDay = new Map<string, number>()
+  const cogsByDay = new Map<string, number>()
   const purchasesByDay = new Map<string, number>()
   const transactionsByDay = new Map<string, number>()
+  const productSalesMap = new Map<string, { qty: number; revenue: number; cogs: number }>()
 
   for (const sale of sales) {
     const key = formatDayLabel(sale.date)
     salesByDay.set(key, (salesByDay.get(key) || 0) + sale.total)
     transactionsByDay.set(key, (transactionsByDay.get(key) || 0) + 1)
+
+    let saleCogs = 0
+    for (const item of sale.items) {
+      const med = item.batch?.medicine
+      const medId = med?.id || 'unknown'
+      const qty = item.quantity || 0
+      const price = item.price || med?.price || 0
+      const unitCost = med?.cost || 0
+
+      const itemCogs = qty * unitCost
+      saleCogs += itemCogs
+
+      const existingProd = productSalesMap.get(medId) || { qty: 0, revenue: 0, cogs: 0 }
+      existingProd.qty += qty
+      existingProd.revenue += qty * price
+      existingProd.cogs += itemCogs
+      productSalesMap.set(medId, existingProd)
+    }
+    totalCogs += saleCogs
+    cogsByDay.set(key, (cogsByDay.get(key) || 0) + saleCogs)
+  }
+
+  // 2. Previous period COGS for trend analysis
+  let prevTotalCogs = 0
+  for (const sale of prevSales) {
+    for (const item of sale.items) {
+      const med = item.batch?.medicine
+      const qty = item.quantity || 0
+      const unitCost = med?.cost || 0
+      prevTotalCogs += qty * unitCost
+    }
   }
 
   for (const purchase of purchases) {
@@ -1169,15 +1343,73 @@ async function buildReportsData(startDate: string, endDate: string) {
     purchasesByDay.set(key, (purchasesByDay.get(key) || 0) + purchase.total)
   }
 
-  const salesOverview = eachDay(start, end).map((day) => {
+  // 3. Profit Earned (Realized Gross Profit on sales: Total Sales - COGS)
+  const profitEarned = totalCogs > 0 ? (totalSales - totalCogs) : (totalSales - totalPurchases)
+  const prevProfitEarned = prevTotalCogs > 0 ? (prevTotalSales - prevTotalCogs) : (prevTotalSales - prevTotalPurchases)
+  const profitMargin = totalSales > 0 ? (profitEarned / totalSales) * 100 : 0
+  const grossProfit = profitEarned
+  const prevGrossProfit = prevProfitEarned
+
+  // 4. Current Inventory Stock Valuation and Profits Expected
+  const stockByProduct = new Map<string, number>()
+  for (const batch of allActiveBatches) {
+    const qty = batch.quantity || 0
+    if (qty > 0 && batch.medicineId) {
+      stockByProduct.set(batch.medicineId, (stockByProduct.get(batch.medicineId) || 0) + qty)
+    }
+  }
+
+  let inventoryCost = 0
+  let expectedInventoryRevenue = 0
+  for (const med of allMedicines) {
+    const stock = stockByProduct.get(med.id) || 0
+    const cost = Number(med.cost) || 0
+    const price = Number(med.price) || 0
+    inventoryCost += stock * cost
+    expectedInventoryRevenue += stock * price
+  }
+  const profitsExpected = Math.max(0, expectedInventoryRevenue - inventoryCost)
+
+  // 5. Product-by-product P&L breakdown
+  const profitBreakdown = allMedicines.map((med) => {
+    const salesData = productSalesMap.get(med.id) || { qty: 0, revenue: 0, cogs: 0 }
+    const itemProfitEarned = salesData.revenue - salesData.cogs
+    const marginPercent = salesData.revenue > 0 ? (itemProfitEarned / salesData.revenue) * 100 : 0
+    const currentStock = stockByProduct.get(med.id) || 0
+    const unitCost = Number(med.cost) || 0
+    const unitPrice = Number(med.price) || 0
+    const stockCost = currentStock * unitCost
+    const expRevenue = currentStock * unitPrice
+    const expectedProfit = Math.max(0, expRevenue - stockCost)
+
+    return {
+      id: med.id,
+      name: med.name,
+      category: med.category?.name || 'General',
+      quantitySold: salesData.qty,
+      revenue: salesData.revenue,
+      cogs: salesData.cogs,
+      profitEarned: itemProfitEarned,
+      marginPercent,
+      currentStock,
+      stockCost,
+      expectedProfit,
+    }
+  }).filter((p) => p.quantitySold > 0 || p.currentStock > 0)
+    .sort((a, b) => b.profitEarned - a.profitEarned || b.revenue - a.revenue)
+
+  const salesOverview = days.map((day) => {
     const label = formatDayLabel(day)
     const daySales = salesByDay.get(label) || 0
     const dayPurchases = purchasesByDay.get(label) || 0
+    const dayCogs = cogsByDay.get(label) || 0
+    const dayProfit = dayCogs > 0 ? (daySales - dayCogs) : (daySales - dayPurchases)
     return {
       date: label,
       sales: daySales,
       purchases: dayPurchases,
-      profit: daySales - dayPurchases,
+      cogs: dayCogs,
+      profit: dayProfit,
       transactions: transactionsByDay.get(label) || 0,
     }
   })
@@ -1295,22 +1527,146 @@ async function buildReportsData(startDate: string, endDate: string) {
     status: purchase.status,
   }))
 
+  // 6. Comprehensive Cold Store Inventory Report
+  const inventoryItems = allMedicines.map((med: any) => {
+    const medBatches = med.batches || []
+    const currentStock = stockByProduct.get(med.id) || 0
+    const unitCost = Number(med.cost) || 0
+    const unitPrice = Number(med.price) || 0
+    const minStockLevel = Number(med.minStockLevel) || 10
+    const totalCostValue = currentStock * unitCost
+    const totalRetailValue = currentStock * unitPrice
+    const potentialProfit = Math.max(0, totalRetailValue - totalCostValue)
+    const marginPercent = totalRetailValue > 0 ? (potentialProfit / totalRetailValue) * 100 : 0
+
+    let status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'IN_STOCK'
+    if (currentStock === 0) {
+      status = 'OUT_OF_STOCK'
+    } else if (currentStock <= minStockLevel) {
+      status = 'LOW_STOCK'
+    }
+
+    const batches = medBatches.map((b: any) => {
+      const days = daysUntil(b.expiryDate)
+      let batchStatus: 'HEALTHY' | 'EXPIRING_SOON' | 'EXPIRED' = 'HEALTHY'
+      if (days <= 0) {
+        batchStatus = 'EXPIRED'
+      } else if (days <= 60) {
+        batchStatus = 'EXPIRING_SOON'
+      }
+      return {
+        id: b.id,
+        batchNumber: b.batchNumber || 'N/A',
+        quantity: Number(b.quantity) || 0,
+        expiryDate: new Date(b.expiryDate).toISOString(),
+        daysToExpiry: days,
+        status: batchStatus,
+      }
+    }).sort((a: any, b: any) => a.daysToExpiry - b.daysToExpiry)
+
+    return {
+      id: med.id,
+      name: med.name,
+      sku: med.sku || 'N/A',
+      category: med.category?.name || 'General',
+      currentStock,
+      minStockLevel,
+      unitCost,
+      unitPrice,
+      totalCostValue,
+      totalRetailValue,
+      potentialProfit,
+      marginPercent,
+      status,
+      batchCount: batches.length,
+      batches,
+    }
+  }).sort((a: any, b: any) => b.totalCostValue - a.totalCostValue || a.name.localeCompare(b.name))
+
+  const totalCartons = inventoryItems.reduce((acc: number, i: any) => acc + i.currentStock, 0)
+  const invTotalCostValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalCostValue, 0)
+  const invTotalRetailValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalRetailValue, 0)
+  const invTotalPotentialProfit = Math.max(0, invTotalRetailValue - invTotalCostValue)
+  const invPotentialMarginPercent = invTotalRetailValue > 0 ? (invTotalPotentialProfit / invTotalRetailValue) * 100 : 0
+  const healthyCount = inventoryItems.filter((i: any) => i.status === 'IN_STOCK').length
+  const lowStockCount = inventoryItems.filter((i: any) => i.status === 'LOW_STOCK').length
+  const outOfStockCount = inventoryItems.filter((i: any) => i.status === 'OUT_OF_STOCK').length
+
+  const categoryMap = new Map<string, { itemCount: number; totalStock: number; totalCostValue: number; totalRetailValue: number }>()
+  for (const item of inventoryItems) {
+    const cat = item.category || 'General'
+    const existing = categoryMap.get(cat) || { itemCount: 0, totalStock: 0, totalCostValue: 0, totalRetailValue: 0 }
+    existing.itemCount += 1
+    existing.totalStock += item.currentStock
+    existing.totalCostValue += item.totalCostValue
+    existing.totalRetailValue += item.totalRetailValue
+    categoryMap.set(cat, existing)
+  }
+
+  const categoriesSummary = Array.from(categoryMap.entries()).map(([category, catData]) => ({
+    category,
+    itemCount: catData.itemCount,
+    totalStock: catData.totalStock,
+    totalCostValue: catData.totalCostValue,
+    totalRetailValue: catData.totalRetailValue,
+    percentOfTotalValue: invTotalCostValue > 0 ? (catData.totalCostValue / invTotalCostValue) * 100 : 0,
+  })).sort((a, b) => b.totalCostValue - a.totalCostValue)
+
+  const expiringBatchesCount = allActiveBatches.filter((b: any) => {
+    const d = daysUntil(b.expiryDate)
+    return (Number(b.quantity) || 0) > 0 && d > 0 && d <= 60
+  }).length
+  const expiredBatchesCount = allActiveBatches.filter((b: any) => {
+    const d = daysUntil(b.expiryDate)
+    return (Number(b.quantity) || 0) > 0 && d <= 0
+  }).length
+
+  const inventoryReport = {
+    totalProducts: inventoryItems.length,
+    totalCartons,
+    totalCostValue: invTotalCostValue,
+    totalRetailValue: invTotalRetailValue,
+    totalPotentialProfit: invTotalPotentialProfit,
+    potentialMarginPercent: invPotentialMarginPercent,
+    healthyCount,
+    lowStockCount,
+    outOfStockCount,
+    expiringBatchesCount,
+    expiredBatchesCount,
+    categories: categoriesSummary,
+    items: inventoryItems,
+  }
+
   return {
     kpis: {
       totalSales,
       cashSales: cashTotal,
       mobileSales: mobileTotal,
       totalPurchases,
+      cogs: totalCogs,
+      profitEarned,
+      profitsExpected,
+      profitMargin,
+      inventoryCost: invTotalCostValue,
+      expectedInventoryRevenue: invTotalRetailValue,
+      inventoryCartons: totalCartons,
+      inventoryItemsCount: inventoryItems.length,
+      inventoryHealthyCount: healthyCount,
+      inventoryLowStockCount: lowStockCount,
+      inventoryOutOfStockCount: outOfStockCount,
       grossProfit,
       transactions,
       avgDailySales,
       salesTrend: calcTrend(totalSales, prevTotalSales),
       purchasesTrend: calcTrend(totalPurchases, prevTotalPurchases),
       profitTrend: calcTrend(grossProfit, prevGrossProfit),
+      cogsTrend: calcTrend(totalCogs, prevTotalCogs),
+      profitEarnedTrend: calcTrend(profitEarned, prevProfitEarned),
       transactionsTrend: calcTrend(transactions, prevTransactions),
       avgDailyTrend: calcTrend(avgDailySales, prevAvgDaily),
       salesSparkline: salesOverview.map((d) => d.sales),
       purchasesSparkline: salesOverview.map((d) => d.purchases),
+      cogsSparkline: salesOverview.map((d) => d.cogs || 0),
       profitSparkline: salesOverview.map((d) => d.profit),
       transactionsSparkline: salesOverview.map((d) => d.transactions),
       avgDailySparkline: salesOverview.map((d) => (d.sales > 0 ? d.sales : 0)),
@@ -1321,6 +1677,8 @@ async function buildReportsData(startDate: string, endDate: string) {
     recentTransactions,
     expiringBatches: expiring,
     purchases: purchaseRows,
+    profitBreakdown,
+    inventoryReport,
   }
 }
 
@@ -1337,7 +1695,12 @@ ipcMain.handle('reports:exportExcel', async (_, startDate: string, endDate: stri
   summary.addRow(['Period', `${startDate} to ${endDate}`])
   summary.addRow([])
   summary.addRow(['Metric', 'Value'])
-  summary.addRow(['Total Sales', data.kpis.totalSales])
+  summary.addRow(['Total Sales (Revenue)', data.kpis.totalSales])
+  summary.addRow(['Cost of Goods Sold (COGS)', data.kpis.cogs ?? 0])
+  summary.addRow(['Gross Profit Earned', data.kpis.profitEarned ?? data.kpis.grossProfit])
+  summary.addRow(['Profit Margin (%)', `${(data.kpis.profitMargin ?? 0).toFixed(1)}%`])
+  summary.addRow(['Current Inventory Valuation (Cost)', data.kpis.inventoryCost ?? 0])
+  summary.addRow(['Profits Expected (Stock Realization)', data.kpis.profitsExpected ?? 0])
   summary.addRow(['Total Cash Sales', data.kpis.cashSales ?? 0])
   summary.addRow(['Total Mobile Money Sales', data.kpis.mobileSales ?? 0])
   summary.addRow(['Total Purchases', data.kpis.totalPurchases])
@@ -1346,10 +1709,91 @@ ipcMain.handle('reports:exportExcel', async (_, startDate: string, endDate: stri
   summary.addRow(['Avg Daily Sales', data.kpis.avgDailySales])
 
   const salesSheet = workbook.addWorksheet('Sales')
-  salesSheet.addRow(['Date', 'Sales', 'Purchases', 'Profit', 'Transactions'])
+  salesSheet.addRow(['Date', 'Sales', 'Purchases', 'COGS', 'Profit', 'Transactions'])
   data.salesOverview.forEach((row) => {
-    salesSheet.addRow([row.date, row.sales, row.purchases, row.profit, row.transactions])
+    salesSheet.addRow([row.date, row.sales, row.purchases, row.cogs || 0, row.profit, row.transactions])
   })
+
+  if (data.profitBreakdown && data.profitBreakdown.length > 0) {
+    const plSheet = workbook.addWorksheet('Profit & Loss')
+    plSheet.addRow([
+      'Product Name',
+      'Category',
+      'Units Sold',
+      'Revenue (GH₵)',
+      'COGS (GH₵)',
+      'Profit Earned (GH₵)',
+      'Margin (%)',
+      'Stock Qty',
+      'Stock Cost (GH₵)',
+      'Profits Expected (GH₵)',
+    ])
+    data.profitBreakdown.forEach((p) => {
+      plSheet.addRow([
+        p.name,
+        p.category,
+        p.quantitySold,
+        p.revenue,
+        p.cogs,
+        p.profitEarned,
+        `${p.marginPercent.toFixed(1)}%`,
+        p.currentStock,
+        p.stockCost,
+        p.expectedProfit,
+      ])
+    })
+  }
+
+  if (data.inventoryReport && data.inventoryReport.items.length > 0) {
+    const invSheet = workbook.addWorksheet('Inventory Valuation & Stock')
+    invSheet.addRow([
+      'Product Name',
+      'Category',
+      'SKU',
+      'Cartons On Hand',
+      'Min Stock Alert',
+      'Unit Cost (GH₵)',
+      'Unit Selling Price (GH₵)',
+      'Valuation Cost (GH₵)',
+      'Valuation Retail (GH₵)',
+      'Expected Profit (GH₵)',
+      'Margin (%)',
+      'Stock Status',
+      'Batch Lots Count',
+    ])
+    data.inventoryReport.items.forEach((item) => {
+      invSheet.addRow([
+        item.name,
+        item.category,
+        item.sku,
+        item.currentStock,
+        item.minStockLevel,
+        item.unitCost,
+        item.unitPrice,
+        item.totalCostValue,
+        item.totalRetailValue,
+        item.potentialProfit,
+        `${item.marginPercent.toFixed(1)}%`,
+        item.status,
+        item.batchCount,
+      ])
+    })
+
+    if (data.inventoryReport.categories && data.inventoryReport.categories.length > 0) {
+      const catSheet = workbook.addWorksheet('Inventory Categories')
+      catSheet.addRow(['Category', 'Product Count', 'Total Cartons', 'Cost Valuation (GH₵)', 'Retail Valuation (GH₵)', '% of Total Stock Value'])
+      data.inventoryReport.categories.forEach((cat) => {
+        catSheet.addRow([
+          cat.category,
+          cat.itemCount,
+          cat.totalStock,
+          cat.totalCostValue,
+          cat.totalRetailValue,
+          `${cat.percentOfTotalValue.toFixed(1)}%`,
+        ])
+      })
+    }
+  }
 
   const topSheet = workbook.addWorksheet('Top Medicines')
   topSheet.addRow(['Medicine', 'Quantity Sold', 'Revenue'])
@@ -1591,8 +2035,8 @@ function getCloudCredentials() {
   }
 
   // Production defaults for SML Legacy Limited Cloud PostgreSQL
-  if (!url) url = 'https://yhglbervaljjkmttzonk.supabase.co'
-  if (!anonKey) anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloZ2xiZXJ2YWxqamttdHR6b25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDA4MzIsImV4cCI6MjEwNTYxNjgzMn0.8STKvBtPKL3J9BH7Mdvadrna-zcYYFqGXGaBx4y_Wis'
+  if (!url) url = 'https://porlaindujqtgrtiuzjz.supabase.co'
+  if (!anonKey) anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk'
 
   return { url, anonKey }
 }

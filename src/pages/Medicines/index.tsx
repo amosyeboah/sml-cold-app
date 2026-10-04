@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { PlusCircle, Search, Trash2, Edit2, Tags, Package, ChevronsLeft, ChevronsRight, Snowflake, Lock, AlertTriangle, AlertCircle } from 'lucide-react'
+import { PlusCircle, Search, Trash2, Edit2, Tags, Package, ChevronsLeft, ChevronsRight, Snowflake, Lock, AlertTriangle, AlertCircle, LayoutGrid, List, Eye, TrendingUp, DollarSign, Layers, Calendar, Info } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -35,7 +35,17 @@ export default function Medicines() {
 
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    return (localStorage.getItem('sml_medicines_view') as 'list' | 'grid') || 'list'
+  })
+
+  const handleSetViewMode = (mode: 'list' | 'grid') => {
+    setViewMode(mode)
+    localStorage.setItem('sml_medicines_view', mode)
+  }
+
   const [editingMed, setEditingMed] = useState<Medicine | null>(null)
+  const [selectedProductForDetails, setSelectedProductForDetails] = useState<Medicine | null>(null)
   const [isMedOpen, setIsMedOpen] = useState(false)
   const [isCatOpen, setIsCatOpen] = useState(false)
   const [newCatName, setNewCatName] = useState('')
@@ -184,7 +194,6 @@ export default function Medicines() {
               </span>
             </div>
             <h2 className="text-lg sm:text-2xl font-bold">Products &amp; Stock</h2>
-            <p className="max-w-2xl text-xs sm:text-sm text-blue-50/90 hidden sm:block landscape:block landscape:text-xs">Manage your frozen foods catalog with a clear view of carton pricing, categories, and reorder levels.</p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
             <div className="rounded-xl border border-white/10 bg-emerald-400/15 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
@@ -205,10 +214,6 @@ export default function Medicines() {
 
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-2.5">
-        <div>
-          <h3 className="text-base sm:text-lg font-semibold text-slate-800">Product Directory</h3>
-          <p className="text-xs sm:text-sm text-slate-500">Search quickly and keep your cold store catalog organized.</p>
-        </div>
         <div className="flex flex-wrap gap-2 items-center">
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
             <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500" /> In stock
@@ -262,24 +267,59 @@ export default function Medicines() {
         </div>
       </div>
 
-      {/* ── Table Card ──────────────────────────────────────────────── */}
+      {/* ── Table / Grid Card ──────────────────────────────────────── */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
-            <Package className="w-4 h-4 text-sky-600" />
-            Products Catalog
-          </CardTitle>
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              placeholder="Search by product name, cut, or SKU..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value)
-                setCurrentPage(1)
-              }}
-              className="pl-9 border-slate-200 bg-slate-50"
-            />
+          <div className="flex items-center gap-3">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
+              <Package className="w-4 h-4 text-sky-600" />
+              Products Catalog
+            </CardTitle>
+            <span className="text-xs text-slate-500 font-medium">({filteredMedicines.length} items)</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* View Mode Toggle: List vs Grid */}
+            <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => handleSetViewMode('list')}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${viewMode === 'list'
+                    ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                    : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                title="Table list view"
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>List</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetViewMode('grid')}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${viewMode === 'grid'
+                    ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                    : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                title="Product cards grid view"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Grid</span>
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="Search by product, cut, SKU..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="pl-9 h-8.5 text-xs border-slate-200 bg-slate-50"
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -287,215 +327,194 @@ export default function Medicines() {
             <div className="flex h-48 items-center justify-center">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-sky-500 border-t-transparent" />
             </div>
-          ) : (
-            <>
-              {/* ── Card layout: portrait tablet & small screens ── */}
-              <div className="lg:hidden grid grid-cols-1 sm:grid-cols-2 landscape:grid-cols-2 md:grid-cols-2 gap-3 max-h-[calc(100vh-290px)] landscape:max-h-[calc(100vh-210px)] overflow-y-auto pr-0.5">
-                {paginatedMedicines.length === 0 && (
-                  <p className="col-span-full py-8 text-center text-sm text-slate-500">No products found matching the search criteria.</p>
-                )}
-                {paginatedMedicines.map((med) => {
-                  const { liveStock, activeBatchesCount, stockTone } = getMedStock(med)
-                  return (
-                    <div key={med.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-start justify-between gap-2 mb-2.5">
+          ) : viewMode === 'grid' ? (
+            /* ── Card Grid View ── */
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-0.5">
+              {paginatedMedicines.length === 0 && (
+                <p className="col-span-full py-10 text-center text-sm text-slate-500">No products found matching the search criteria.</p>
+              )}
+              {paginatedMedicines.map((med) => {
+                const { liveStock, activeBatchesCount, stockTone } = getMedStock(med)
+                return (
+                  <div
+                    key={med.id}
+                    onClick={() => setSelectedProductForDetails(med)}
+                    className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between cursor-pointer group"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center flex-shrink-0">
-                            <Package className="w-4 h-4 text-sky-600" />
+                          <div className="w-9 h-9 rounded-xl bg-sky-50 group-hover:bg-blue-100 flex items-center justify-center flex-shrink-0 transition-colors">
+                            <Package className="w-4 h-4 text-sky-600 group-hover:text-blue-700" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-sm truncate">{med.name}</p>
+                            <p className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-600 transition-colors">{med.name}</p>
                             <p className="text-xs text-slate-400 truncate">{med.genericName || 'Standard cut'}</p>
                           </div>
                         </div>
-                        {canManage && (
-                          <div className="flex gap-1.5 flex-shrink-0">
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-8 w-8 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100"
-                              onClick={() => handleOpenEdit(med)}
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-8 w-8 rounded-md bg-red-50 text-red-600 hover:bg-red-100"
-                              onClick={() => {
-                                setProductToDelete(med)
-                                setDeleteError(null)
-                                setIsDeleteDialogOpen(true)
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )}
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${stockTone}`}>
+                          {liveStock} cartons
+                        </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                      <div className="flex items-center justify-between text-xs mt-3 pt-2 border-t border-slate-100">
                         <div>
-                          <span className="text-slate-400">SKU</span>
-                          <p className="font-mono font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 inline-block mt-0.5">{med.sku}</p>
+                          <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Price</span>
+                          <span className="font-bold text-slate-900 text-sm">₵{med.price.toFixed(2)}</span>
                         </div>
-                        <div>
-                          <span className="text-slate-400">Category</span>
-                          <p className="font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 inline-block mt-0.5">{med.category?.name || 'Uncategorized'}</p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Cost</span>
-                          <p className="font-semibold text-slate-700">₵{med.cost.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Selling Price</span>
-                          <p className="font-bold text-emerald-700">₵{med.price.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Live Stock</span>
-                          <p className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ${stockTone}`}>
-                            {liveStock} cartons ({activeBatchesCount} lot{activeBatchesCount === 1 ? '' : 's'})
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Min Stock</span>
-                          <p className="font-semibold text-slate-700">{med.minStockLevel}</p>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Category</span>
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 max-w-[110px] truncate">
+                            {med.category?.name || 'General'}
+                          </span>
                         </div>
                       </div>
                     </div>
-                  )
-                })}
-              </div>
-
-              {/* ── Full table: landscape tablet & desktop ── */}
-              <div className="hidden lg:block max-h-[calc(100vh-320px)] landscape:max-h-[calc(100vh-220px)] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gradient-to-r from-slate-50 via-blue-50 to-indigo-50">
-                      <TableHead className="text-slate-700">Product Name</TableHead>
-                      <TableHead className="text-slate-700">Origin / Cut / Brand</TableHead>
-                      <TableHead className="text-slate-700">Category</TableHead>
-                      <TableHead className="text-right text-slate-700">Cost Price</TableHead>
-                      <TableHead className="text-right text-slate-700">Selling Price</TableHead>
-                      <TableHead className="text-right text-slate-700">Live Stock</TableHead>
-                      <TableHead className="text-right text-slate-700">Min Stock</TableHead>
-                      <TableHead className="text-center text-slate-700">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedMedicines.map((med) => {
-                      const { liveStock, activeBatchesCount, stockTone } = getMedStock(med)
-                      return (
-                        <TableRow
-                          key={med.id}
-                          className="border-b border-slate-100 bg-white transition-colors hover:bg-gradient-to-r hover:from-blue-50 hover:via-white hover:to-indigo-50"
-                        >
-                          <TableCell className="py-2.5 sm:py-3">
-                            <div className="font-semibold text-slate-800">{med.name}</div>
-                            <span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-600 mt-1">
-                              {med.sku}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-slate-500 py-2.5 sm:py-3">{med.genericName || 'N/A'}</TableCell>
-                          <TableCell className="py-2.5 sm:py-3">
-                            <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
-                              {med.category?.name || 'Uncategorized'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right py-2.5 sm:py-3">
-                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                              ₵{med.cost.toFixed(2)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right py-2.5 sm:py-3">
-                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
-                              ₵{med.price.toFixed(2)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right py-2.5 sm:py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${stockTone}`}>
-                              {liveStock} cartons ({activeBatchesCount} lot{activeBatchesCount === 1 ? '' : 's'})
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right text-xs text-slate-500 py-2.5 sm:py-3">{med.minStockLevel}</TableCell>
-                          <TableCell className="py-2.5 sm:py-3">
-                            {canManage ? (
-                              <div className="flex justify-center gap-1.5">
-                                <Button
-                                  variant="ghost" size="icon"
-                                  className="h-8 w-8 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700"
-                                  onClick={() => handleOpenEdit(med)}
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost" size="icon"
-                                  className="h-8 w-8 rounded-md bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
-                                  onClick={() => {
-                                    setProductToDelete(med)
-                                    setDeleteError(null)
-                                    setIsDeleteDialogOpen(true)
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            /* ── Streamlined List / Table View (Only essential columns to fit screen cleanly) ── */
+            <div className="max-h-[calc(100vh-300px)] overflow-y-auto rounded-xl border border-slate-200">
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="text-slate-700 font-semibold text-xs">Product Item</TableHead>
+                    <TableHead className="text-slate-700 font-semibold text-xs">Category</TableHead>
+                    <TableHead className="text-right text-slate-700 font-semibold text-xs">Price</TableHead>
+                    <TableHead className="text-right text-slate-700 font-semibold text-xs">Live Stock</TableHead>
+                    <TableHead className="text-center text-slate-700 font-semibold text-xs w-24">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedMedicines.map((med) => {
+                    const { liveStock, activeBatchesCount, stockTone } = getMedStock(med)
+                    return (
+                      <TableRow
+                        key={med.id}
+                        onClick={() => setSelectedProductForDetails(med)}
+                        className="border-b border-slate-100 bg-white transition-colors hover:bg-blue-50/50 cursor-pointer group"
+                      >
+                        <TableCell className="py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <div className="font-semibold text-slate-800 text-xs sm:text-sm group-hover:text-blue-600 transition-colors">
+                                {med.name}
                               </div>
-                            ) : (
-                              <div className="flex justify-center">
-                                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 font-medium">
-                                  <Lock className="w-3 h-3" /> Locked
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="inline-flex rounded border border-blue-200 bg-blue-50/80 px-1.5 py-0.2 font-mono text-[10px] font-semibold text-blue-700">
+                                  {med.sku}
                                 </span>
+                                {med.genericName && (
+                                  <span className="text-[11px] text-slate-400 truncate max-w-[150px]">
+                                    • {med.genericName}
+                                  </span>
+                                )}
                               </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2.5">
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                            {med.category?.name || 'Uncategorized'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-2.5">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                            ₵{med.price.toFixed(2)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right py-2.5">
+                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ${stockTone}`}>
+                            {liveStock} cartons
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost" size="sm"
+                              className="h-7 px-2 text-xs text-blue-600 hover:bg-blue-50 font-medium"
+                              onClick={() => setSelectedProductForDetails(med)}
+                              title="View full details"
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1" /> View
+                            </Button>
+                            {canManage && (
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                onClick={() => handleOpenEdit(med)}
+                                title="Edit product"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </Button>
                             )}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                    {filteredMedicines.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="py-8 text-center text-slate-500">
-                          No products found matching the search criteria.
+                          </div>
                         </TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
+                    )
+                  })}
+                  {filteredMedicines.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-10 text-center text-slate-500 text-sm">
+                        No products found matching the search criteria.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* ── Pagination ─────────────────────────────────────────────── */}
       {filteredMedicines.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:py-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs sm:text-sm text-slate-600">
             Showing <span className="font-semibold text-slate-800">{filteredMedicines.length === 0 ? 0 : startIndex + 1}</span>
             {' '}-<span className="font-semibold text-slate-800">{Math.min(startIndex + ITEMS_PER_PAGE, filteredMedicines.length)}</span>
             {' '}of <span className="font-semibold text-slate-800">{filteredMedicines.length}</span> items
           </p>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Button
               variant="outline" size="sm"
               onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
               disabled={safeCurrentPage === 1}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-md p-0"
+              className="h-8 w-8 sm:h-8.5 sm:w-8.5 rounded-md p-0"
             >
               <ChevronsLeft className="h-4 w-4" />
             </Button>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-              <Button
-                key={page}
-                variant={page === safeCurrentPage ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCurrentPage(page)}
-                className={page === safeCurrentPage ? 'h-8 min-w-8 sm:h-9 sm:min-w-9 bg-blue-600 text-white hover:bg-blue-700' : 'h-8 min-w-8 sm:h-9 sm:min-w-9'}
-              >
-                {page}
-              </Button>
-            ))}
+            {(() => {
+              const getVisiblePages = (current: number, total: number) => {
+                if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+                if (current <= 4) return [1, 2, 3, 4, 5, '...', total]
+                if (current >= total - 3) return [1, '...', total - 4, total - 3, total - 2, total - 1, total]
+                return [1, '...', current - 1, current, current + 1, '...', total]
+              }
+              return getVisiblePages(safeCurrentPage, totalPages).map((page, idx) => {
+                if (page === '...') {
+                  return <span key={`dots-${idx}`} className="px-1 text-xs text-slate-400">...</span>
+                }
+                const pageNum = page as number
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={pageNum === safeCurrentPage ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={pageNum === safeCurrentPage ? 'h-8 min-w-8 sm:h-8.5 sm:min-w-8.5 bg-blue-600 text-white hover:bg-blue-700 px-2 text-xs font-semibold' : 'h-8 min-w-8 sm:h-8.5 sm:min-w-8.5 px-2 text-xs'}
+                  >
+                    {pageNum}
+                  </Button>
+                )
+              })
+            })()}
             <Button
               variant="outline" size="sm"
               onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
               disabled={safeCurrentPage === totalPages}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-md p-0"
+              className="h-8 w-8 sm:h-8.5 sm:w-8.5 rounded-md p-0"
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>
@@ -646,6 +665,167 @@ export default function Medicines() {
               {deleteMedMutation.isPending ? 'Deleting...' : 'Delete Product'}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* ── Product Details Modal (When an item is clicked/selected) ── */}
+      <Dialog
+        open={Boolean(selectedProductForDetails)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedProductForDetails(null)
+        }}
+      >
+        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] sm:w-full max-h-[88vh] overflow-y-auto">
+          {selectedProductForDetails && (() => {
+            const med = selectedProductForDetails
+            const { liveStock, activeBatchesCount, stockTone } = getMedStock(med)
+            const margin = med.price - med.cost
+            const marginPct = med.cost > 0 ? ((margin / med.cost) * 100).toFixed(1) : '100'
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const medBatches = batches.filter(
+              (b: any) => (b.medicineId === med.id || b.medicine?.id === med.id) && b.quantity > 0
+            )
+
+            return (
+              <div className="space-y-4">
+                <DialogHeader className="pb-3 border-b border-slate-100">
+                  <div className="flex items-start justify-between gap-3 pr-6">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <DialogTitle className="text-base sm:text-xl font-bold text-slate-900">
+                          {med.name}
+                        </DialogTitle>
+                        <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-xs font-semibold text-blue-700">
+                          {med.sku}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {med.genericName ? `${med.genericName} • ` : ''}
+                        {med.category?.name || 'Uncategorized'}
+                      </p>
+                    </div>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${stockTone} shrink-0`}>
+                      {liveStock} cartons in stock
+                    </span>
+                  </div>
+                </DialogHeader>
+
+                {/* Key Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-2.5">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold block">Selling Price</span>
+                    <span className="text-base sm:text-lg font-bold text-slate-900">₵{med.price.toFixed(2)}</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">per carton</span>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-2.5">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold block">Cost Price</span>
+                    <span className="text-base sm:text-lg font-bold text-slate-700">₵{med.cost.toFixed(2)}</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">purchase cost</span>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-2.5">
+                    <span className="text-[10px] text-emerald-700 uppercase tracking-wider font-semibold block">Profit Margin</span>
+                    <span className="text-base sm:text-lg font-bold text-emerald-700">+₵{margin.toFixed(2)}</span>
+                    <span className="text-[10px] text-emerald-600 font-medium block mt-0.5">({marginPct}% markup)</span>
+                  </div>
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2.5">
+                    <span className="text-[10px] text-blue-700 uppercase tracking-wider font-semibold block">Min Reorder</span>
+                    <span className="text-base sm:text-lg font-bold text-blue-800">{med.minStockLevel}</span>
+                    <span className="text-[10px] text-blue-600 font-medium block mt-0.5">carton threshold</span>
+                  </div>
+                </div>
+
+                {/* Active Storage Lots Breakdown */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Layers className="h-3.5 w-3.5 text-blue-600" /> Active Cold Store Lots ({medBatches.length})
+                    </h4>
+                  </div>
+
+                  {medBatches.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
+                      No active stock batches recorded for this product.
+                    </div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+                      {medBatches.map((batch: any) => {
+                        const isExpired = new Date(batch.expiryDate) < today
+                        return (
+                          <div
+                            key={batch.id}
+                            className={`rounded-lg border p-2.5 text-xs flex items-center justify-between ${isExpired ? 'border-rose-200 bg-rose-50/40' : 'border-slate-200 bg-white'
+                              }`}
+                          >
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-slate-800">{batch.batchNumber}</span>
+                                {isExpired && (
+                                  <span className="rounded bg-rose-100 text-rose-700 text-[10px] px-1 font-semibold">
+                                    EXPIRED
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-slate-400 text-[11px]">
+                                Expiry: {new Date(batch.expiryDate).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-slate-900 text-sm">{batch.quantity} cartons</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Controls */}
+                <DialogFooter className="border-t border-slate-100 pt-3 flex items-center justify-between sm:justify-between w-full">
+                  <div>
+                    {canManage && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="text-xs gap-1 h-8"
+                        onClick={() => {
+                          const target = selectedProductForDetails
+                          setSelectedProductForDetails(null)
+                          setProductToDelete(target)
+                          setIsDeleteDialogOpen(true)
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {canManage && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs gap-1.5 h-8 border-blue-200 text-blue-700 hover:bg-blue-50"
+                        onClick={() => {
+                          const target = selectedProductForDetails
+                          setSelectedProductForDetails(null)
+                          handleOpenEdit(target)
+                        }}
+                      >
+                        <Edit2 className="h-3.5 w-3.5" /> Edit Product
+                      </Button>
+                    )}
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="text-xs h-8 bg-slate-800 text-white hover:bg-slate-900"
+                      onClick={() => setSelectedProductForDetails(null)}
+                    >
+                      Close
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>

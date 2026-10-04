@@ -9,18 +9,29 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host " SML Legacy Cold Store - Tablet APK Builder" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# 1. Detect Java Home
-if (-not $env:JAVA_HOME -or -not (Test-Path "$env:JAVA_HOME\bin\java.exe")) {
-    $candidateJbr = "C:\Program Files\Android\Android Studio\jbr"
-    if (Test-Path "$candidateJbr\bin\java.exe") {
-        $env:JAVA_HOME = $candidateJbr
-        Write-Host "Using Android Studio JDK: $env:JAVA_HOME" -ForegroundColor Green
-    } else {
-        Write-Host "Error: JAVA_HOME is not set and Android Studio JBR could not be located." -ForegroundColor Red
-        exit 1
+# 1. Detect Java Home (Compatible with Android Gradle: Java 21)
+$candidateJdks = @(
+    "$env:USERPROFILE\.jdks\jbr-21.0.11",
+    "$env:USERPROFILE\.jdks\temurin-17.0.20",
+    "C:\Program Files\Android\Android Studio\jbr"
+)
+
+$foundJdk = $null
+foreach ($cand in $candidateJdks) {
+    if (Test-Path "$cand\bin\java.exe") {
+        $foundJdk = $cand
+        break
     }
-} else {
+}
+
+if ($foundJdk) {
+    $env:JAVA_HOME = $foundJdk
+    Write-Host "Using JDK: $env:JAVA_HOME" -ForegroundColor Green
+} elseif ($env:JAVA_HOME -and (Test-Path "$env:JAVA_HOME\bin\java.exe")) {
     Write-Host "Using existing JAVA_HOME: $env:JAVA_HOME" -ForegroundColor Green
+} else {
+    Write-Host "Error: Compatible Java JDK could not be located." -ForegroundColor Red
+    exit 1
 }
 
 # 2. Detect Android SDK
@@ -52,6 +63,8 @@ $gradleTask = if ($BuildType -eq "release") { "assembleRelease" } else { "assemb
 Write-Host "Running Gradle: .\gradlew $gradleTask in $androidDir..." -ForegroundColor Yellow
 
 Push-Location $androidDir
+$origErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 try {
     & .\gradlew.bat $gradleTask
     if ($LASTEXITCODE -ne 0) {
@@ -59,6 +72,7 @@ try {
         exit $LASTEXITCODE
     }
 } finally {
+    $ErrorActionPreference = $origErrorAction
     Pop-Location
 }
 
@@ -79,7 +93,7 @@ if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 }
 
-$targetApk = Join-Path $targetDir "sml-cold-store-tablet.apk"
+$targetApk = Join-Path $targetDir "sml-cold-store-tablet-v2.apk"
 Copy-Item -Path $apkSource -Destination $targetApk -Force
 
 $fileInfo = Get-Item $targetApk

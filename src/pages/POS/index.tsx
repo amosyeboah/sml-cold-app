@@ -34,6 +34,7 @@ import {
 import type { Category, Customer } from '@/types'
 import { cn } from '@/utils'
 import { bluetoothPrinter, BluetoothPrinterStatus } from '@/services/hardware/bluetoothPrinter'
+import { barcodeScanner } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
 
 export interface SplitPaymentEntry {
@@ -1147,46 +1148,33 @@ export default function POS() {
     })
   }
 
-  // Crisp POS audio feedback for barcode scans
-  const playScannerBeep = (success = true) => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-      if (!AudioCtx) return
-      const ctx = new AudioCtx()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(success ? 1400 : 320, ctx.currentTime)
-      gain.gain.setValueAtTime(0.08, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (success ? 0.09 : 0.22))
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.start()
-      osc.stop(ctx.currentTime + (success ? 0.09 : 0.22))
-    } catch {
-      // AudioContext autoplay fallback
-    }
-  }
-
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       if (!searchQuery.trim()) return
       const q = searchQuery.toLowerCase().trim()
-      const exactMatch = filteredProducts.find(
-        (p) => p.medicine.sku?.toLowerCase() === q || p.medicine.name.toLowerCase() === q
-      )
+      const exactMatch = filteredProducts.find((p) => {
+        const sku = p.medicine.sku?.toLowerCase()?.trim()
+        const name = p.medicine.name?.toLowerCase()?.trim()
+        const matchBatch = p.validBatches?.some((b: any) => b.batchNumber?.toLowerCase()?.trim() === q)
+        return sku === q || name === q || matchBatch
+      })
       const target = exactMatch || (filteredProducts.length === 1 ? filteredProducts[0] : null)
       if (target) {
-        addToCart(target)
-        playScannerBeep(true)
-        setSearchQuery('')
-        setToast({ type: 'success', message: `Added ${target.medicine.name} to cart` })
+        if (target.totalStock > 0) {
+          addToCart(target)
+          barcodeScanner.playFeedbackSound(true)
+          setSearchQuery('')
+          setToast({ type: 'success', message: `Added ${target.medicine.name} to cart` })
+        } else {
+          barcodeScanner.playFeedbackSound(false)
+          setToast({ type: 'error', message: `${target.medicine.name} is out of stock` })
+        }
       } else if (filteredProducts.length > 1) {
-        playScannerBeep(false)
+        barcodeScanner.playFeedbackSound(false)
         setToast({ type: 'error', message: `Multiple matches (${filteredProducts.length}). Select product from list.` })
       } else {
-        playScannerBeep(false)
+        barcodeScanner.playFeedbackSound(false)
         setToast({ type: 'error', message: 'No matching product found.' })
       }
     }
@@ -1258,11 +1246,8 @@ export default function POS() {
     setHeldSales((prev) => prev.filter((h) => h.id !== id))
   }
 
-  // ─── Global Hardware Barcode Scanner & POS Hotkeys ────────────────────────
+  // ─── POS Hotkeys (F1, F2, F4, Ctrl+K) ────────────────────────────────────
   useEffect(() => {
-    let barcodeBuffer = ''
-    let lastKeyTime = 0
-
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       // 1. Hotkeys: F1 (Clear Cart), F2 (Hold Sale), F4 / Ctrl+K (Focus Search)
       if (e.key === 'F1') {
@@ -1282,57 +1267,59 @@ export default function POS() {
         searchRef.current?.select()
         return
       }
-
-      // 2. Identify active focused element
-      const target = e.target as HTMLElement | null
-      const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
-      const isSearchInput = target === searchRef.current
-
-      const now = Date.now()
-      const timeDiff = now - lastKeyTime
-      lastKeyTime = now
-
-      // Hardware barcode scanners send keys with very short delays (< 65ms per character)
-      if (e.key === 'Enter') {
-        if (barcodeBuffer.trim().length >= 3) {
-          const scannedCode = barcodeBuffer.trim().toLowerCase()
-          // Search in active product catalog by SKU/barcode or exact name
-          const matched = productsList.find(
-            (p) => p.medicine.sku?.toLowerCase() === scannedCode || p.medicine.name.toLowerCase() === scannedCode
-          )
-
-          if (matched) {
-            e.preventDefault()
-            addToCart(matched)
-            playScannerBeep(true)
-            setToast({ type: 'success', message: `Scanned: ${matched.medicine.name}` })
-            setSearchQuery('')
-            if (isSearchInput) {
-              searchRef.current?.blur()
-            }
-          } else {
-            // Only alert if we weren't just pressing enter on search with a query
-            if (!isSearchInput) {
-              playScannerBeep(false)
-              setToast({ type: 'error', message: `No product found for barcode: "${barcodeBuffer.trim()}"` })
-            }
-          }
-          barcodeBuffer = ''
-          return
-        }
-        barcodeBuffer = ''
-      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        // If characters arrive slowly (> 70ms apart) and we're not inside the search input, reset buffer
-        if (timeDiff > 70 && !isSearchInput) {
-          barcodeBuffer = ''
-        }
-        barcodeBuffer += e.key
-      }
     }
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [productsList, clearCart, handleHoldSale, addToCart])
+  }, [clearCart, handleHoldSale])
+
+  // ─── Bluetooth & USB Hardware Barcode Scanner Listener ───────────────────
+  useEffect(() => {
+    const unsubscribe = barcodeScanner.subscribe((event) => {
+      const code = event.barcode.toLowerCase().trim()
+      if (!code) return
+
+      // Match in active product catalog by SKU, name, or batch number
+      const matched = productsList.find((p) => {
+        const sku = p.medicine?.sku?.toLowerCase()?.trim()
+        const name = p.medicine?.name?.toLowerCase()?.trim()
+        const matchSku = sku && sku === code
+        const matchName = name && name === code
+        const matchBatch = p.validBatches?.some((b: any) => b.batchNumber?.toLowerCase()?.trim() === code)
+        return matchSku || matchName || matchBatch
+      })
+
+      if (matched) {
+        if (matched.totalStock > 0) {
+          addToCart(matched)
+          barcodeScanner.playFeedbackSound(true)
+          setToast({ type: 'success', message: `Scanned: ${matched.medicine.name} (₵${matched.medicine.price.toFixed(2)})` })
+          setSearchQuery('')
+        } else {
+          barcodeScanner.playFeedbackSound(false)
+          setToast({ type: 'error', message: `${matched.medicine.name} is out of stock!` })
+        }
+      } else {
+        // Fallback: search query match
+        const partial = productsList.find((p) => {
+          const sku = p.medicine?.sku?.toLowerCase()?.trim()
+          const name = p.medicine?.name?.toLowerCase()?.trim()
+          return (sku && sku.includes(code)) || (name && name.includes(code))
+        })
+        if (partial && partial.totalStock > 0) {
+          addToCart(partial)
+          barcodeScanner.playFeedbackSound(true)
+          setToast({ type: 'success', message: `Scanned: ${partial.medicine.name}` })
+          setSearchQuery('')
+        } else {
+          barcodeScanner.playFeedbackSound(false)
+          setToast({ type: 'error', message: `Barcode "${event.barcode}" not found in stock` })
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [productsList, addToCart])
 
   const handleCheckout = () => {
     if (cart.length === 0) return

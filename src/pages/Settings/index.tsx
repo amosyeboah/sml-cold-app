@@ -33,12 +33,16 @@ import {
   Archive,
   RefreshCw,
   Check,
+  Radio,
+  Volume2,
+  CheckCircle2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { bluetoothPrinter, BluetoothPrinterStatus, PaperWidth, NativeBluetoothDevice } from '@/services/hardware/bluetoothPrinter'
+import { barcodeScanner, BarcodeScannerConfig, BarcodeScanEvent, ScannerConnectionType, LatencyTolerance } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
 
 // ── Default settings values ──────────────────────────────────────────────────
@@ -77,8 +81,12 @@ const DEFAULTS: Record<string, string> = {
   // Hardware
   'hw.printerName': '',
   'hw.printerPort': 'USB',
-  'hw.scannerEnabled': 'false',
-  'hw.scannerPort': 'COM3',
+  'hw.scannerEnabled': 'true',
+  'hw.scannerType': 'bluetooth-hid',
+  'hw.scannerPort': 'Bluetooth (HID)',
+  'hw.scannerLatency': 'relaxed',
+  'hw.scannerAudio': 'true',
+  'hw.scannerAutoAdd': 'true',
   'hw.drawerEnabled': 'false',
   'hw.drawerPort': 'COM4',
   'hw.drawerPulseMs': '200',
@@ -161,6 +169,34 @@ export default function Settings() {
     typeof localStorage !== 'undefined' ? localStorage.getItem('bt_printer_id') || '' : ''
   )
   const [isLoadingPaired, setIsLoadingPaired] = useState(false)
+  const [scannerConfig, setScannerConfig] = useState<BarcodeScannerConfig>(barcodeScanner.getConfig())
+  const [lastScanEvent, setLastScanEvent] = useState<BarcodeScanEvent | null>(null)
+  const [scannerTestInput, setScannerTestInput] = useState('')
+
+  useEffect(() => {
+    const unConfig = barcodeScanner.subscribeConfig((cfg) => {
+      setScannerConfig(cfg)
+    })
+    const unScan = barcodeScanner.subscribe((ev) => {
+      setLastScanEvent(ev)
+      setScannerTestInput(ev.barcode)
+    })
+    return () => {
+      unConfig()
+      unScan()
+    }
+  }, [])
+
+  const updateScanner = (updates: Partial<BarcodeScannerConfig>) => {
+    barcodeScanner.saveConfig(updates)
+    const updated = { ...scannerConfig, ...updates }
+    setScannerConfig(updated)
+    set('hw.scannerEnabled', updated.enabled ? 'true' : 'false')
+    set('hw.scannerType', updated.connectionType)
+    set('hw.scannerLatency', updated.latencyTolerance)
+    set('hw.scannerAudio', updated.audioFeedback ? 'true' : 'false')
+    set('hw.scannerAutoAdd', updated.autoAddToCart ? 'true' : 'false')
+  }
 
   const loadPairedDevices = async () => {
     if (!bluetoothPrinter.isNative()) return
@@ -1026,41 +1062,333 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
-              {/* Barcode Scanner */}
-              <Card className="border-gray-200 shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/60 px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <ScanBarcode className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-semibold text-gray-700">Barcode Scanner</span>
+              {/* Barcode Scanner (Bluetooth & USB) */}
+              <Card className="border-blue-200 bg-gradient-to-b from-blue-50/20 to-white shadow-sm overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 bg-blue-50/60 px-5 py-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white shadow-2xs">
+                      <ScanBarcode className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-gray-800">Barcode Scanner</span>
+                        {scannerConfig.enabled ? (
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            scannerConfig.connectionType.startsWith('bluetooth')
+                              ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
+                              : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                          }`}>
+                            {scannerConfig.connectionType.startsWith('bluetooth') ? (
+                              <>
+                                <Bluetooth className="h-3 w-3 text-blue-600" />
+                                Bluetooth Ready
+                              </>
+                            ) : (
+                              <>
+                                <Usb className="h-3 w-3 text-emerald-600" />
+                                USB Ready
+                              </>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                            Disabled
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        Supports Bluetooth Wireless (HID/SPP) & USB Handheld Scanners
+                      </p>
+                    </div>
                   </div>
                   <Toggle
                     id="toggle-scanner"
-                    checked={bool('hw.scannerEnabled')}
-                    onChange={() => toggle('hw.scannerEnabled')}
+                    checked={scannerConfig.enabled}
+                    onChange={(checked) => updateScanner({ enabled: checked })}
                   />
                 </div>
+
                 <CardContent
-                  className={`p-5 space-y-4 transition-opacity ${bool('hw.scannerEnabled') ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}
+                  className={`p-5 space-y-5 transition-opacity ${
+                    scannerConfig.enabled ? 'opacity-100' : 'opacity-35 pointer-events-none'
+                  }`}
                 >
-                  <FieldRow label="Scanner Port" icon={Usb}>
-                    <select
-                      id="hw-scanner-port"
-                      value={form['hw.scannerPort']}
-                      onChange={(e) => set('hw.scannerPort', e.target.value)}
-                      className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-sm"
-                      disabled={!bool('hw.scannerEnabled')}
-                    >
-                      {['USB (HID)', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5'].map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </FieldRow>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">
-                      <strong className="text-gray-600">USB HID mode</strong> — scanner behaves as a keyboard. Works automatically in the POS search field. No driver needed.
-                    </p>
+                  {/* Scanner Connection Mode */}
+                  <div>
+                    <Label className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2.5 block">
+                      Connection Method
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        {
+                          id: 'bluetooth-hid' as ScannerConnectionType,
+                          label: 'Bluetooth Wireless (HID Mode)',
+                          badge: 'Recommended for Bluetooth',
+                          sub: 'Standard wireless keyboard wedge. Works with Netum, Inateck, Eyoyo, Tera, Zebra, Honeywell, Symcode & ring scanners.',
+                          icon: Bluetooth,
+                        },
+                        {
+                          id: 'bluetooth-spp' as ScannerConnectionType,
+                          label: 'Bluetooth SPP (Serial)',
+                          badge: 'Direct Stream',
+                          sub: 'Direct serial RFCOMM stream for dedicated Bluetooth barcode readers.',
+                          icon: Radio,
+                        },
+                        {
+                          id: 'usb-hid' as ScannerConnectionType,
+                          label: 'USB Cable (HID Mode)',
+                          badge: 'Plug & Play',
+                          sub: 'Standard wired USB handheld or omnidirectional desktop laser barcode scanners.',
+                          icon: Usb,
+                        },
+                        {
+                          id: 'serial' as ScannerConnectionType,
+                          label: 'USB Virtual COM / RS-232',
+                          badge: 'Serial Port',
+                          sub: 'Emulated virtual COM port connection for legacy retail POS barcode systems.',
+                          icon: Cpu,
+                        },
+                      ].map((mode) => {
+                        const Icon = mode.icon
+                        const isSelected = scannerConfig.connectionType === mode.id
+                        return (
+                          <button
+                            key={mode.id}
+                            type="button"
+                            onClick={() => updateScanner({ connectionType: mode.id })}
+                            className={`flex flex-col text-left p-3 rounded-xl border transition-all ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-50/80 shadow-2xs ring-1 ring-blue-500'
+                                : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1 w-full mb-1">
+                              <div className="flex items-center gap-1.5">
+                                <Icon className={`h-4 w-4 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`} />
+                                <span className="text-xs font-bold text-gray-800">{mode.label}</span>
+                              </div>
+                              <span
+                                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                  isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                                }`}
+                              >
+                                {mode.badge}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-snug">{mode.sub}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Bluetooth Android Guidance */}
+                  {scannerConfig.connectionType.startsWith('bluetooth') && (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                        <h4 className="text-xs font-bold text-blue-950">
+                          How to connect your Bluetooth Scanner on Android Tablet:
+                        </h4>
+                      </div>
+                      <ol className="text-[11px] text-blue-800 space-y-1 pl-5 list-decimal leading-relaxed">
+                        <li>Turn on your Bluetooth barcode scanner.</li>
+                        <li>
+                          Scan the <strong>"Bluetooth HID Mode"</strong> or <strong>"Bluetooth Pairing"</strong> barcode from your scanner's user manual (usually page 1 or 2).
+                        </li>
+                        <li>
+                          Open Android <strong>Settings → Bluetooth (Connected Devices)</strong> on this tablet and tap <strong>Pair new device</strong>.
+                        </li>
+                        <li>
+                          Select your barcode scanner (e.g. <em>Netum-Scan, Eyoyo-BT, Barcode Scanner</em>). Once paired, scans will automatically beep and add items to cart!
+                        </li>
+                      </ol>
+
+                      {btStatus.isNative && pairedDevices.length > 0 && (
+                        <div className="pt-2 border-t border-blue-200/80">
+                          <Label className="text-[11px] font-semibold text-blue-900 block mb-1">
+                            Associated Paired Bluetooth Device (Optional):
+                          </Label>
+                          <select
+                            value={scannerConfig.selectedDeviceAddress}
+                            onChange={(e) => {
+                              const dev = pairedDevices.find((d) => d.address === e.target.value)
+                              updateScanner({
+                                selectedDeviceAddress: e.target.value,
+                                selectedDeviceName: dev?.name || '',
+                              })
+                            }}
+                            className="h-8 w-full rounded-md border border-blue-200 bg-white px-2 text-xs text-blue-900"
+                          >
+                            <option value="">-- Any Paired Bluetooth Scanner (Default) --</option>
+                            {pairedDevices.map((d) => (
+                              <option key={d.address} value={d.address}>
+                                {d.name} ({d.address})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Latency / Packet Speed Tolerance */}
+                  <div>
+                    <Label className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 block">
+                      Bluetooth Wireless Latency Tolerance
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {[
+                        {
+                          id: 'relaxed' as LatencyTolerance,
+                          label: 'Relaxed (240ms)',
+                          rec: 'Recommended for Bluetooth',
+                          desc: 'Handles Bluetooth RF packet timing jitter. Prevents dropped digits on tablets.',
+                        },
+                        {
+                          id: 'standard' as LatencyTolerance,
+                          label: 'Standard (140ms)',
+                          rec: 'Balanced',
+                          desc: 'Default tolerance for fast Bluetooth & wired barcode scanners.',
+                        },
+                        {
+                          id: 'fast' as LatencyTolerance,
+                          label: 'Fast (75ms)',
+                          rec: 'High Speed',
+                          desc: 'Optimized for high-speed wired USB presentation counter scanners.',
+                        },
+                      ].map((lat) => {
+                        const isSelected = scannerConfig.latencyTolerance === lat.id
+                        return (
+                          <button
+                            key={lat.id}
+                            type="button"
+                            onClick={() => updateScanner({ latencyTolerance: lat.id })}
+                            className={`p-2.5 rounded-lg border text-left transition-all ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-500'
+                                : 'border-gray-200 bg-white hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-xs font-bold text-gray-800">{lat.label}</span>
+                              {lat.rec && (
+                                <span className={`text-[9px] font-bold px-1 rounded ${
+                                  isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {lat.rec}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-500">{lat.desc}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Audio & POS Automation Toggles */}
+                  <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Volume2 className="h-4 w-4 text-blue-600" />
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800">Scanner Audio Feedback Beep</p>
+                          <p className="text-[11px] text-gray-400">Crisp dual-tone POS beep on scan, low warning buzz on error</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => barcodeScanner.playFeedbackSound(true)}
+                          className="h-7 text-[11px] px-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                        >
+                          Test Beep
+                        </Button>
+                        <Toggle
+                          id="toggle-scanner-audio"
+                          checked={scannerConfig.audioFeedback}
+                          onChange={(checked) => updateScanner({ audioFeedback: checked })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-800">Auto-Add Scanned Products to POS Cart</p>
+                        <p className="text-[11px] text-gray-400">Automatically lookup SKU, Name, or Batch Number and add carton to cart</p>
+                      </div>
+                      <Toggle
+                        id="toggle-scanner-autoadd"
+                        checked={scannerConfig.autoAddToCart}
+                        onChange={(checked) => updateScanner({ autoAddToCart: checked })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Live Scanner Interactive Test Console */}
+                  <div className="rounded-xl border border-blue-200 bg-slate-900 p-4 text-white space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                          Live Scanner Test Console
+                        </span>
+                      </div>
+                      {lastScanEvent && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLastScanEvent(null)
+                            setScannerTestInput('')
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-white underline"
+                        >
+                          Clear Test
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={scannerTestInput}
+                        onChange={(e) => setScannerTestInput(e.target.value)}
+                        placeholder="Scan any barcode with your Bluetooth scanner to test here..."
+                        className="w-full rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-2 text-xs font-mono text-emerald-400 placeholder:text-slate-500 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+
+                    {lastScanEvent ? (
+                      <div className="rounded-lg bg-slate-800/80 p-3 border border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                            <span className="text-xs font-bold text-slate-300">Scan Captured:</span>
+                            <span className="font-mono text-sm font-extrabold text-emerald-400">
+                              {lastScanEvent.barcode}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-[10px] text-slate-400">
+                            <span>Length: <strong>{lastScanEvent.rawLength} chars</strong></span>
+                            <span>•</span>
+                            <span>Speed: <strong>{lastScanEvent.durationMs} ms</strong></span>
+                            <span>•</span>
+                            <span>Source: <strong className="text-sky-300">{lastScanEvent.source === 'bluetooth' ? 'Bluetooth Wireless' : 'Keyboard/USB'}</strong></span>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-[11px] font-bold text-emerald-300 ring-1 ring-emerald-500/40">
+                          <Check className="h-3.5 w-3.5" />
+                          Ready for POS
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">
+                        Tip: Trigger your Bluetooth scanner on any product barcode. The scanned number will appear above with verification speed!
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

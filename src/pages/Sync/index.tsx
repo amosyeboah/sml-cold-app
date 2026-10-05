@@ -149,9 +149,12 @@ export default function SyncPage() {
     setFeedback(null)
     try {
       const res = await api.flushSyncOutbox(50)
+      const errorDetail = res.error || (res.failed > 0 && res.message ? res.message : null)
       setFeedback({
         type: res.success ? 'success' : 'error',
-        message: `Outbox flush completed: ${res.succeeded || 0} succeeded, ${res.failed || 0} failed.`,
+        message: errorDetail
+          ? `Outbox flush completed: ${res.succeeded || 0} succeeded, ${res.failed || 0} failed (${errorDetail}).`
+          : `Outbox flush completed: ${res.succeeded || 0} succeeded, ${res.failed || 0} failed.`,
       })
       await refreshData()
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })

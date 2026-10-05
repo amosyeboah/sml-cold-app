@@ -1976,7 +1976,7 @@ ipcMain.handle('sync:getSessions', async (_, limit?: number) => {
 
 ipcMain.handle('sync:retryDeadLetter', async () => {
   const updated = await prisma.syncOutbox.updateMany({
-    where: { status: 'DEAD_LETTER' },
+    where: { status: { in: ['DEAD_LETTER', 'FAILED'] } },
     data: {
       status: 'PENDING',
       retryCount: 0,

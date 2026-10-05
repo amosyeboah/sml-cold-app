@@ -61,7 +61,8 @@ function publishSyncState(listener: SyncListener): void {
     return
   }
 
-  if ((window as any).api?.getSyncStatus) {
+  const isElectron = typeof window !== 'undefined' && Boolean((window as any).electron?.ipcRenderer)
+  if (isElectron && (window as any).api?.getSyncStatus) {
     (window as any).api.getSyncStatus().then((status: any) => {
       listener({
         isSyncing: status.state === 'SYNCING',
@@ -174,7 +175,8 @@ export async function flushSyncQueue(): Promise<{
     return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local tablet POS.' }
   }
 
-  if (typeof window !== 'undefined' && (window as any).api?.flushSyncOutbox) {
+  const isElectron = typeof window !== 'undefined' && Boolean((window as any).electron?.ipcRenderer)
+  if (isElectron && typeof (window as any).api?.flushSyncOutbox === 'function') {
     const result = await (window as any).api.flushSyncOutbox(50)
     return {
       success: Boolean(result.success),
@@ -277,16 +279,20 @@ async function legacyFlushSyncQueue(): Promise<{
             pm = `SPLIT:CASH=${cashAmt},MOBILE=${mobileAmt}`
           }
 
+          const saleDate = sale.date || sale.sold_at || new Date().toISOString()
+          const totalAmt = Number(sale.total ?? sale.total_amount ?? 0)
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
-            sale_number: sale.saleNumber || `INV-${sale.id.slice(0, 8).toUpperCase()}`,
+            invoice_number: sale.saleNumber || sale.invoice_number || `INV-${String(sale.id).slice(0, 8).toUpperCase()}`,
             customer_name: sale.customer?.name || sale.customerName || 'Walk-in Customer',
-            total: sale.total,
+            total_amount: totalAmt,
+            subtotal: Number(sale.subtotal ?? totalAmt),
             payment_method: pm,
-            cashier_username: sale.cashier || 'cashier',
-            date: sale.date || new Date().toISOString(),
-            synced_at: new Date().toISOString(),
+            cashier_name: sale.cashier || sale.cashier_name || 'cashier',
+            sold_at: saleDate,
+            created_at: saleDate,
           })
 
           if (saleErr) uploadError = saleErr
@@ -295,11 +301,12 @@ async function legacyFlushSyncQueue(): Promise<{
           if (!uploadError && sale.items && Array.isArray(sale.items)) {
             const cloudItems = sale.items.map((i: any) => {
               const unitPrice = Number(i.price ?? i.unit_price ?? i.medicine?.price ?? 0)
-              const unitCost = Number(i.cost ?? i.unit_cost ?? i.medicine?.cost ?? 0)
               const qty = Number(i.quantity) || 1
               return {
+                id: i.id || `${sale.id}_${i.batch?.medicineId || i.medicineId || i.productId || Math.random().toString(36).substring(2, 6)}`,
                 sale_id: sale.id,
                 product_id: i.batch?.medicineId || i.medicineId || i.productId || null,
+                batch_id: i.batchId || null,
                 product_name:
                   i.batch?.medicine?.name ||
                   i.medicine?.name ||
@@ -307,11 +314,10 @@ async function legacyFlushSyncQueue(): Promise<{
                   i.productName ||
                   i.name ||
                   'Cold Store Item',
-                sku: i.batch?.medicine?.sku || i.sku || null,
                 quantity: qty,
                 unit_price: unitPrice,
-                unit_cost: unitCost,
-                subtotal: (Number(i.subtotal) || (qty * unitPrice)),
+                total_price: qty * unitPrice,
+                created_at: saleDate,
               }
             })
 
@@ -323,15 +329,12 @@ async function legacyFlushSyncQueue(): Promise<{
           const { error } = await client.from('cloud_audit_logs').upsert({
             id: log.id,
             store_id: 'sml_accra_main',
-            action: log.action,
-            category: log.category,
-            details: log.details,
-            operator: log.username || 'System',
-            role: log.userRole || 'STAFF',
-            severity: log.severity || 'INFO',
-            metadata: log.metadata || null,
+            user_name: log.username || log.operator || 'System',
+            action: log.action || 'ACTIVITY',
+            entity_name: log.category || 'SALE',
+            entity_id: log.entityId || log.metadata?.entityId || null,
+            details: typeof log.details === 'string' ? log.details : JSON.stringify(log.details || log.metadata || {}),
             created_at: log.createdAt || new Date().toISOString(),
-            synced_at: new Date().toISOString(),
           })
           if (error) uploadError = error
         } else if (item.entity === 'PRODUCT') {
@@ -355,13 +358,14 @@ async function legacyFlushSyncQueue(): Promise<{
               id: product.id,
               store_id: 'sml_accra_main',
               name: product.name,
-              generic_name: product.genericName || null,
-              sku: product.sku,
-              category_name: product.category?.name || product.categoryName || 'General',
-              price: product.price,
-              cost: product.cost || 0,
-              stock_quantity: product.stockQuantity || 0,
-              min_stock_level: product.minStockLevel || 10,
+              generic_name: product.genericName || product.generic_name || null,
+              sku: product.sku || `SKU-${String(product.id).slice(0, 6).toUpperCase()}`,
+              category: product.category?.name || product.categoryName || product.category || 'General',
+              price: Number(product.price) || 0,
+              cost: Number(product.cost) || 0,
+              current_stock: Number(product.stockQuantity ?? product.current_stock ?? 0),
+              unit: product.unit || 'CARTON',
+              requires_cold_storage: true,
               updated_at: new Date().toISOString(),
             })
             if (error) uploadError = error
@@ -374,11 +378,18 @@ async function legacyFlushSyncQueue(): Promise<{
           } else {
             const { error } = await client.from('cloud_batches').upsert({
               id: batch.id,
-              product_id: batch.medicineId,
-              batch_number: batch.batchNumber,
-              expiry_date: batch.expiryDate,
-              quantity: batch.quantity,
-              updated_at: new Date().toISOString(),
+              product_id: batch.medicineId || batch.product_id,
+              store_id: 'sml_accra_main',
+              batch_number: batch.batchNumber || batch.batch_number || 'B01',
+              supplier_name: batch.supplierName || batch.supplier_name || null,
+              cost_price: Number(batch.costPrice ?? batch.cost_price ?? 0),
+              selling_price: Number(batch.sellingPrice ?? batch.selling_price ?? batch.price ?? 0),
+              quantity_received: Number(batch.quantityReceived ?? batch.quantity_received ?? batch.quantity ?? 0),
+              quantity_current: Number(batch.quantity ?? batch.quantity_current ?? 0),
+              received_date: batch.receivedDate || batch.received_date || new Date().toISOString(),
+              expiry_date: batch.expiryDate || batch.expiry_date || null,
+              status: batch.status || 'ACTIVE',
+              created_at: batch.createdAt || new Date().toISOString(),
             })
             if (error) uploadError = error
           }
@@ -518,7 +529,8 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
   let pushedCount = 0
 
   // 2. If running in Electron Desktop App, perform bidirectional reconciliation with Supabase
-  if (typeof window !== 'undefined' && (window as any).api?.getSales) {
+  const isElectron = typeof window !== 'undefined' && Boolean((window as any).electron?.ipcRenderer)
+  if (isElectron && (window as any).api?.getSales) {
     try {
       // 2a. Reconcile Products (Local SQLite is Authoritative -> Cloud DB for Monitoring)
       if ((window as any).api?.getMedicines) {
@@ -546,12 +558,13 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
                 store_id: 'sml_accra_main',
                 name: m.name,
                 generic_name: m.genericName || null,
-                sku: m.sku,
-                category_name: m.category?.name || 'General',
+                sku: m.sku || `SKU-${String(m.id).slice(0, 6).toUpperCase()}`,
+                category: m.category?.name || 'General',
                 price: Number(m.price) || 0,
                 cost: Number(m.cost) || 0,
-                stock_quantity: totalQty,
-                min_stock_level: Number(m.minStockLevel) || 10,
+                current_stock: totalQty,
+                unit: 'CARTON',
+                requires_cold_storage: true,
                 updated_at: new Date().toISOString()
               }
             })
@@ -581,10 +594,17 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
             const cloudBatches = allDbBatches.map((b: any) => ({
               id: b.id,
               product_id: b.medicineId,
+              store_id: 'sml_accra_main',
               batch_number: b.batchNumber,
+              supplier_name: null,
+              cost_price: 0,
+              selling_price: 0,
+              quantity_received: Number(b.quantity) || 0,
+              quantity_current: Number(b.quantity) || 0,
+              received_date: new Date().toISOString(),
               expiry_date: b.expiryDate instanceof Date ? b.expiryDate.toISOString() : new Date(b.expiryDate).toISOString(),
-              quantity: Number(b.quantity) || 0,
-              updated_at: new Date().toISOString()
+              status: 'ACTIVE',
+              created_at: new Date().toISOString()
             }))
             await client.from('cloud_batches').upsert(cloudBatches)
           }
@@ -611,36 +631,44 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
             pm = `SPLIT:CASH=${(sale.total || 0) / 2},MOBILE=${(sale.total || 0) / 2}`
           }
 
+          const saleDate = sale.date || new Date().toISOString()
+          const totalAmt = Number(sale.total) || 0
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
-            sale_number: `INV-${String(sale.id).slice(0, 8).toUpperCase()}`,
+            invoice_number: sale.saleNumber || `INV-${String(sale.id).slice(0, 8).toUpperCase()}`,
             customer_name: sale.customer?.name || 'Walk-in Customer',
-            total: Number(sale.total) || 0,
+            total_amount: totalAmt,
+            subtotal: Number(sale.subtotal ?? totalAmt),
             payment_method: pm,
-            cashier_username: 'cashier',
-            date: sale.date || new Date().toISOString(),
-            synced_at: new Date().toISOString(),
+            cashier_name: 'cashier',
+            sold_at: saleDate,
+            created_at: saleDate,
           })
 
           if (!saleErr && sale.items && Array.isArray(sale.items)) {
-            const cloudItems = sale.items.map((i: any) => ({
-              id: i.id,
-              sale_id: sale.id,
-              product_id: i.batch?.medicineId || i.medicineId || i.batchId || null,
-              product_name:
-                i.batch?.medicine?.name ||
-                i.medicine?.name ||
-                i.product_name ||
-                i.productName ||
-                i.name ||
-                'Cold Store Item',
-              sku: i.batch?.medicine?.sku || i.sku || null,
-              quantity: Number(i.quantity) || 1,
-              unit_price: Number(i.price ?? i.batch?.medicine?.price ?? 0),
-              unit_cost: Number(i.batch?.medicine?.cost ?? 0),
-              subtotal: (Number(i.quantity) || 1) * Number(i.price ?? i.batch?.medicine?.price ?? 0),
-            }))
+            const cloudItems = sale.items.map((i: any) => {
+              const unitPrice = Number(i.price ?? i.batch?.medicine?.price ?? 0)
+              const qty = Number(i.quantity) || 1
+              return {
+                id: i.id,
+                sale_id: sale.id,
+                product_id: i.batch?.medicineId || i.medicineId || i.batchId || null,
+                product_name:
+                  i.batch?.medicine?.name ||
+                  i.medicine?.name ||
+                  i.product_name ||
+                  i.productName ||
+                  i.name ||
+                  'Cold Store Item',
+                sku: i.batch?.medicine?.sku || i.sku || null,
+                quantity: qty,
+                unit_price: unitPrice,
+                total_price: qty * unitPrice,
+                created_at: saleDate,
+              }
+            })
             await client.from('cloud_sale_items').upsert(cloudItems)
             pushedCount++
           }

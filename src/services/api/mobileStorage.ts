@@ -1,5 +1,5 @@
 // Removed static bcryptjs import to prevent browser initialization crashes
-import { enqueueSyncItem } from '../sync/syncQueue'
+import { enqueueSyncItem, flushSyncQueue, getPendingQueue, getQueue, getSyncHistory, saveQueue } from '../sync/syncQueue'
 import { getSupabaseClient } from '../sync/supabaseClient'
 import { isCloudHosting } from './hubClient'
 import { bluetoothPrinter } from '../hardware/bluetoothPrinter'
@@ -120,7 +120,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
   try {
     const [salesRes, itemsRes] = await Promise.all([
-      client.from('cloud_sales').select('*').order('date', { ascending: false }),
+      client.from('cloud_sales').select('*').order('created_at', { ascending: false }),
       client.from('cloud_sale_items').select('*'),
     ])
 
@@ -134,7 +134,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
     const mappedSales = cloudSales.map((s: any) => {
       const relatedItems = cloudItems.filter((i: any) => i.sale_id === s.id)
       const pm = (s.payment_method || 'CASH').toUpperCase()
-      const totalAmt = Number(s.total) || 0
+      const totalAmt = Number(s.total_amount ?? s.total ?? 0)
 
       let payments: any[] = []
       if (pm.startsWith('SPLIT:')) {
@@ -159,36 +159,44 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
       const finalItems = relatedItems.map((item: any) => ({
         id: item.id,
-        batchId: item.product_id,
-        medicineId: item.product_id,
+        batchId: item.batch_id || item.product_id,
+        medicineId: item.product_id || item.batch_id,
         quantity: Number(item.quantity) || 1,
-        price: Number(item.unit_price) || 0,
-        cost: Number(item.unit_cost) || 0,
-        name: item.product_name,
+        price: Number(item.unit_price ?? item.price ?? 0),
+        cost: Number(item.unit_cost ?? item.cost ?? 0),
+        name: item.product_name || item.name || 'Cold Store Item',
+        product_name: item.product_name || item.name || 'Cold Store Item',
         medicine: {
           id: item.product_id,
-          name: item.product_name,
+          name: item.product_name || item.name || 'Cold Store Item',
           sku: item.sku,
-          price: Number(item.unit_price) || 0,
-          cost: Number(item.unit_cost) || 0,
+          price: Number(item.unit_price ?? item.price ?? 0),
+          cost: Number(item.unit_cost ?? item.cost ?? 0),
         },
       }))
 
       return {
         id: s.id,
-        saleNumber: s.sale_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
-        customerId: null,
+        saleNumber: s.invoice_number || s.sale_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
+        customerId: s.customer_id || null,
         customerName: s.customer_name || 'Walk-in Customer',
         paymentMethod: s.payment_method || 'CASH',
         payments,
         total: totalAmt,
-        date: s.date || s.created_at,
-        cashier: s.cashier_username || 'cashier',
+        date: s.created_at || s.date || s.synced_at || new Date().toISOString(),
+        cashier: s.cashier_name || s.cashier_username || 'cashier',
         items: finalItems,
       }
     })
 
-    return mappedSales
+    // Merge any local-only sales that have not synced yet
+    const cloudIds = new Set(mappedSales.map((s) => s.id))
+    const localOnlySales = localSales.filter((s) => !cloudIds.has(s.id))
+    const merged = [...localOnlySales, ...mappedSales]
+
+    // Sort by date descending
+    merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    return merged
   } catch (err) {
     console.warn('Failed to fetch cloud sales in mobileStorage:', err)
     return localSales
@@ -197,10 +205,59 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
 /**
  * Push authoritative browser localStorage catalog and sales to Supabase (store → cloud).
- * Used when the web POS is the writer and the Vercel dashboard reads from cloud.
+ * Used when the web POS / tablet is the writer and the Vercel dashboard reads from cloud.
  */
 export async function pushLocalStorageToCloudIfAvailable(): Promise<{ pushedSales: number }> {
-  return { pushedSales: 0 }
+  const localSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
+  const client = getSupabaseClient()
+  if (!client || !isOnline() || localSales.length === 0) {
+    return { pushedSales: 0 }
+  }
+
+  let pushed = 0
+  try {
+    for (const s of localSales) {
+      const saleDate = s.date || s.sold_at || new Date().toISOString()
+      const totalAmt = Number(s.total ?? s.total_amount ?? 0)
+      const salePayload = {
+        id: s.id,
+        store_id: 'sml_accra_main',
+        invoice_number: s.saleNumber || s.invoice_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
+        customer_name: s.customerName || s.customer?.name || 'Walk-in Customer',
+        total_amount: totalAmt,
+        subtotal: Number(s.subtotal ?? totalAmt),
+        payment_method: s.paymentMethod || 'CASH',
+        cashier_name: s.cashier || s.cashier_name || 'cashier',
+        sold_at: saleDate,
+        created_at: saleDate,
+      }
+      const { error: saleErr } = await client.from('cloud_sales').upsert(salePayload)
+      if (!saleErr) {
+        pushed++
+        if (s.items && Array.isArray(s.items) && s.items.length > 0) {
+          const itemPayloads = s.items.map((i: any) => {
+            const qty = Number(i.quantity) || 1
+            const unitPrice = Number(i.price ?? i.unit_price ?? 0)
+            return {
+              id: i.id || `${s.id}_${i.medicineId || i.batchId}`,
+              sale_id: s.id,
+              product_id: i.medicineId || i.batchId || null,
+              batch_id: i.batchId || null,
+              product_name: i.name || i.product_name || 'Cold Store Item',
+              quantity: qty,
+              unit_price: unitPrice,
+              total_price: qty * unitPrice,
+              created_at: saleDate,
+            }
+          })
+          await client.from('cloud_sale_items').upsert(itemPayloads).catch(() => {})
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to push local storage sales to cloud:', err)
+  }
+  return { pushedSales: pushed }
 }
 
 /**
@@ -1650,28 +1707,35 @@ export const mobileApi = {
     // Direct push to Supabase if online
     const client = getSupabaseClient()
     if (client && isOnline()) {
+      const saleDate = newSale.date || new Date().toISOString()
+      const totalAmt = Number(newSale.total) || 0
       client.from('cloud_sales').upsert({
         id: newSale.id,
         store_id: 'sml_accra_main',
-        sale_number: `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
-        customer_name: newSale.customerName,
-        total: newSale.total,
-        payment_method: newSale.paymentMethod,
-        cashier_username: 'cashier',
-        date: newSale.date,
-        synced_at: new Date().toISOString()
+        invoice_number: newSale.saleNumber || `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
+        customer_name: newSale.customerName || 'Walk-in Customer',
+        total_amount: totalAmt,
+        subtotal: Number(newSale.subtotal ?? totalAmt),
+        payment_method: newSale.paymentMethod || 'CASH',
+        cashier_name: newSale.cashier || 'cashier',
+        sold_at: saleDate,
+        created_at: saleDate,
       }).then(() => {
-        const cloudItems = newSale.items.map((i: any) => ({
-          id: i.id,
-          sale_id: newSale.id,
-          product_id: i.medicineId,
-          product_name: i.name,
-          sku: i.medicine?.sku || null,
-          quantity: i.quantity,
-          unit_price: i.price,
-          unit_cost: i.cost,
-          subtotal: i.quantity * i.price
-        }))
+        const cloudItems = newSale.items.map((i: any) => {
+          const qty = Number(i.quantity) || 1
+          const unitPrice = Number(i.price) || 0
+          return {
+            id: i.id,
+            sale_id: newSale.id,
+            product_id: i.medicineId || i.batchId || null,
+            batch_id: i.batchId || null,
+            product_name: i.name || 'Cold Store Item',
+            quantity: qty,
+            unit_price: unitPrice,
+            total_price: qty * unitPrice,
+            created_at: saleDate,
+          }
+        })
         return client.from('cloud_sale_items').upsert(cloudItems)
       }).catch((e) => console.warn('Direct cloud sale push error:', e))
 
@@ -1680,8 +1744,7 @@ export const mobileApi = {
         const updatedBatch = batches.find(b => b.id === item.batchId)
         if (updatedBatch) {
           client.from('cloud_batches').update({
-            quantity: updatedBatch.quantity,
-            updated_at: new Date().toISOString()
+            quantity_current: Number(updatedBatch.quantity) || 0,
           }).eq('id', updatedBatch.id).then(() => {}).catch(() => {})
         }
       }
@@ -2749,11 +2812,12 @@ export const mobileApi = {
   },
 
   getSyncStatus: async () => {
+    const pending = getPendingQueue().length
     return {
       online: typeof navigator !== 'undefined' && navigator.onLine,
-      state: typeof navigator !== 'undefined' && navigator.onLine ? 'ONLINE' : 'OFFLINE',
+      state: typeof navigator !== 'undefined' && navigator.onLine ? (pending > 0 ? 'SYNCING' : 'ONLINE') : 'OFFLINE',
       lastSyncTime: new Date().toISOString(),
-      pendingCount: 0,
+      pendingCount: pending,
       failedCount: 0,
       deadLetterCount: 0,
       lastError: null,
@@ -2764,8 +2828,17 @@ export const mobileApi = {
     }
   },
 
-  flushSyncOutbox: async () => {
-    return { success: true, attempted: 0, succeeded: 0, failed: 0, durationMs: 40 }
+  flushSyncOutbox: async (_batchSize?: number) => {
+    const res = await flushSyncQueue()
+    await pushLocalStorageToCloudIfAvailable()
+    return {
+      success: res.success,
+      attempted: res.syncedCount + res.failedCount,
+      succeeded: res.syncedCount,
+      failed: res.failedCount,
+      durationMs: 50,
+      message: res.message
+    }
   },
 
   pullSyncChanges: async () => {
@@ -2792,7 +2865,7 @@ export const mobileApi = {
         productsCount: prods.length,
         batchesCount: batches.length,
         purchasesCount: purchases.length,
-        pendingOutboxCount: 0,
+        pendingOutboxCount: getPendingQueue().length,
         deadLetterCount: 0,
       },
       cloud: {
@@ -2804,7 +2877,7 @@ export const mobileApi = {
         batchesCount: batches.length,
         purchasesCount: purchases.length,
       },
-      outbox: { pending: 0, failed: 0, deadLetter: 0, synced: sales.length, total: sales.length },
+      outbox: { pending: getPendingQueue().length, failed: 0, deadLetter: 0, synced: sales.length, total: sales.length },
       discrepancies: [],
       recommendations: ['Web / Cloud storage active and in sync with Supabase replica.'],
       reconciliationSafe: true,
@@ -2812,14 +2885,48 @@ export const mobileApi = {
   },
 
   getSyncOutbox: async () => {
-    return []
+    return getQueue().map((q) => ({
+      id: q.id,
+      eventId: q.id,
+      entityType: q.entity,
+      entityId: q.payload?.id || q.id,
+      operation: q.action,
+      retryCount: q.retryCount,
+      status: q.status,
+      lastError: q.error,
+      createdAt: q.createdAt,
+    }))
   },
 
   getSyncSessions: async () => {
-    return []
+    return getSyncHistory().map((s) => ({
+      id: s.id,
+      sessionId: s.id,
+      startedAt: s.timestamp,
+      completedAt: s.timestamp,
+      eventsAttempted: s.itemsSynced,
+      eventsSucceeded: s.status === 'SUCCESS' ? s.itemsSynced : 0,
+      eventsFailed: s.status === 'FAILED' ? s.itemsSynced : 0,
+      latencyMs: s.durationMs,
+      status: s.status,
+      errorSummary: s.status === 'FAILED' ? s.details : null,
+    }))
   },
 
   retryDeadLetterEvents: async () => {
-    return { success: true, count: 0 }
+    const queue = getQueue()
+    let count = 0
+    for (const item of queue) {
+      if (item.status === 'FAILED') {
+        item.status = 'PENDING'
+        item.retryCount = 0
+        item.error = undefined
+        count++
+      }
+    }
+    if (count > 0) {
+      saveQueue(queue)
+    }
+    return { success: true, count }
   },
 }

@@ -121,7 +121,7 @@ export async function recordEventFailure(eventId: string, error: string) {
 
 export async function retryDeadLetterEvents(): Promise<number> {
   const result = await prisma.syncOutbox.updateMany({
-    where: { status: 'DEAD_LETTER' },
+    where: { status: { in: ['DEAD_LETTER', 'FAILED'] } },
     data: {
       status: 'PENDING',
       retryCount: 0,

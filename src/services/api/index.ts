@@ -17,7 +17,7 @@ import { isCloudHosting } from './hubClient'
  *    Uses Electron IPC (`window.api`) with direct fallback to `mobileApi`.
  */
 export function getApi() {
-  if (typeof window !== 'undefined' && window.api) {
+  if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer && window.api) {
     const electronApi = window.api as any
 
     // Create a wrapper object that includes both Electron IPC and mobileApi methods

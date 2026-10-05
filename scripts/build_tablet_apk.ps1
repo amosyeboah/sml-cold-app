@@ -50,7 +50,28 @@ if (-not $env:ANDROID_HOME -or -not (Test-Path "$env:ANDROID_HOME\platform-tools
 
 $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:Path"
 
-# 3. Build APK with Gradle
+# 3. Build Web Bundle (Vite -> dist)
+$rootDir = Join-Path $PSScriptRoot ".."
+Write-Host "Building web bundle (npm run build)..." -ForegroundColor Yellow
+Push-Location $rootDir
+try {
+    & npm.cmd run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Web build failed with exit code $LASTEXITCODE" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+
+    Write-Host "Syncing assets to Android (npx cap sync android)..." -ForegroundColor Yellow
+    & npx.cmd cap sync android
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Capacitor sync failed with exit code $LASTEXITCODE" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+} finally {
+    Pop-Location
+}
+
+# 4. Build APK with Gradle
 $androidDir = Join-Path $PSScriptRoot "..\android"
 $gradlew = Join-Path $androidDir "gradlew.bat"
 

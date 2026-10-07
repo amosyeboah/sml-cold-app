@@ -38,6 +38,11 @@ import {
   Layers,
   PanelLeftClose,
   PanelLeftOpen,
+  ClipboardList,
+  ChevronLeft,
+  Truck,
+  Hash,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,7 +51,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/utils'
 import { reportsService } from '@/services/reports'
-import type { ReportsData, InventoryReportItem } from '@/types'
+import type { ReportsData, InventoryReportItem, PurchaseReportItem } from '@/types'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -175,6 +180,96 @@ function getPaymentMethodColor(method: string) {
 function buildKpiCards(data?: ReportsData | null, activeReport = 'sales') {
   const kpis = data?.kpis
   if (!kpis) return []
+
+  if (activeReport === 'purchase') {
+    const list = data?.purchases || []
+    const totalPurchasesSpend = kpis.totalPurchases ?? 0
+    const totalOrders = list.length
+    const uniqueSuppliers = new Set(list.map((p) => p.supplier).filter(Boolean)).size
+    const totalCartons = list.reduce(
+      (sum, p) => sum + (p.totalQuantity || (p.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)),
+      0
+    )
+    const avgOrderSpend = totalOrders > 0 ? totalPurchasesSpend / totalOrders : 0
+    const completedOrders = list.filter((p) => {
+      const s = (p.status || '').toUpperCase()
+      return s === 'COMPLETED' || s === 'RECEIVED'
+    }).length
+    const maxOrderVal = list.length > 0 ? Math.max(...list.map((p) => Number(p.total) || 0)) : 0
+
+    return [
+      {
+        title: 'Total Purchases Spend',
+        value: formatCurrency(totalPurchasesSpend),
+        trend: formatTrend(kpis.purchasesTrend ?? 0),
+        icon: ShoppingBag,
+        iconBg: 'bg-teal-100',
+        iconColor: 'text-teal-600',
+        sparkColor: '#14b8a6',
+        sparkData: kpis.purchasesSparkline ?? [],
+      },
+      {
+        title: 'Purchase Orders',
+        value: totalOrders.toLocaleString(),
+        trend: `${completedOrders} received orders`,
+        icon: ClipboardList,
+        iconBg: 'bg-blue-100',
+        iconColor: 'text-blue-600',
+        sparkColor: '#3b82f6',
+        sparkData: [],
+      },
+      {
+        title: 'Active Suppliers',
+        value: uniqueSuppliers.toLocaleString(),
+        trend: 'Suppliers in period',
+        icon: Users,
+        iconBg: 'bg-violet-100',
+        iconColor: 'text-violet-600',
+        sparkColor: '#8b5cf6',
+        sparkData: [],
+      },
+      {
+        title: 'Cartons Restocked',
+        value: totalCartons.toLocaleString(),
+        trend: 'Total units received',
+        icon: Package,
+        iconBg: 'bg-amber-100',
+        iconColor: 'text-amber-600',
+        sparkColor: '#f59e0b',
+        sparkData: [],
+      },
+      {
+        title: 'Avg. Order Spend',
+        value: formatCurrency(avgOrderSpend),
+        trend: 'Average procurement cost',
+        icon: DollarSign,
+        iconBg: 'bg-emerald-100',
+        iconColor: 'text-emerald-600',
+        sparkColor: '#10b981',
+        sparkData: [],
+      },
+      {
+        title: 'Highest Order',
+        value: formatCurrency(maxOrderVal),
+        trend: 'Peak procurement order',
+        icon: TrendingUp,
+        iconBg: 'bg-rose-100',
+        iconColor: 'text-rose-600',
+        sparkColor: '#f43f5e',
+        sparkData: [],
+      },
+      {
+        title: 'Holding Stock Value',
+        value: formatCurrency(kpis.inventoryCost ?? 0),
+        trend: 'Current warehouse capital',
+        icon: Activity,
+        iconBg: 'bg-sky-100',
+        iconColor: 'text-sky-600',
+        sparkColor: '#0284c7',
+        sparkData: [],
+      },
+    ]
+  }
 
   if (activeReport === 'inventory') {
     const inv = data?.inventoryReport
@@ -430,9 +525,16 @@ function getChartConfig(activeReport: string) {
 }
 
 function shouldShowSection(activeReport: string, section: string) {
-  if (activeReport === 'sales') return true
+  if (activeReport === 'sales') {
+    return (
+      section !== 'inventoryTable' &&
+      section !== 'inventoryOverview' &&
+      section !== 'profitStatement' &&
+      section !== 'purchasesTable'
+    )
+  }
   const map: Record<string, string[]> = {
-    purchase: ['kpis', 'chart', 'purchases', 'payment'],
+    purchase: ['kpis', 'chart', 'purchasesTable'],
     inventory: ['kpis', 'inventoryOverview', 'inventoryTable', 'expiry'],
     profit: ['kpis', 'profitStatement', 'chart', 'profitBreakdown'],
     tax: ['kpis', 'chart'],
@@ -441,7 +543,7 @@ function shouldShowSection(activeReport: string, section: string) {
     payment: ['kpis', 'payment'],
     customer: ['transactions'],
   }
-  return map[activeReport]?.includes(section) ?? true
+  return map[activeReport]?.includes(section) ?? false
 }
 
 export default function Reports() {
@@ -460,6 +562,14 @@ export default function Reports() {
   const [inventorySortBy, setInventorySortBy] = useState<'cost_desc' | 'retail_desc' | 'stock_desc' | 'profit_desc' | 'name_asc' | 'urgent_low'>('cost_desc')
   const [selectedItemForBatches, setSelectedItemForBatches] = useState<InventoryReportItem | null>(null)
   const [batchModalOpen, setBatchModalOpen] = useState(false)
+  const [purchaseSearch, setPurchaseSearch] = useState('')
+  const [purchaseSupplierFilter, setPurchaseSupplierFilter] = useState('ALL')
+  const [purchaseStatusFilter, setPurchaseStatusFilter] = useState<'ALL' | 'COMPLETED' | 'PENDING'>('ALL')
+  const [purchaseSortBy, setPurchaseSortBy] = useState<'date_desc' | 'date_asc' | 'total_desc' | 'total_asc' | 'supplier_asc' | 'items_desc'>('date_desc')
+  const [purchaseCurrentPage, setPurchaseCurrentPage] = useState(1)
+  const [selectedPurchaseForModal, setSelectedPurchaseForModal] = useState<PurchaseReportItem | null>(null)
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false)
+  const PURCHASES_PER_PAGE = 10
   const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
     if (typeof localStorage !== 'undefined') {
       return localStorage.getItem('reports_nav_collapsed') === 'true'
@@ -597,6 +707,86 @@ export default function Reports() {
 
     return list
   }, [inventoryData.items, inventoryCategory, inventoryStatusFilter, inventorySearch, inventorySortBy])
+
+  const availablePurchaseSuppliers = useMemo(() => {
+    const set = new Set<string>()
+    ;(data?.purchases || []).forEach((p) => {
+      if (p.supplier) set.add(p.supplier)
+    })
+    return Array.from(set).sort()
+  }, [data?.purchases])
+
+  const filteredPurchases = useMemo(() => {
+    let list = [...(data?.purchases || [])]
+
+    if (purchaseSupplierFilter !== 'ALL') {
+      list = list.filter((p) => p.supplier === purchaseSupplierFilter)
+    }
+
+    if (purchaseStatusFilter !== 'ALL') {
+      list = list.filter((p) => {
+        const s = (p.status || '').toUpperCase()
+        if (purchaseStatusFilter === 'COMPLETED') return s === 'COMPLETED' || s === 'RECEIVED'
+        if (purchaseStatusFilter === 'PENDING') return s === 'PENDING'
+        return true
+      })
+    }
+
+    if (purchaseSearch.trim()) {
+      const q = purchaseSearch.toLowerCase()
+      list = list.filter((p) => {
+        const matchId = p.id.toLowerCase().includes(q)
+        const matchSupplier = p.supplier?.toLowerCase().includes(q)
+        const matchStatus = p.status?.toLowerCase().includes(q)
+        const matchItems = (p.items || []).some(
+          (it) =>
+            (it.medicineName && it.medicineName.toLowerCase().includes(q)) ||
+            (it.name && it.name.toLowerCase().includes(q)) ||
+            (it.batchNumber && it.batchNumber.toLowerCase().includes(q)) ||
+            (it.sku && it.sku.toLowerCase().includes(q))
+        )
+        return matchId || matchSupplier || matchStatus || matchItems
+      })
+    }
+
+    list.sort((a, b) => {
+      switch (purchaseSortBy) {
+        case 'date_asc':
+          return new Date(a.date).getTime() - new Date(b.date).getTime()
+        case 'total_desc':
+          return b.total - a.total
+        case 'total_asc':
+          return a.total - b.total
+        case 'supplier_asc':
+          return a.supplier.localeCompare(b.supplier)
+        case 'items_desc':
+          return (b.itemsCount ?? b.items?.length ?? 0) - (a.itemsCount ?? a.items?.length ?? 0)
+        case 'date_desc':
+        default:
+          return new Date(b.date).getTime() - new Date(a.date).getTime()
+      }
+    })
+
+    return list
+  }, [data?.purchases, purchaseSupplierFilter, purchaseStatusFilter, purchaseSearch, purchaseSortBy])
+
+  const totalFilteredPurchaseSpend = useMemo(() => {
+    return filteredPurchases.reduce((acc, p) => acc + (Number(p.total) || 0), 0)
+  }, [filteredPurchases])
+
+  const totalFilteredPurchaseUnits = useMemo(() => {
+    return filteredPurchases.reduce(
+      (acc, p) => acc + (p.totalQuantity ?? (p.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)),
+      0
+    )
+  }, [filteredPurchases])
+
+  const totalPurchasePages = Math.max(1, Math.ceil(filteredPurchases.length / PURCHASES_PER_PAGE))
+  const safePurchasePage = Math.min(purchaseCurrentPage, totalPurchasePages)
+  const paginatedPurchases = useMemo(() => {
+    const start = (safePurchasePage - 1) * PURCHASES_PER_PAGE
+    return filteredPurchases.slice(start, start + PURCHASES_PER_PAGE)
+  }, [filteredPurchases, safePurchasePage])
 
   const chartConfig = getChartConfig(activeReport)
   const dateRangeLabel = formatDateRangeLabel(startDate, endDate)
@@ -1497,31 +1687,335 @@ export default function Reports() {
                 </div>
               )}
 
-              {shouldShowSection(activeReport, 'purchases') && (data.purchases ?? []).length > 0 && (
+              {shouldShowSection(activeReport, 'purchasesTable') && (
                 <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-4 text-base font-bold text-slate-900">Purchase Orders</h3>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead>Date</TableHead>
-                          <TableHead>Supplier</TableHead>
-                          <TableHead>Total</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(data.purchases || []).map((purchase) => (
-                          <TableRow key={purchase.id}>
-                            <TableCell>{format(new Date(purchase.date), 'dd MMM yyyy HH:mm')}</TableCell>
-                            <TableCell className="font-medium">{purchase.supplier}</TableCell>
-                            <TableCell className="font-semibold">{formatCurrency(purchase.total)}</TableCell>
-                            <TableCell>{purchase.status}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  {/* Header & Badges */}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
+                          <ClipboardList className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900">Purchase Order History</h3>
+                          <p className="text-xs text-slate-500">
+                            Procurement transactions, received supplier shipments, and batch restocking ledger
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                        <ShoppingBag className="h-3.5 w-3.5" />
+                        {filteredPurchases.length} {filteredPurchases.length === 1 ? 'Order' : 'Orders'}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        <DollarSign className="h-3.5 w-3.5" />
+                        Spend: {formatCurrency(totalFilteredPurchaseSpend)}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                        <Package className="h-3.5 w-3.5" />
+                        {totalFilteredPurchaseUnits.toLocaleString()} Cartons
+                      </span>
+                    </div>
                   </div>
+
+                  {/* Filters & Search Toolbar */}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-1 flex-wrap items-center gap-2.5 min-w-[240px]">
+                      {/* Search */}
+                      <div className="relative flex-1 min-w-[200px] max-w-sm">
+                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                        <Input
+                          placeholder="Search PO#, supplier, item, batch..."
+                          value={purchaseSearch}
+                          onChange={(e) => {
+                            setPurchaseSearch(e.target.value)
+                            setPurchaseCurrentPage(1)
+                          }}
+                          className="h-8 pl-8 text-xs bg-slate-50 border-slate-200 focus:bg-white"
+                        />
+                        {purchaseSearch && (
+                          <button
+                            onClick={() => {
+                              setPurchaseSearch('')
+                              setPurchaseCurrentPage(1)
+                            }}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Supplier Filter Dropdown */}
+                      <select
+                        value={purchaseSupplierFilter}
+                        onChange={(e) => {
+                          setPurchaseSupplierFilter(e.target.value)
+                          setPurchaseCurrentPage(1)
+                        }}
+                        className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      >
+                        <option value="ALL">All Suppliers ({availablePurchaseSuppliers.length})</option>
+                        {availablePurchaseSuppliers.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+
+                      {/* Status filter chips */}
+                      <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+                        <button
+                          onClick={() => {
+                            setPurchaseStatusFilter('ALL')
+                            setPurchaseCurrentPage(1)
+                          }}
+                          className={cn(
+                            'rounded-md px-2 py-1 font-medium transition-colors',
+                            purchaseStatusFilter === 'ALL'
+                              ? 'bg-white text-teal-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          )}
+                        >
+                          All ({(data.purchases || []).length})
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPurchaseStatusFilter('COMPLETED')
+                            setPurchaseCurrentPage(1)
+                          }}
+                          className={cn(
+                            'rounded-md px-2 py-1 font-medium transition-colors',
+                            purchaseStatusFilter === 'COMPLETED'
+                              ? 'bg-white text-emerald-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          )}
+                        >
+                          Completed ({(data.purchases || []).filter((p) => {
+                            const s = (p.status || '').toUpperCase()
+                            return s === 'COMPLETED' || s === 'RECEIVED'
+                          }).length})
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPurchaseStatusFilter('PENDING')
+                            setPurchaseCurrentPage(1)
+                          }}
+                          className={cn(
+                            'rounded-md px-2 py-1 font-medium transition-colors',
+                            purchaseStatusFilter === 'PENDING'
+                              ? 'bg-white text-amber-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          )}
+                        >
+                          Pending ({(data.purchases || []).filter((p) => (p.status || '').toUpperCase() === 'PENDING').length})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Sort by dropdown */}
+                    <select
+                      value={purchaseSortBy}
+                      onChange={(e) => setPurchaseSortBy(e.target.value as any)}
+                      className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    >
+                      <option value="date_desc">Sort: Date (Newest First)</option>
+                      <option value="date_asc">Sort: Date (Oldest First)</option>
+                      <option value="total_desc">Sort: Spend (Highest First)</option>
+                      <option value="total_asc">Sort: Spend (Lowest First)</option>
+                      <option value="supplier_asc">Sort: Supplier (A-Z)</option>
+                      <option value="items_desc">Sort: Line Items (Most First)</option>
+                    </select>
+                  </div>
+
+                  {/* Purchases Table */}
+                  {filteredPurchases.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <ShoppingBag className="mb-2 h-9 w-9 text-slate-300" />
+                      <p className="text-sm font-semibold text-slate-700">No purchase records found</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {purchaseSearch || purchaseSupplierFilter !== 'ALL' || purchaseStatusFilter !== 'ALL'
+                          ? 'No purchases match your active filters. Try clearing filters.'
+                          : `No purchase orders were logged for ${dateRangeLabel}.`}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto rounded-lg border border-slate-200">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-b border-slate-200 bg-slate-50/80 hover:bg-slate-50/80">
+                              <TableHead className="font-semibold text-slate-700">PO Ref / Order #</TableHead>
+                              <TableHead className="font-semibold text-slate-700">Date &amp; Time</TableHead>
+                              <TableHead className="font-semibold text-slate-700">Supplier</TableHead>
+                              <TableHead className="font-semibold text-slate-700">Items Received</TableHead>
+                              <TableHead className="font-semibold text-slate-700 text-right">Total Cost</TableHead>
+                              <TableHead className="font-semibold text-slate-700 text-center">Status</TableHead>
+                              <TableHead className="font-semibold text-slate-700 text-center">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paginatedPurchases.map((purchase) => {
+                              const lineCount = purchase.itemsCount ?? purchase.items?.length ?? 0
+                              const unitsCount = purchase.totalQuantity ?? (purchase.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+                              const isCompleted = (purchase.status || '').toUpperCase() === 'COMPLETED' || (purchase.status || '').toUpperCase() === 'RECEIVED'
+                              const isPending = (purchase.status || '').toUpperCase() === 'PENDING'
+
+                              return (
+                                <TableRow key={purchase.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                  <TableCell className="py-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <Hash className="h-3.5 w-3.5 text-slate-400" />
+                                      <span className="font-mono text-xs font-bold text-slate-900">
+                                        PO-{purchase.id.slice(0, 8).toUpperCase()}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+
+                                  <TableCell className="py-3">
+                                    <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                                      <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                                      <div>
+                                        <p className="font-medium text-slate-800">
+                                          {format(new Date(purchase.date), 'dd MMM yyyy')}
+                                        </p>
+                                        <p className="text-[10px] text-slate-400">
+                                          {format(new Date(purchase.date), 'HH:mm')}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+
+                                  <TableCell className="py-3">
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
+                                      <Truck className="h-3 w-3 text-violet-500" />
+                                      {purchase.supplier || 'Unknown Supplier'}
+                                    </span>
+                                  </TableCell>
+
+                                  <TableCell className="py-3">
+                                    <div>
+                                      <div className="flex items-center gap-1 text-xs font-medium text-slate-800">
+                                        <Package className="h-3.5 w-3.5 text-slate-400" />
+                                        <span>{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
+                                        {unitsCount > 0 && (
+                                          <span className="text-slate-500 font-normal">
+                                            ({unitsCount.toLocaleString()} {unitsCount === 1 ? 'carton' : 'cartons'})
+                                          </span>
+                                        )}
+                                      </div>
+                                      {purchase.items && purchase.items.length > 0 && (
+                                        <p className="mt-0.5 max-w-[260px] truncate text-[10px] text-slate-400">
+                                          {purchase.items.map((i) => `${i.medicineName || i.name} (${i.quantity})`).join(', ')}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </TableCell>
+
+                                  <TableCell className="py-3 text-right">
+                                    <span className="text-xs font-bold text-slate-900">
+                                      {formatCurrency(purchase.total)}
+                                    </span>
+                                  </TableCell>
+
+                                  <TableCell className="py-3 text-center">
+                                    <span
+                                      className={cn(
+                                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border',
+                                        isCompleted
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : isPending
+                                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                                      )}
+                                    >
+                                      {isCompleted ? (
+                                        <CheckCircle2 className="h-3 w-3" />
+                                      ) : isPending ? (
+                                        <Clock className="h-3 w-3" />
+                                      ) : null}
+                                      {purchase.status || 'Received'}
+                                    </span>
+                                  </TableCell>
+
+                                  <TableCell className="py-3 text-center">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 gap-1 px-2.5 text-xs border-slate-200 text-slate-700 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200"
+                                      onClick={() => {
+                                        setSelectedPurchaseForModal(purchase)
+                                        setPurchaseModalOpen(true)
+                                      }}
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                      View Items
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+
+                          {/* Summary Footer */}
+                          <tfoot className="border-t-2 border-slate-200 bg-slate-50/90 font-bold text-slate-900 text-xs">
+                            <tr>
+                              <td className="px-4 py-3" colSpan={3}>
+                                Total ({filteredPurchases.length} Purchase {filteredPurchases.length === 1 ? 'Order' : 'Orders'})
+                              </td>
+                              <td className="px-4 py-3 text-slate-700">
+                                {totalFilteredPurchaseUnits.toLocaleString()} Cartons Received
+                              </td>
+                              <td className="px-4 py-3 text-right font-black text-slate-950">
+                                {formatCurrency(totalFilteredPurchaseSpend)}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-500 font-medium" colSpan={2}>
+                                Avg. PO: {formatCurrency(totalFilteredPurchaseSpend / Math.max(1, filteredPurchases.length))}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </Table>
+                      </div>
+
+                      {/* Pagination Bar */}
+                      {totalPurchasePages > 1 && (
+                        <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
+                          <p>
+                            Showing <span className="font-semibold text-slate-800">{(safePurchasePage - 1) * PURCHASES_PER_PAGE + 1}</span> to{' '}
+                            <span className="font-semibold text-slate-800">
+                              {Math.min(safePurchasePage * PURCHASES_PER_PAGE, filteredPurchases.length)}
+                            </span>{' '}
+                            of <span className="font-semibold text-slate-800">{filteredPurchases.length}</span> orders
+                          </p>
+
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={safePurchasePage <= 1}
+                              onClick={() => setPurchaseCurrentPage((p) => Math.max(1, p - 1))}
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" /> Previous
+                            </Button>
+                            <span className="px-2 text-xs font-medium">
+                              Page {safePurchasePage} of {totalPurchasePages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={safePurchasePage >= totalPurchasePages}
+                              onClick={() => setPurchaseCurrentPage((p) => Math.min(totalPurchasePages, p + 1))}
+                            >
+                              Next <ChevronRight className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1769,6 +2263,128 @@ export default function Reports() {
                         </TableRow>
                       ))}
                     </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Purchase Order Items Detail Modal */}
+      <Dialog open={purchaseModalOpen} onOpenChange={setPurchaseModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <ClipboardList className="h-5 w-5 text-teal-600" />
+              Purchase Order #{selectedPurchaseForModal ? selectedPurchaseForModal.id.slice(0, 8).toUpperCase() : ''}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedPurchaseForModal && (
+            <div className="space-y-4 pt-2">
+              {/* Order Info Tiles */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs">
+                <div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Supplier</span>
+                  <p className="mt-0.5 font-bold text-slate-900 truncate">
+                    {selectedPurchaseForModal.supplier}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Order Date</span>
+                  <p className="mt-0.5 font-bold text-slate-900">
+                    {format(new Date(selectedPurchaseForModal.date), 'dd MMM yyyy, HH:mm')}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Status</span>
+                  <p className="mt-0.5">
+                    <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                      {selectedPurchaseForModal.status}
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total Spend</span>
+                  <p className="mt-0.5 text-sm font-black text-emerald-600">
+                    {formatCurrency(selectedPurchaseForModal.total)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Items List */}
+              {(!selectedPurchaseForModal.items || selectedPurchaseForModal.items.length === 0) ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  <Package className="mx-auto mb-2 h-7 w-7 text-slate-300" />
+                  No line items detailed for this purchase record.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-b border-slate-200 bg-slate-50 hover:bg-slate-50">
+                        <TableHead className="text-xs font-semibold text-slate-700">Product Name</TableHead>
+                        <TableHead className="text-xs font-semibold text-slate-700">Batch / Lot #</TableHead>
+                        <TableHead className="text-xs font-semibold text-slate-700">Expiry Date</TableHead>
+                        <TableHead className="text-xs font-semibold text-slate-700 text-right">Qty (Cartons)</TableHead>
+                        <TableHead className="text-xs font-semibold text-slate-700 text-right">Unit Cost</TableHead>
+                        <TableHead className="text-xs font-semibold text-slate-700 text-right">Subtotal</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedPurchaseForModal.items.map((item, idx) => {
+                        const lineSubtotal = (Number(item.quantity) || 0) * (Number(item.cost) || 0)
+                        return (
+                          <TableRow key={item.id || idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                            <TableCell className="py-2.5">
+                              <div>
+                                <p className="text-xs font-bold text-slate-900">{item.medicineName || item.name || 'Cold Store Item'}</p>
+                                {item.sku && <p className="text-[10px] font-mono text-slate-400">{item.sku}</p>}
+                              </div>
+                            </TableCell>
+
+                            <TableCell className="py-2.5 font-mono text-xs font-bold text-slate-700">
+                              {item.batchNumber ? (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5">{item.batchNumber}</span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </TableCell>
+
+                            <TableCell className="py-2.5 text-xs text-slate-600">
+                              {item.expiryDate ? format(new Date(item.expiryDate), 'dd MMM yyyy') : '—'}
+                            </TableCell>
+
+                            <TableCell className="py-2.5 text-right text-xs font-bold text-slate-800">
+                              {(Number(item.quantity) || 0).toLocaleString()}
+                            </TableCell>
+
+                            <TableCell className="py-2.5 text-right text-xs text-slate-700">
+                              {formatCurrency(Number(item.cost) || 0)}
+                            </TableCell>
+
+                            <TableCell className="py-2.5 text-right text-xs font-bold text-emerald-600">
+                              {formatCurrency(lineSubtotal)}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                    <tfoot className="border-t-2 border-slate-200 bg-slate-50/80 font-bold text-slate-900 text-xs">
+                      <tr>
+                        <td className="px-4 py-2.5" colSpan={3}>
+                          Total ({selectedPurchaseForModal.items.length} items)
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-black">
+                          {selectedPurchaseForModal.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-400">—</td>
+                        <td className="px-4 py-2.5 text-right font-black text-emerald-600">
+                          {formatCurrency(selectedPurchaseForModal.total)}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </Table>
                 </div>
               )}

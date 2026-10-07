@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Printer, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -112,6 +112,114 @@ export function getSaleBreakdown(sale: any): SalePaymentBreakdown {
   return { cash: total, momo: 0, other: 0, isSplit: false, displayLabel: 'CASH' }
 }
 
+export interface ReceiptOptions {
+  storeName?: string
+  phone?: string
+  footer?: string
+  currencySymbol?: string
+  isDuplicate?: boolean
+  resolveItemName?: (item: any) => string
+}
+
+export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = {}): string {
+  const storeName = options.storeName || 'SML LEGACY LIMITED'
+  const phone = options.phone || '+233 54 386 4610'
+  const footer = options.footer || 'Thank you for choosing SML Legacy! Keep frozen at -18°C.'
+  const currencySymbol = options.currencySymbol || '₵'
+  const isDuplicate = options.isDuplicate ?? true
+  const resolveName = options.resolveItemName || ((item: any) => item?.product_name || item?.name || 'Cold Store Item')
+
+  const invoiceId = `INV-${(targetSale.id || '').slice(0, 8).toUpperCase()}`
+  const rawDate = targetSale.date || targetSale.created_at || targetSale.createdAt
+  const formattedDate = format(new Date(rawDate || Date.now()), 'dd MMM yyyy, HH:mm')
+  const customerName = targetSale.customer?.name || targetSale.customerName || 'Walk-in Customer'
+
+  const bd = getSaleBreakdown(targetSale)
+  let paymentSectionHTML = `<p style="margin:2px 0;font-size:11px;">Payment: ${bd.displayLabel}</p>`
+  if (bd.isSplit || (targetSale.payments && targetSale.payments.length > 1)) {
+    const paymentEntries =
+      targetSale.payments && targetSale.payments.length > 0
+        ? targetSale.payments.filter((p: any) => Number(p.amount) > 0)
+        : [
+            ...(bd.cash > 0 ? [{ method: 'CASH', amount: bd.cash }] : []),
+            ...(bd.momo > 0 ? [{ method: 'MOBILE', amount: bd.momo }] : []),
+            ...(bd.other > 0 ? [{ method: 'OTHER', amount: bd.other }] : []),
+          ]
+
+    paymentSectionHTML = `
+      <div style="margin:4px 0 2px 0;">
+        <p style="margin:0 0 2px 0;font-size:11px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
+        <table style="width:100%;font-size:10px;border-collapse:collapse;">
+          ${paymentEntries.map((p: any) => {
+            const mUpper = (p.method || '').toUpperCase()
+            const isCash = mUpper.includes('CASH')
+            const isMob = mUpper.includes('MOBILE') || mUpper.includes('MOMO')
+            const label = isMob ? 'Mobile Money' : isCash ? 'Cash' : p.method
+            return `
+              <tr>
+                <td style="padding:1px 0;color:#222;">• ${label}:</td>
+                <td style="text-align:right;padding:1px 0;font-weight:bold;">${currencySymbol}${Number(p.amount).toFixed(2)}</td>
+              </tr>
+            `
+          }).join('')}
+        </table>
+      </div>
+    `
+  }
+
+  const items = targetSale.items || []
+  const itemsHTML = items.map((item: any) => {
+    const name = resolveName(item)
+    const qty = Number(item.quantity) || 1
+    const price = Number(item.price ?? item.unit_price ?? item.medicine?.price ?? 0)
+    const subtotal = Number(item.subtotal ?? (price * qty))
+    return `
+      <tr>
+        <td style="padding:3px 0;max-width:90px;word-break:break-word;">${name}</td>
+        <td style="text-align:center;vertical-align:top;padding:3px 0;">${qty}</td>
+        <td style="text-align:right;vertical-align:top;padding:3px 0;">${currencySymbol}${subtotal.toFixed(2)}</td>
+      </tr>
+    `
+  }).join('')
+
+  return `
+    <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:4px 0;margin:0;color:#000;font-size:11px;">
+      <h2 style="text-align:center;margin:0 0 4px 0;font-size:14px;font-weight:bold;">${storeName.toUpperCase()}</h2>
+      <p style="text-align:center;margin:2px 0 0 0;font-size:10px;">Store Tel: ${phone}</p>
+      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
+      <p style="margin:2px 0;font-size:11px;">Date: ${formattedDate}</p>
+      <p style="margin:2px 0;font-size:11px;">Receipt: ${invoiceId}</p>
+      <p style="margin:2px 0;font-size:11px;">Customer: ${customerName}</p>
+      ${isDuplicate ? `<p style="margin:3px 0;font-size:10px;color:#444;font-weight:bold;text-align:center;background:#f1f5f9;padding:2px;border:1px dashed #94a3b8;">[ DUPLICATE RECEIPT ]</p>` : ''}
+      ${paymentSectionHTML}
+      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
+      <table style="width:100%;font-size:10px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid #000;text-align:left;">
+            <th style="padding:2px 0;">Item</th>
+            <th style="text-align:center;padding:2px 0;">Qty</th>
+            <th style="text-align:right;padding:2px 0;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHTML || `<tr><td colspan="3" style="text-align:center;padding:4px 0;">Cold Store Products</td></tr>`}
+        </tbody>
+      </table>
+      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
+      <table style="width:100%;font-size:10px;">
+        <tr>
+          <td style="padding:4px 0;font-weight:bold;font-size:13px;">GRAND TOTAL:</td>
+          <td colspan="2" style="text-align:right;font-weight:bold;font-size:14px;">${currencySymbol}${Number(targetSale.total).toFixed(2)}</td>
+        </tr>
+      </table>
+      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
+      <p style="text-align:center;margin:6px 0 2px 0;font-size:11px;font-weight:bold;">${footer}</p>
+      <p style="text-align:center;margin:0;font-size:9px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
+      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
+      <p style="text-align:center;margin:0;font-size:9px;color:#555;">Software developed by Paylite<br/>www.mypaylite.com | 0207131415</p>
+    </div>`
+}
+
 export default function SalesHistory() {
   const [searchTerm, setSearchTerm] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('ALL')
@@ -200,7 +308,39 @@ export default function SalesHistory() {
     }
   })
 
-  const filteredSales = sales.filter((s) => {
+  const [isPrinting, setIsPrinting] = useState(false)
+
+  const handlePrintSaleReceipt = async (saleToPrint?: any) => {
+    const targetSale = saleToPrint || selectedSale
+    if (!targetSale) return
+
+    setIsPrinting(true)
+    try {
+      const invoiceId = `INV-${(targetSale.id || '').slice(0, 8).toUpperCase()}`
+      const receiptHTML = buildSaleReceiptHtml(targetSale, {
+        storeName: storedSettings['biz.name'],
+        phone: storedSettings['biz.phone'],
+        footer: storedSettings['receipt.footerText'],
+        currencySymbol: storedSettings['biz.currencySymbol'],
+        isDuplicate: true,
+        resolveItemName,
+      })
+
+      const res = await apiClient.printReceipt(receiptHTML)
+      if (res && res.success === false && res.error) {
+        toast.error(`Printer warning: ${res.error}`)
+      } else {
+        toast.success(`Receipt printed for ${invoiceId}`)
+      }
+    } catch (err: any) {
+      console.error('Failed to print receipt:', err)
+      toast.error(err?.message || 'Failed to print receipt')
+    } finally {
+      setIsPrinting(false)
+    }
+  }
+
+  const filteredSales = sales.filter((s: any) => {
     const term = searchTerm.toLowerCase()
     const invoiceId = `INV-${(s.id || '').slice(0, 8).toUpperCase()}`
     const customerName = s.customer?.name || s.customerName || 'Walk-in Customer'
@@ -423,6 +563,7 @@ export default function SalesHistory() {
                     <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[80px]">Items</TableHead>
                     <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[80px]">Total</TableHead>
                     <TableHead className="text-slate-700 font-semibold py-2.5 px-3 min-w-[120px]">Payment</TableHead>
+                    <TableHead className="text-slate-700 font-semibold py-2.5 px-3 text-right min-w-[60px]">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -464,11 +605,26 @@ export default function SalesHistory() {
                           )
                         })()}
                       </TableCell>
+                      <TableCell className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                          title="Reprint Receipt"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handlePrintSaleReceipt(sale)
+                          }}
+                          disabled={isPrinting}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {paginatedSales.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-8 text-center text-slate-500">
+                      <TableCell colSpan={7} className="py-8 text-center text-slate-500">
                         No transactions found matching the search.
                       </TableCell>
                     </TableRow>
@@ -539,8 +695,18 @@ export default function SalesHistory() {
 
       <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
         <DialogContent className="max-w-3xl font-sans">
-          <DialogHeader>
+          <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <DialogTitle className="text-xl text-slate-800">Transaction Details</DialogTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePrintSaleReceipt(selectedSale)}
+              disabled={isPrinting}
+              className="h-8 gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-slate-900 font-medium"
+            >
+              {isPrinting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" /> : <Printer className="h-3.5 w-3.5 text-blue-600" />}
+              {isPrinting ? 'Printing...' : 'Reprint Receipt'}
+            </Button>
           </DialogHeader>
           {selectedSale && (
             <div className="space-y-6 mt-2">
@@ -655,7 +821,7 @@ export default function SalesHistory() {
                 </div>
               </div>
 
-              <DialogFooter className="border-t pt-4 sm:justify-between items-center gap-2">
+              <DialogFooter className="border-t pt-4 flex flex-col-reverse sm:flex-row sm:justify-between items-stretch sm:items-center gap-2">
                 {enableRefund ? (
                   <Button
                     variant="destructive"
@@ -669,11 +835,22 @@ export default function SalesHistory() {
                     {refundMutation.isPending ? 'Refunding...' : 'Refund Transaction'}
                   </Button>
                 ) : (
-                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5 font-medium">
+                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5 font-medium text-center">
                     Refunds are disabled in POS Settings
                   </span>
                 )}
-                <Button variant="outline" onClick={() => setSelectedSale(null)}>Close</Button>
+                <div className="flex items-center gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => handlePrintSaleReceipt(selectedSale)}
+                    disabled={isPrinting}
+                    className="gap-1.5 text-slate-700 border-slate-300 hover:bg-slate-50 font-medium"
+                  >
+                    {isPrinting ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Printer className="h-4 w-4 text-blue-600" />}
+                    {isPrinting ? 'Printing...' : 'Print Receipt'}
+                  </Button>
+                  <Button variant="outline" onClick={() => setSelectedSale(null)}>Close</Button>
+                </div>
               </DialogFooter>
             </div>
           )}

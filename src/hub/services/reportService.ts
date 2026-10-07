@@ -245,8 +245,8 @@ export async function getReportsData(startDate: string, endDate: string) {
     }),
     prisma.purchase.findMany({
       where: { date: { gte: start, lte: end } },
-      include: { supplier: true, items: true },
-      orderBy: { date: 'asc' },
+      include: { supplier: true, items: { include: { batches: true } } },
+      orderBy: { date: 'desc' },
     }),
     prisma.purchase.findMany({ where: { date: { gte: prevStart, lte: prevEnd } } }),
     prisma.batch.findMany({
@@ -623,13 +623,34 @@ export async function getReportsData(startDate: string, endDate: string) {
     topMedicines,
     recentTransactions,
     expiringBatches,
-    purchases: purchases.slice(0, 20).map((p) => ({
-      id: p.id,
-      date: p.date.toISOString(),
-      supplier: p.supplier.name,
-      total: p.total,
-      status: p.status,
-    })),
+    purchases: purchases.map((p) => {
+      const items = p.items || []
+      const totalQty = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0)
+      return {
+        id: p.id,
+        date: p.date.toISOString(),
+        supplier: p.supplier?.name || 'Unknown Supplier',
+        supplierId: p.supplierId,
+        total: p.total,
+        status: p.status,
+        itemsCount: items.length,
+        totalQuantity: totalQty,
+        items: items.map((it: any) => {
+          const med = allMedicines.find((m) => m.id === it.medicineId)
+          const firstBatch = it.batches?.[0]
+          return {
+            id: it.id,
+            medicineId: it.medicineId,
+            medicineName: med?.name || 'Cold Store Item',
+            sku: med?.sku || '',
+            quantity: Number(it.quantity) || 0,
+            cost: Number(it.cost) || 0,
+            batchNumber: firstBatch?.batchNumber || '',
+            expiryDate: firstBatch?.expiryDate ? firstBatch.expiryDate.toISOString() : undefined,
+          }
+        }),
+      }
+    }),
     profitBreakdown,
     inventoryReport,
   }

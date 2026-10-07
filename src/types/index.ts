@@ -185,6 +185,30 @@ export interface InventoryReportData {
   items: InventoryReportItem[]
 }
 
+export interface PurchaseReportItemDetail {
+  id?: string
+  medicineId?: string
+  medicineName?: string
+  name?: string
+  sku?: string
+  quantity: number
+  cost: number
+  batchNumber?: string
+  expiryDate?: string
+}
+
+export interface PurchaseReportItem {
+  id: string
+  date: string
+  supplier: string
+  supplierId?: string
+  total: number
+  status: string
+  itemsCount?: number
+  totalQuantity?: number
+  items?: PurchaseReportItemDetail[]
+}
+
 export interface ReportsData {
   kpis: ReportsKPIs
   salesOverview: { date: string; sales: number; purchases: number; cogs?: number; profit: number; transactions: number }[]
@@ -192,7 +216,7 @@ export interface ReportsData {
   topMedicines: { name: string; qty: number; revenue: number }[]
   recentTransactions: { id: string; customer: string; amount: number; payment: string; time: string }[]
   expiringBatches: { name: string; batch: string; days: number }[]
-  purchases: { id: string; date: string; supplier: string; total: number; status: string }[]
+  purchases: PurchaseReportItem[]
   profitBreakdown?: ProductProfitBreakdown[]
   inventoryReport?: InventoryReportData
 }

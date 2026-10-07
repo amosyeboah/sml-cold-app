@@ -324,19 +324,67 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
     // Local storage is authoritative. If local catalog exists, never resurrect missing items.
     const localMap = new Map(localMeds.filter((m) => !deletedIds.has(m.id)).map((m) => [m.id, m]))
     
-    // Merge cloud products: update existing metadata, and add newly discovered non-deleted products
+    // Index existing local products by normalized SKU to prevent duplicate seed entries
+    const skuToIdMap = new Map<string, string>()
+    localMap.forEach((m) => {
+      const s = (m.sku || '').trim().toUpperCase()
+      if (s) skuToIdMap.set(s, m.id)
+    })
+
+    // Merge cloud products: reconcile matching SKUs to canonical cloud IDs and eliminate duplicate seed items
     mappedMeds.forEach((cm) => {
+      const cmSku = (cm.sku || '').trim().toUpperCase()
+      const existingIdBySku = cmSku ? skuToIdMap.get(cmSku) : null
+
       if (localMap.has(cm.id)) {
         const current = localMap.get(cm.id)!
         localMap.set(cm.id, { ...cm, ...current })
+      } else if (existingIdBySku && existingIdBySku !== cm.id) {
+        // Reconcile duplicate: same SKU exists locally under a legacy seed UUID.
+        // Migrate to the canonical cloud product ID and preserve any local overrides.
+        const oldId = existingIdBySku
+        const existingItem = localMap.get(oldId)
+        localMap.delete(oldId)
+
+        // Migrate any batches attached to the old seed ID to point to the canonical cloud ID
+        const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
+        let batchesModified = false
+        batches.forEach((b) => {
+          if (b.medicineId === oldId) {
+            b.medicineId = cm.id
+            batchesModified = true
+          }
+        })
+        if (batchesModified) {
+          setItem(STORAGE_KEYS.BATCHES, batches)
+        }
+
+        const reconciled = { ...cm, ...(existingItem || {}), id: cm.id }
+        localMap.set(cm.id, reconciled)
+        skuToIdMap.set(cmSku, cm.id)
       } else if (!deletedIds.has(cm.id)) {
         localMap.set(cm.id, cm)
+        if (cmSku) skuToIdMap.set(cmSku, cm.id)
       }
     })
 
-    const mergedMeds = Array.from(localMap.values())
-    setItem(STORAGE_KEYS.MEDICINES, mergedMeds)
-    return mergedMeds
+    // Final sweep: purge any duplicate products that have identical names or SKUs
+    const seenSkus = new Set<string>()
+    const seenNames = new Set<string>()
+    const deduplicatedMeds: any[] = []
+
+    for (const m of localMap.values()) {
+      const s = (m.sku || '').trim().toUpperCase()
+      const n = (m.name || '').trim().toLowerCase()
+      if (s && seenSkus.has(s)) continue
+      if (n && seenNames.has(n)) continue
+      if (s) seenSkus.add(s)
+      if (n) seenNames.add(n)
+      deduplicatedMeds.push(m)
+    }
+
+    setItem(STORAGE_KEYS.MEDICINES, deduplicatedMeds)
+    return deduplicatedMeds
   } catch (err) {
     console.warn('Failed to fetch cloud products in mobileStorage:', err)
     return localMeds.filter((m) => !deletedIds.has(m.id))
@@ -2373,13 +2421,33 @@ export const mobileApi = {
         days: daysUntil(parseDate(batch.expiryDate)),
       }))
 
-    const purchaseRows = purchases.slice(0, 20).map((purchase) => ({
-      id: purchase.id,
-      date: new Date(purchase.date).toISOString(),
-      supplier: allSuppliers.find(s => s.id === purchase.supplierId)?.name || purchase.supplierName || purchase.supplier || 'Unknown Supplier',
-      total: purchase.total || 0,
-      status: purchase.status || 'Completed',
-    }))
+    const purchaseRows = purchases.map((purchase) => {
+      const pItems = purchase.items || []
+      const totalQty = pItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0)
+      return {
+        id: purchase.id,
+        date: new Date(purchase.date).toISOString(),
+        supplier: allSuppliers.find(s => s.id === purchase.supplierId)?.name || purchase.supplierName || purchase.supplier?.name || purchase.supplier || 'Unknown Supplier',
+        supplierId: purchase.supplierId,
+        total: Number(purchase.total) || 0,
+        status: purchase.status || 'COMPLETED',
+        itemsCount: pItems.length,
+        totalQuantity: totalQty,
+        items: pItems.map((item: any) => {
+          const med = allMedicines.find(m => m.id === item.medicineId)
+          return {
+            id: item.id,
+            medicineId: item.medicineId,
+            medicineName: item.medicine?.name || med?.name || 'Cold Store Item',
+            sku: item.medicine?.sku || med?.sku || '',
+            quantity: Number(item.quantity) || 0,
+            cost: Number(item.cost) || 0,
+            batchNumber: item.batchNumber || '',
+            expiryDate: item.expiryDate || '',
+          }
+        }),
+      }
+    })
 
     // 6. Comprehensive Cold Store Inventory Report
     const inventoryItems = allMedicines.map(med => {
@@ -2583,7 +2651,13 @@ export const mobileApi = {
         '',
         'Top Selling Products',
         'Name,Quantity,Revenue',
-        ...data.topMedicines.map(m => `"${m.name}",${m.qty},${m.revenue}`)
+        ...data.topMedicines.map(m => `"${m.name}",${m.qty},${m.revenue}`),
+        '',
+        'Purchase Order History',
+        'Order ID,Date,Supplier,Line Items,Total Quantity (Cartons),Total Cost (GHS),Status',
+        ...(data.purchases || []).map(p =>
+          `"${p.id}","${p.date}","${p.supplier}",${p.itemsCount ?? p.items?.length ?? 0},${p.totalQuantity ?? 0},${p.total},"${p.status}"`
+        )
       ]
 
       const csvContent = csvRows.join('\n')
@@ -2628,9 +2702,37 @@ export const mobileApi = {
     if (bluetoothPrinter.getStatus().isConnected) {
       const res = await bluetoothPrinter.printReceipt(html)
       if (res.success) return { success: true }
-      console.warn('Bluetooth print failed, falling back to window.print:', res.error)
+      console.warn('Bluetooth print failed, falling back to browser print:', res.error)
     }
-    window.print()
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      try {
+        const iframe = document.createElement('iframe')
+        iframe.style.position = 'fixed'
+        iframe.style.right = '0'
+        iframe.style.bottom = '0'
+        iframe.style.width = '0'
+        iframe.style.height = '0'
+        iframe.style.border = '0'
+        document.body.appendChild(iframe)
+        const doc = iframe.contentWindow?.document
+        if (doc) {
+          doc.open()
+          doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print Receipt</title><style>@page{margin:0;}body{margin:0;padding:8px;font-family:'Courier New',Courier,monospace;font-size:11px;width:72mm;}table{width:100%;border-collapse:collapse;}hr{border:none;border-top:1px dashed #000;margin:6px 0;}</style></head><body>${html}</body></html>`)
+          doc.close()
+          iframe.contentWindow?.focus()
+          setTimeout(() => {
+            iframe.contentWindow?.print()
+            setTimeout(() => {
+              try { document.body.removeChild(iframe) } catch {}
+            }, 2500)
+          }, 300)
+          return { success: true }
+        }
+      } catch (err) {
+        console.warn('Iframe print failed, falling back to window.print:', err)
+      }
+      window.print()
+    }
     return { success: true }
   },
 

@@ -31,7 +31,7 @@ import {
   Bluetooth,
   BluetoothConnected,
 } from 'lucide-react'
-import type { Category, Customer } from '@/types'
+import type { Category, Customer, Medicine } from '@/types'
 import { cn } from '@/utils'
 import { bluetoothPrinter, BluetoothPrinterStatus } from '@/services/hardware/bluetoothPrinter'
 import { barcodeScanner } from '@/services/hardware/barcodeScanner'
@@ -115,7 +115,8 @@ function getCategoryIcon(name: string) {
   return '📦'
 }
 
-function getCardGradient(id: string) {
+function getCardGradient(id?: string) {
+  if (!id) return CARD_GRADIENTS[0]
   let hash = 0
   for (let i = 0; i < id.length; i++) hash += id.charCodeAt(i)
   return CARD_GRADIENTS[hash % CARD_GRADIENTS.length]
@@ -139,13 +140,13 @@ function allocateFEFO(validBatches: any[], requestedQty: number) {
 }
 
 function MedicineCard({ product, onAdd }: { product: any; onAdd: () => void }) {
-  const med = product.medicine
-  const inStock = product.totalStock > 0
+  const med = product?.medicine || {}
+  const inStock = (product?.totalStock || 0) > 0
 
   return (
     <div
       onClick={inStock ? onAdd : undefined}
-      title={med.name}
+      title={med.name || 'Product'}
       className={cn(
         'group flex flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-2xs transition-all select-none',
         inStock
@@ -169,17 +170,17 @@ function MedicineCard({ product, onAdd }: { product: any; onAdd: () => void }) {
       <div className="flex flex-1 flex-col justify-between p-2 gap-1.5">
         <div className="min-w-0">
           <p className="truncate text-xs font-bold leading-tight text-slate-800 group-hover:text-blue-600 transition-colors">
-            {med.name}
+            {med.name || 'Unnamed Product'}
           </p>
           <p className="mt-0.5 truncate text-[10px] text-slate-400">
-            {med.genericName || med.category?.name || `${product.batchCount} lot(s)`}
+            {med.genericName || med.category?.name || `${product?.batchCount || 0} lot(s)`}
           </p>
         </div>
 
         <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
           <div className="min-w-0">
             <p className="text-xs sm:text-sm font-extrabold text-slate-900 leading-none">
-              ₵{med.price.toFixed(2)}
+              ₵{typeof med.price === 'number' ? med.price.toFixed(2) : '0.00'}
             </p>
             <p className={cn('text-[9px] font-semibold mt-0.5', inStock ? 'text-emerald-600' : 'text-rose-500')}>
               {inStock ? 'In Stock' : 'Out of stock'}
@@ -868,6 +869,11 @@ export default function POS() {
     queryFn: () => window.api.getBatches(),
   })
 
+  const { data: medicines = [] } = useQuery<Medicine[]>({
+    queryKey: ['medicines'],
+    queryFn: () => window.api.getMedicines(),
+  })
+
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ['categories'],
     queryFn: () => window.api.getCategories(),
@@ -893,47 +899,82 @@ export default function POS() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const medMap = new Map<string, { medicine: any; validBatches: any[]; totalStock: number }>()
+    // 1. Group valid non-expired batches by medicine ID
+    const batchMap = new Map<string, { validBatches: any[]; totalStock: number; medicine?: any }>()
 
-    for (const b of batches) {
-      if (b.quantity <= 0) continue
+    for (const b of (batches || [])) {
+      if (!b || b.quantity <= 0) continue
       const exp = new Date(b.expiryDate)
       exp.setHours(0, 0, 0, 0)
-      if (exp < today) continue // Exclude expired batches strictly!
+      if (exp < today) continue // Exclude expired batches strictly
 
       const medId = b.medicine?.id || b.medicineId
       if (!medId) continue
 
-      if (!medMap.has(medId)) {
-        medMap.set(medId, {
-          medicine: b.medicine,
-          validBatches: [],
-          totalStock: 0,
-        })
+      if (!batchMap.has(medId)) {
+        batchMap.set(medId, { validBatches: [], totalStock: 0, medicine: b.medicine })
       }
-      const entry = medMap.get(medId)!
+      const entry = batchMap.get(medId)!
+      if (!entry.medicine && b.medicine) {
+        entry.medicine = b.medicine
+      }
       entry.validBatches.push(b)
-      entry.totalStock += b.quantity
+      entry.totalStock += Number(b.quantity) || 0
     }
 
     const products: any[] = []
-    for (const entry of medMap.values()) {
-      // Sort batches ascending by expiry date (First Expired, First Out)
-      entry.validBatches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+    const processedMedIds = new Set<string>()
+
+    // 2. Iterate through all active catalogue medicines
+    for (const m of (medicines || [])) {
+      if (!m || !m.id || m.name === 'Historical Item (Deleted)') continue
+      processedMedIds.add(m.id)
+
+      const batchInfo = batchMap.get(m.id)
+      let validBatches: any[] = []
+      let totalStock = 0
+
+      if (batchInfo && batchInfo.validBatches.length > 0) {
+        validBatches = [...batchInfo.validBatches]
+        validBatches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+        totalStock = batchInfo.totalStock
+      } else {
+        totalStock = Number(m.stockQuantity) || 0
+      }
+
       products.push({
-        id: entry.medicine.id,
-        medicine: entry.medicine,
-        totalStock: entry.totalStock,
-        validBatches: entry.validBatches,
-        earliestExpiry: entry.validBatches[0]?.expiryDate,
-        batchCount: entry.validBatches.length,
+        id: m.id,
+        medicine: m,
+        totalStock,
+        validBatches,
+        earliestExpiry: validBatches[0]?.expiryDate,
+        batchCount: validBatches.length,
+      })
+    }
+
+    // 3. Include any batch whose medicine wasn't in the medicines array
+    for (const [medId, batchInfo] of batchMap.entries()) {
+      if (processedMedIds.has(medId)) continue
+      if (!batchInfo.medicine || !batchInfo.medicine.id) continue
+      processedMedIds.add(medId)
+
+      const validBatches = [...batchInfo.validBatches]
+      validBatches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+      products.push({
+        id: medId,
+        medicine: batchInfo.medicine,
+        totalStock: batchInfo.totalStock,
+        validBatches,
+        earliestExpiry: validBatches[0]?.expiryDate,
+        batchCount: validBatches.length,
       })
     }
 
     return products
-  }, [batches])
+  }, [batches, medicines])
 
-  const subtotal = cart.reduce((acc, i) => acc + i.medicine.price * i.quantity, 0)
+  const subtotal = cart.reduce((acc, i) => acc + (i.medicine?.price || 0) * i.quantity, 0)
   const discountAmt = enableDiscount ? (subtotal * discountPercent) / 100 : 0
   const tax = enableTax ? ((subtotal - discountAmt) * taxRate) / 100 : 0
   const total = Math.max(0, subtotal - discountAmt + tax)
@@ -1085,7 +1126,9 @@ export default function POS() {
   const categoryList = useMemo(
     () => [
       { id: 'all', label: 'All Products', icon: '❄️' },
-      ...categories.map((c) => ({ id: c.id, label: c.name, icon: getCategoryIcon(c.name) })),
+      ...(categories || [])
+        .filter((c): c is Category => Boolean(c && c.id))
+        .map((c) => ({ id: c.id, label: c.name || 'Unnamed', icon: getCategoryIcon(c.name || '') })),
       { id: 'other', label: 'Others', icon: '···' },
     ],
     [categories]
@@ -1096,15 +1139,19 @@ export default function POS() {
   const filteredProducts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
     return productsList.filter((p) => {
+      if (!p || !p.medicine) return false
+      const name = p.medicine.name || ''
+      const genericName = p.medicine.genericName || ''
+      const sku = p.medicine.sku || ''
       const matchSearch =
         !q ||
-        p.medicine.name.toLowerCase().includes(q) ||
-        p.medicine.genericName?.toLowerCase().includes(q) ||
-        p.medicine.sku?.toLowerCase().includes(q)
+        name.toLowerCase().includes(q) ||
+        genericName.toLowerCase().includes(q) ||
+        sku.toLowerCase().includes(q)
       const matchCategory =
         activeCategory === 'all' ||
         (activeCategory === 'other'
-          ? !categories.some((c) => c.id === p.medicine.categoryId)
+          ? !(categories || []).some((c) => c && c.id === p.medicine.categoryId)
           : p.medicine.categoryId === activeCategory)
       return matchSearch && matchCategory
     })
@@ -1118,12 +1165,13 @@ export default function POS() {
   }, [searchQuery, activeCategory])
 
   const addToCart = (product: any) => {
+    if (!product || !product.medicine) return
     setCart((prev) => {
-      const existing = prev.find((i) => i.medicine.id === product.id)
+      const existing = prev.find((i) => i.medicine?.id === product.id)
       const currentQty = existing ? existing.quantity : 0
       const newQty = currentQty + 1
       if (newQty > product.totalStock) {
-        setToast({ type: 'error', message: `Cannot add more ${product.medicine.name}. Max available stock is ${product.totalStock}.` })
+        setToast({ type: 'error', message: `Cannot add more ${product.medicine?.name || 'item'}. Max available stock is ${product.totalStock}.` })
         return prev
       }
 
@@ -1131,7 +1179,7 @@ export default function POS() {
 
       if (existing) {
         return prev.map((i) =>
-          i.medicine.id === product.id ? { ...i, quantity: newQty, allocations: newAllocations } : i
+          i.medicine?.id === product.id ? { ...i, quantity: newQty, allocations: newAllocations } : i
         )
       }
 

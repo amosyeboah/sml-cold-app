@@ -305,37 +305,34 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
     })
     setItem(STORAGE_KEYS.CATEGORIES, updatedCats)
 
-    // Filter out deleted items from cloud results
-    const validCloudProducts = cloudProducts.filter((p) => !deletedIds.has(p.id))
+    // Filter out deleted items and tombstone placeholders from cloud results
+    const validCloudProducts = cloudProducts.filter((p) => !deletedIds.has(p.id) && p.name !== 'Historical Item (Deleted)')
 
     const mappedMeds = validCloudProducts.map((p) => ({
       id: p.id,
       name: p.name,
       genericName: p.generic_name || undefined,
       sku: p.sku,
-      categoryId: catMap.get((p.category_name || 'General').toLowerCase().trim()) || 'cat-1',
-      categoryName: p.category_name || 'General',
+      categoryId: catMap.get((p.category_name || p.category || 'General').toLowerCase().trim()) || 'cat-1',
+      categoryName: p.category_name || p.category || 'General',
       price: Number(p.price) || 0,
       cost: Number(p.cost) || 0,
-      stockQuantity: Number(p.stock_quantity) || 0,
+      stockQuantity: Number(p.stock_quantity ?? p.current_stock) || 0,
       minStockLevel: Number(p.min_stock_level) || 10,
     }))
 
     // Local storage is authoritative. If local catalog exists, never resurrect missing items.
     const localMap = new Map(localMeds.filter((m) => !deletedIds.has(m.id)).map((m) => [m.id, m]))
     
-    // Only import new cloud products if local catalogue was never initialized
-    if (localMap.size === 0) {
-      mappedMeds.forEach((m) => localMap.set(m.id, m))
-    } else {
-      // Refresh metadata for existing products only
-      mappedMeds.forEach((cm) => {
-        if (localMap.has(cm.id)) {
-          const current = localMap.get(cm.id)!
-          localMap.set(cm.id, { ...cm, ...current })
-        }
-      })
-    }
+    // Merge cloud products: update existing metadata, and add newly discovered non-deleted products
+    mappedMeds.forEach((cm) => {
+      if (localMap.has(cm.id)) {
+        const current = localMap.get(cm.id)!
+        localMap.set(cm.id, { ...cm, ...current })
+      } else if (!deletedIds.has(cm.id)) {
+        localMap.set(cm.id, cm)
+      }
+    })
 
     const mergedMeds = Array.from(localMap.values())
     setItem(STORAGE_KEYS.MEDICINES, mergedMeds)
@@ -382,7 +379,7 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
       medicineId: b.product_id,
       batchNumber: b.batch_number,
       expiryDate: b.expiry_date,
-      quantity: Number(b.quantity) || 0,
+      quantity: Number(b.quantity ?? b.quantity_current ?? b.quantity_received) || 0,
     }))
 
     const localMap = new Map(
@@ -391,16 +388,15 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
         .map((b) => [b.id, b])
     )
 
-    if (localMap.size === 0) {
-      mappedBatches.forEach((b) => localMap.set(b.id, b))
-    } else {
-      mappedBatches.forEach((cb) => {
-        if (localMap.has(cb.id)) {
-          const current = localMap.get(cb.id)!
-          localMap.set(cb.id, { ...cb, ...current })
-        }
-      })
-    }
+    // Merge cloud batches: update existing metadata, and add newly discovered non-deleted batches
+    mappedBatches.forEach((cb) => {
+      if (localMap.has(cb.id)) {
+        const current = localMap.get(cb.id)!
+        localMap.set(cb.id, { ...cb, ...current })
+      } else if (!deletedBatchIds.has(cb.id) && !deletedMedIds.has(cb.medicineId)) {
+        localMap.set(cb.id, cb)
+      }
+    })
 
     const mergedBatches = Array.from(localMap.values())
     setItem(STORAGE_KEYS.BATCHES, mergedBatches)
@@ -1382,7 +1378,14 @@ export const mobileApi = {
   // Batches
   getBatches: async (startDate?: string, endDate?: string) => {
     let batches = await fetchCloudBatchesIfAvailable()
-    const medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+    let medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+    if (!medicines || medicines.length === 0) {
+      try {
+        medicines = await fetchCloudProductsIfAvailable()
+      } catch {
+        medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+      }
+    }
 
     if (startDate) {
       batches = batches.filter(b => new Date(b.expiryDate) >= new Date(startDate))
@@ -1391,10 +1394,13 @@ export const mobileApi = {
       batches = batches.filter(b => new Date(b.expiryDate) <= new Date(endDate))
     }
 
-    return batches.map(b => ({
-      ...b,
-      medicine: medicines.find(m => m.id === b.medicineId)
-    }))
+    return batches.map(b => {
+      const med = (medicines || []).find((m: any) => m.id === b.medicineId)
+      return {
+        ...b,
+        medicine: med || b.medicine
+      }
+    })
   },
   createBatch: async (data: any) => {
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
@@ -1416,9 +1422,11 @@ export const mobileApi = {
       client.from('cloud_batches').upsert({
         id: newBatch.id,
         product_id: newBatch.medicineId,
+        store_id: 'sml_accra_main',
         batch_number: newBatch.batchNumber,
         expiry_date: newBatch.expiryDate,
-        quantity: Number(newBatch.quantity) || 0,
+        quantity_current: Number(newBatch.quantity) || 0,
+        quantity_received: Number(newBatch.quantity) || 0,
         updated_at: new Date().toISOString()
       }).then(() => {}).catch(() => {})
     }
@@ -1458,9 +1466,11 @@ export const mobileApi = {
         client.from('cloud_batches').upsert({
           id: batches[idx].id,
           product_id: batches[idx].medicineId,
+          store_id: 'sml_accra_main',
           batch_number: batches[idx].batchNumber,
           expiry_date: batches[idx].expiryDate,
-          quantity: Number(batches[idx].quantity) || 0,
+          quantity_current: Number(batches[idx].quantity) || 0,
+          quantity_received: Number(batches[idx].quantity) || 0,
           updated_at: new Date().toISOString()
         }).then(() => {}).catch(() => {})
       }

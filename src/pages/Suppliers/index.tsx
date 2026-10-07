@@ -481,7 +481,6 @@ export default function Suppliers() {
                 <TableHeader>
                   <TableRow className="bg-gradient-to-r from-slate-50 via-blue-50 to-indigo-50">
                     <TableHead className="text-slate-700">Supplier</TableHead>
-                    <TableHead className="text-slate-700">Phone</TableHead>
                     <TableHead className="text-slate-700">Total Payable</TableHead>
                     <TableHead className="text-slate-700">Status</TableHead>
                     <TableHead className="text-center text-slate-700">Actions</TableHead>
@@ -501,7 +500,6 @@ export default function Suppliers() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-slate-700">{sup.contact || 'N/A'}</TableCell>
                       <TableCell className="font-semibold text-slate-800">₵{(sup.totalPayable || 0).toFixed(2)}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusColor(sup.status || 'active')}`}>
@@ -532,7 +530,7 @@ export default function Suppliers() {
                   ))}
                   {paginatedSuppliers.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+                      <TableCell colSpan={4} className="py-8 text-center text-slate-500">
                         No suppliers found matching the search.
                       </TableCell>
                     </TableRow>

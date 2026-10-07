@@ -36,6 +36,8 @@ import {
   Eye,
   ArrowUpDown,
   Layers,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -458,6 +460,22 @@ export default function Reports() {
   const [inventorySortBy, setInventorySortBy] = useState<'cost_desc' | 'retail_desc' | 'stock_desc' | 'profit_desc' | 'name_asc' | 'urgent_low'>('cost_desc')
   const [selectedItemForBatches, setSelectedItemForBatches] = useState<InventoryReportItem | null>(null)
   const [batchModalOpen, setBatchModalOpen] = useState(false)
+  const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('reports_nav_collapsed') === 'true'
+    }
+    return false
+  })
+
+  const toggleNavCollapse = () => {
+    setIsNavCollapsed((prev) => {
+      const next = !prev
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('reports_nav_collapsed', String(next))
+      }
+      return next
+    })
+  }
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['reports', startDate, endDate],
@@ -607,9 +625,30 @@ export default function Reports() {
 
   return (
     <div className="flex h-full overflow-hidden bg-[#f4f6fb]">
-      <aside className="flex w-[220px] flex-shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="flex-1 overflow-y-auto px-4 py-5">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">Reports</p>
+      <aside
+        className={cn(
+          'flex flex-shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out',
+          isNavCollapsed ? 'w-[68px]' : 'w-[220px]'
+        )}
+      >
+        <div className="flex-1 overflow-y-auto px-3 py-5">
+          <div className={cn('flex items-center pb-2.5 mb-2.5 border-b border-slate-100', isNavCollapsed ? 'justify-center' : 'justify-between px-1')}>
+            {!isNavCollapsed && (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">Reports</p>
+            )}
+            <button
+              onClick={toggleNavCollapse}
+              title={isNavCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            >
+              {isNavCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4 text-indigo-600" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+
           <nav className="space-y-0.5">
             {reportTypes.map((item) => {
               const Icon = item.icon
@@ -618,47 +657,86 @@ export default function Reports() {
                 <button
                   key={item.id}
                   onClick={() => setActiveReport(item.id)}
+                  title={item.label}
                   className={cn(
-                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors',
-                    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                    'flex w-full items-center rounded-lg transition-colors group',
+                    isNavCollapsed ? 'justify-center p-2.5' : 'gap-2.5 px-3 py-2 text-left text-sm font-medium',
+                    isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
                   )}
                 >
-                  <Icon className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-indigo-600' : 'text-slate-400')} />
-                  <span className="truncate">{item.label}</span>
+                  <Icon className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600')} />
+                  {!isNavCollapsed && <span className="truncate">{item.label}</span>}
                 </button>
               )
             })}
           </nav>
 
-          <p className="mb-3 mt-6 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">Shortcuts</p>
-          <div className="space-y-1">
-            {shortcuts.map((shortcut) => (
-              <button
-                key={shortcut}
-                onClick={() => applyShortcut(shortcut)}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-                  activeShortcut === shortcut
-                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                )}
-              >
-                <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
-                {shortcut}
-              </button>
-            ))}
-          </div>
+          {!isNavCollapsed ? (
+            <>
+              <p className="mb-3 mt-6 px-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">Shortcuts</p>
+              <div className="space-y-1">
+                {shortcuts.map((shortcut) => (
+                  <button
+                    key={shortcut}
+                    onClick={() => applyShortcut(shortcut)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors',
+                      activeShortcut === shortcut
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                    <span className="truncate">{shortcut}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col items-center gap-1.5">
+              <span className="text-[9px] font-bold uppercase text-slate-300">Time</span>
+              {shortcuts.map((shortcut) => {
+                const label = shortcut === 'Today' ? '1D' : shortcut === 'This Week' ? '1W' : shortcut === 'This Month' ? '1M' : shortcut === 'This Year' ? '1Y' : 'CR'
+                return (
+                  <button
+                    key={shortcut}
+                    onClick={() => applyShortcut(shortcut)}
+                    title={`Shortcut: ${shortcut}`}
+                    className={cn(
+                      'flex h-7 w-7 items-center justify-center rounded-lg text-[10px] font-bold border transition-colors',
+                      activeShortcut === shortcut
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-700 shadow-2xs'
+                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:border-slate-300'
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <div className="space-y-5 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Dashboard <span className="text-slate-400">&gt;</span> Reports
-              </p>
+            <div className="flex items-center gap-3">
+              {isNavCollapsed && (
+                <button
+                  onClick={toggleNavCollapse}
+                  title="Expand navigation menu"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all active:scale-95"
+                >
+                  <PanelLeftOpen className="h-4 w-4" />
+                </button>
+              )}
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Dashboard <span className="text-slate-400">&gt;</span> Reports
+                </p>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">

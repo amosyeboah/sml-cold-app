@@ -321,7 +321,16 @@ async function legacyFlushSyncQueue(): Promise<{
               }
             })
 
-            const { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
+            let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
+            if (itemsErr && (itemsErr.code === '23503' || itemsErr.message?.includes('foreign key constraint'))) {
+              const safeItems = cloudItems.map((item: any) => ({
+                ...item,
+                product_id: null,
+                batch_id: null,
+              }))
+              const retry = await client.from('cloud_sale_items').upsert(safeItems)
+              itemsErr = retry.error
+            }
             if (itemsErr) uploadError = itemsErr
           }
         } else if (item.entity === 'AUDIT_LOG') {

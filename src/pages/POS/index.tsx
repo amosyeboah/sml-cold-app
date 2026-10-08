@@ -1396,7 +1396,7 @@ export default function POS() {
         }))
       }
       return [{
-        batchId: c.medicine.id,
+        batchId: c.validBatches?.[0]?.id || c.batches?.[0]?.id || null,
         medicineId: c.medicine.id,
         name: c.medicine.name,
         quantity: c.quantity,

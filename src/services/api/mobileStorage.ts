@@ -1778,7 +1778,7 @@ export const mobileApi = {
         cashier_name: newSale.cashier || 'cashier',
         sold_at: saleDate,
         created_at: saleDate,
-      }).then(() => {
+      }).then(async () => {
         const cloudItems = newSale.items.map((i: any) => {
           const qty = Number(i.quantity) || 1
           const unitPrice = Number(i.price) || 0
@@ -1786,7 +1786,7 @@ export const mobileApi = {
             id: i.id,
             sale_id: newSale.id,
             product_id: i.medicineId || i.batchId || null,
-            batch_id: i.batchId || null,
+            batch_id: i.batchId && i.batchId !== i.medicineId ? i.batchId : null,
             product_name: i.name || 'Cold Store Item',
             quantity: qty,
             unit_price: unitPrice,
@@ -1794,7 +1794,15 @@ export const mobileApi = {
             created_at: saleDate,
           }
         })
-        return client.from('cloud_sale_items').upsert(cloudItems)
+        const { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
+        if (itemsErr && (itemsErr.code === '23503' || itemsErr.message?.includes('foreign key constraint'))) {
+          const safeItems = cloudItems.map((item: any) => ({
+            ...item,
+            product_id: null,
+            batch_id: null,
+          }))
+          await client.from('cloud_sale_items').upsert(safeItems)
+        }
       }).catch((e) => console.warn('Direct cloud sale push error:', e))
 
       // Also push deducted batch quantities to cloud_batches

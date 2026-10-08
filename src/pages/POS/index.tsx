@@ -887,6 +887,7 @@ export default function POS() {
   const { data: storedSettings = {} } = useQuery<Record<string, string>>({
     queryKey: ['settings'],
     queryFn: () => window.api.getSettings(),
+    refetchInterval: 5000
   })
 
   const enableDiscount = storedSettings['pos.enableDiscount'] === 'true'

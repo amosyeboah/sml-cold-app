@@ -245,6 +245,7 @@ export default function SalesHistory() {
   const { data: storedSettings = {} } = useQuery<Record<string, string>>({
     queryKey: ['settings'],
     queryFn: () => apiClient.getSettings(),
+    refetchInterval: 5000
   })
 
   const enableRefund = storedSettings['pos.enableRefund'] !== 'false'

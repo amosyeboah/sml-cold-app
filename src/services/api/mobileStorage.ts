@@ -456,6 +456,27 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
 }
 
 /**
+ * Helper to safely extract payload object from a cloud_audit_log row.
+ * Handles JSON string in `details` and object in `metadata`.
+ */
+function extractStateMirrorPayload(row: any): any {
+  if (!row) return null
+  if (row.details) {
+    try {
+      const parsed = typeof row.details === 'string' ? JSON.parse(row.details) : row.details
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch {}
+  }
+  if (row.metadata) {
+    try {
+      const parsed = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch {}
+  }
+  return null
+}
+
+/**
  * Pushes full snapshot of non-tabular entities (Users, Customers, Suppliers, Purchases, Settings, Categories)
  * into Supabase cloud_audit_logs to guarantee 100% offline/online reflection.
  */
@@ -463,27 +484,39 @@ export async function pushCloudStateMirror(stateId: string, category: string, da
   const client = getSupabaseClient()
   if (!client || !isOnline()) return
   try {
-    const { data } = await client.from('cloud_audit_logs').select('metadata').eq('id', stateId).single()
+    const { data } = await client.from('cloud_audit_logs').select('*').eq('id', stateId).maybeSingle()
     let mergedPayload = payload
-    if (data && data.metadata && data.metadata[dataKey] && Array.isArray(data.metadata[dataKey])) {
-      const cloudList = data.metadata[dataKey]
-      const localIds = new Set(payload.map((i: any) => i.id))
-      const cloudOnly = cloudList.filter((i: any) => !localIds.has(i.id))
-      mergedPayload = [...payload, ...cloudOnly]
+    const existing = extractStateMirrorPayload(data)
+
+    if (existing && existing[dataKey]) {
+      if (Array.isArray(payload) && Array.isArray(existing[dataKey])) {
+        const cloudList = existing[dataKey]
+        const localIds = new Set(payload.map((i: any) => i.id))
+        const cloudOnly = cloudList.filter((i: any) => !localIds.has(i.id))
+        mergedPayload = [...payload, ...cloudOnly]
+      } else if (typeof payload === 'object' && typeof existing[dataKey] === 'object') {
+        mergedPayload = { ...existing[dataKey], ...payload }
+      }
+    } else if (existing && typeof payload === 'object' && !Array.isArray(payload)) {
+      mergedPayload = { ...existing, ...payload }
     }
-    
-    await client.from('cloud_audit_logs').upsert({
+
+    const payloadJson = JSON.stringify({ [dataKey]: mergedPayload })
+
+    const { error } = await client.from('cloud_audit_logs').upsert({
       id: stateId,
       store_id: 'sml_accra_main',
       action: 'SYSTEM_STATE_SNAPSHOT',
-      category: category,
-      details: `Live state snapshot for ${dataKey}`,
-      username: 'system',
-      user_role: 'ADMIN',
-      severity: 'INFO',
-      metadata: { [dataKey]: mergedPayload },
+      entity_name: dataKey,
+      entity_id: stateId,
+      user_name: 'system',
+      details: payloadJson,
       created_at: new Date().toISOString()
     })
+
+    if (error) {
+      console.warn(`Failed to push state mirror for ${stateId}:`, error.message)
+    }
   } catch (err) {
     console.warn(`Failed to push state mirror for ${stateId}:`, err)
   }
@@ -511,9 +544,9 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
     if (error || !data || data.length === 0) return
 
     for (const row of data) {
-      if (!row.metadata) continue
-      const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata
-      
+      const meta = extractStateMirrorPayload(row)
+      if (!meta) continue
+
       if (row.id === 'STATE_USERS' && Array.isArray(meta.users) && meta.users.length > 0) {
         const local = getItem<any[]>(STORAGE_KEYS.USERS, [])
         const cloudIds = new Set(meta.users.map((u: any) => u.id))
@@ -539,9 +572,12 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
         const cloudIds = new Set(meta.purchases.map((p: any) => p.id))
         const localOnly = local.filter((p) => !cloudIds.has(p.id))
         setItem(STORAGE_KEYS.PURCHASES, [...meta.purchases, ...localOnly])
-      } else if (row.id === 'STATE_SETTINGS' && meta.settings && typeof meta.settings === 'object') {
-        const existing = getItem(STORAGE_KEYS.SETTINGS, {})
-        setItem(STORAGE_KEYS.SETTINGS, { ...existing, ...meta.settings })
+      } else if (row.id === 'STATE_SETTINGS') {
+        const cloudSettings = meta.settings || meta
+        if (cloudSettings && typeof cloudSettings === 'object') {
+          const existing = getItem<Record<string, string>>(STORAGE_KEYS.SETTINGS, {})
+          setItem(STORAGE_KEYS.SETTINGS, { ...existing, ...cloudSettings })
+        }
       }
     }
   } catch (err) {
@@ -549,9 +585,6 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
   }
 }
 
-/**
- * Unified synchronization of all cloud data (products, batches, sales, state mirrors) from Supabase.
- */
 export async function syncAllCloudDataIfAvailable(): Promise<{
   medicines: any[]
   batches: any[]
@@ -2770,35 +2803,63 @@ export const mobileApi = {
   },
 
   // Settings
-  getSettings: async () => getItem(STORAGE_KEYS.SETTINGS, {
-    'biz.name': 'SML Legacy Limited',
-    'biz.type': 'Cold store',
-    'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
-    'biz.phone': '+233 54 386 4610',
-    'biz.email': 'sorphygold@yahoo.com',
-    'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
-    'biz.ownerEmail': 'sorphygold@yahoo.com',
-    'biz.ownerPhone': '+447999007775',
-    'biz.address': 'Cold Store Market Depot',
-    'biz.city': 'Accra, Greater Accra',
-    'biz.currency': 'GHS',
-    'biz.currencySymbol': 'GH₵',
-    'receipt.footerText': 'Thank you for choosing SML Legacy! Keep frozen at -18°C.',
-    'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-    'pos.enableDiscount': 'false',
-    'pos.enableTax': 'false',
-    'pos.taxRate': '0',
-    'pos.enableRefund': 'true',
-    storeName: 'SML Legacy Limited',
-    currency: 'GHS',
-    address: 'Cold Store Market Depot, Accra, Ghana',
-    phone: '+233 54 386 4610'
-  }),
+  getSettings: async () => {
+    const cached = getItem(STORAGE_KEYS.SETTINGS, {
+      'biz.name': 'SML Legacy Limited',
+      'biz.type': 'Cold store',
+      'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
+      'biz.phone': '+233 54 386 4610',
+      'biz.email': 'sorphygold@yahoo.com',
+      'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
+      'biz.ownerEmail': 'sorphygold@yahoo.com',
+      'biz.ownerPhone': '+447999007775',
+      'biz.address': 'Cold Store Market Depot',
+      'biz.city': 'Accra, Greater Accra',
+      'biz.currency': 'GHS',
+      'biz.currencySymbol': 'GH₵',
+      'receipt.footerText': 'Thank you for choosing SML Legacy! Keep frozen at -18°C.',
+      'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
+      'pos.enableDiscount': 'false',
+      'pos.enableTax': 'false',
+      'pos.taxRate': '0',
+      'pos.enableRefund': 'true',
+      storeName: 'SML Legacy Limited',
+      currency: 'GHS',
+      address: 'Cold Store Market Depot, Accra, Ghana',
+      phone: '+233 54 386 4610'
+    })
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      try {
+        const { data } = await client
+          .from('cloud_audit_logs')
+          .select('*')
+          .eq('id', 'STATE_SETTINGS')
+          .maybeSingle()
+
+        if (data) {
+          const parsed = extractStateMirrorPayload(data)
+          const cloudSettings = parsed?.settings || parsed
+          if (cloudSettings && typeof cloudSettings === 'object') {
+            const merged = { ...cached, ...cloudSettings }
+            setItem(STORAGE_KEYS.SETTINGS, merged)
+            return merged
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch cloud settings:', err)
+      }
+    }
+    return cached
+  },
   setSetting: async (updates: Record<string, string>) => {
     const current = getItem(STORAGE_KEYS.SETTINGS, {})
     const updated = { ...current, ...updates }
     setItem(STORAGE_KEYS.SETTINGS, updated)
-    pushCloudStateMirror('STATE_SETTINGS', 'SYSTEM', 'settings', updated).catch(() => {})
+    await pushCloudStateMirror('STATE_SETTINGS', 'SYSTEM', 'settings', updated).catch((err) => {
+      console.warn('Failed to push settings mirror to cloud:', err)
+    })
 
     logAuditAction({
       action: 'SETTINGS_UPDATE',

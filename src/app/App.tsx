@@ -9,7 +9,17 @@ import { syncAllCloudDataIfAvailable, fetchCloudSalesIfAvailable, fetchCloudProd
 export default function App() {
   useEffect(() => {
     // 1. Initial warm up of all cloud data (catalog, inventory, sales, state mirrors) into local storage
-    syncAllCloudDataIfAvailable().catch(() => {})
+    syncAllCloudDataIfAvailable().then(() => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+      queryClient.invalidateQueries({ queryKey: ['purchases'] })
+      queryClient.invalidateQueries({ queryKey: ['medicines'] })
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
+      queryClient.invalidateQueries({ queryKey: ['sales'] })
+    }).catch(() => {})
 
     // 2. Real-time subscription to cloud_sales table
     const unsubscribeSales = subscribeToCloudSales(async (payload) => {

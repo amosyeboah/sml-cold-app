@@ -984,12 +984,12 @@ export default function POS() {
     onSuccess: async (sale) => {
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      const storeName = storedSettings['biz.name'] || 'SML LEGACY LIMITED'
+      const storeName = storedSettings['biz.name'] || 'SOFIYEM LEGACY LIMITED'
       const tagline = storedSettings['biz.tagline'] || 'Quality Frozen Foods & Cold Storage'
       const phone = storedSettings['biz.phone'] || '+233 54 386 4610'
       const ownerPhone = storedSettings['biz.ownerPhone'] || '+447999007775'
       const email = storedSettings['biz.email'] || 'sorphygold@yahoo.com'
-      const footer = storedSettings['receipt.footerText'] || 'Thank you for choosing SML Legacy! Keep frozen at -18°C.'
+      const footer = storedSettings['receipt.footerText'] || 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.'
       const discountLine = enableDiscount && discountAmt > 0 ? `<tr><td style="padding:2px 0;">Discount (${discountPercent}%):</td><td colspan="2" style="text-align:right;">-${currencySymbol}${discountAmt.toFixed(2)}</td></tr>` : ''
       const taxLine = enableTax && tax > 0 ? `<tr><td style="padding:2px 0;">Tax (${taxRate}%):</td><td colspan="2" style="text-align:right;">${currencySymbol}${tax.toFixed(2)}</td></tr>` : ''
       const subtotalLine = (enableDiscount && discountAmt > 0) || (enableTax && tax > 0) ? `<tr><td style="padding:2px 0;">Subtotal:</td><td colspan="2" style="text-align:right;">${currencySymbol}${subtotal.toFixed(2)}</td></tr>` : ''
@@ -1081,8 +1081,8 @@ export default function POS() {
       // Auto-open cash drawer for cash payments
       const hasCashPayment = paymentMethod === 'CASH' || (isSplit && activePayments.some((p) => p.method === 'CASH' && p.amount > 0))
       if (hasCashPayment) {
-        try { 
-          await api.openCashDrawer() 
+        try {
+          await api.openCashDrawer()
         } catch { /* drawer may not be enabled */ }
       }
 
@@ -1406,13 +1406,13 @@ export default function POS() {
 
     const activePayments = paymentMethod === 'SPLIT'
       ? splitPayments.filter((p) => p.amount > 0).map((p) => ({
-          method:
-            (p.method || '').toUpperCase().includes('MOBILE') ||
+        method:
+          (p.method || '').toUpperCase().includes('MOBILE') ||
             (p.method || '').toUpperCase().includes('MOMO')
-              ? ('MOBILE' as const)
-              : ('CASH' as const),
-          amount: Number(p.amount) || 0,
-        }))
+            ? ('MOBILE' as const)
+            : ('CASH' as const),
+        amount: Number(p.amount) || 0,
+      }))
       : [{ method: paymentMethod === 'MOBILE' ? ('MOBILE' as const) : ('CASH' as const), amount: total }]
 
     const cashAmt = activePayments.filter((p) => p.method === 'CASH').reduce((sum, p) => sum + p.amount, 0)

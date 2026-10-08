@@ -122,9 +122,9 @@ export interface ReceiptOptions {
 }
 
 export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = {}): string {
-  const storeName = options.storeName || 'SML LEGACY LIMITED'
+  const storeName = options.storeName || 'SOFIYEM LEGACY LIMITED'
   const phone = options.phone || '+233 54 386 4610'
-  const footer = options.footer || 'Thank you for choosing SML Legacy! Keep frozen at -18°C.'
+  const footer = options.footer || 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.'
   const currencySymbol = options.currencySymbol || '₵'
   const isDuplicate = options.isDuplicate ?? true
   const resolveName = options.resolveItemName || ((item: any) => item?.product_name || item?.name || 'Cold Store Item')
@@ -141,27 +141,27 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
       targetSale.payments && targetSale.payments.length > 0
         ? targetSale.payments.filter((p: any) => Number(p.amount) > 0)
         : [
-            ...(bd.cash > 0 ? [{ method: 'CASH', amount: bd.cash }] : []),
-            ...(bd.momo > 0 ? [{ method: 'MOBILE', amount: bd.momo }] : []),
-            ...(bd.other > 0 ? [{ method: 'OTHER', amount: bd.other }] : []),
-          ]
+          ...(bd.cash > 0 ? [{ method: 'CASH', amount: bd.cash }] : []),
+          ...(bd.momo > 0 ? [{ method: 'MOBILE', amount: bd.momo }] : []),
+          ...(bd.other > 0 ? [{ method: 'OTHER', amount: bd.other }] : []),
+        ]
 
     paymentSectionHTML = `
       <div style="margin:4px 0 2px 0;">
         <p style="margin:0 0 2px 0;font-size:11px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
         <table style="width:100%;font-size:10px;border-collapse:collapse;">
           ${paymentEntries.map((p: any) => {
-            const mUpper = (p.method || '').toUpperCase()
-            const isCash = mUpper.includes('CASH')
-            const isMob = mUpper.includes('MOBILE') || mUpper.includes('MOMO')
-            const label = isMob ? 'Mobile Money' : isCash ? 'Cash' : p.method
-            return `
+      const mUpper = (p.method || '').toUpperCase()
+      const isCash = mUpper.includes('CASH')
+      const isMob = mUpper.includes('MOBILE') || mUpper.includes('MOMO')
+      const label = isMob ? 'Mobile Money' : isCash ? 'Cash' : p.method
+      return `
               <tr>
                 <td style="padding:1px 0;color:#222;">• ${label}:</td>
                 <td style="text-align:right;padding:1px 0;font-weight:bold;">${currencySymbol}${Number(p.amount).toFixed(2)}</td>
               </tr>
             `
-          }).join('')}
+    }).join('')}
         </table>
       </div>
     `

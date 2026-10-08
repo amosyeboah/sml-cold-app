@@ -34,7 +34,7 @@ export default function LoginPage() {
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem('sml_depot_hub_url')
-      } catch {}
+      } catch { }
     }
   }, [])
 
@@ -189,7 +189,7 @@ export default function LoginPage() {
               <Snowflake className="h-7 w-7 text-white" />
             </div>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-100">SML LEGACY LIMITED</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-100">SOFIYEM LEGACY LIMITED</p>
               <p className="text-sm font-semibold mt-0.5">Quality Frozen Foods &amp; Cold Storage</p>
             </div>
           </div>
@@ -236,7 +236,7 @@ export default function LoginPage() {
             {/* Header */}
             <div className="text-center mb-5">
               <h2 className="text-[28px] font-bold text-gray-900 mb-1">Welcome Back!</h2>
-              <p className="text-xs text-gray-500 mb-3">Sign in to SML Legacy Cold Store POS</p>
+              <p className="text-xs text-gray-500 mb-3">Sign in to SOFIYEM Legacy Cold Store POS</p>
 
               {/* Quick Role Fill Chips */}
               <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -509,7 +509,7 @@ export default function LoginPage() {
 
         {/* Footer Text */}
         <div className="pb-4 w-full text-center text-[11px] text-gray-500">
-          © 2026 SML Legacy Limited. All rights reserved.
+          © 2026 SOFIYEM Legacy Limited. All rights reserved.
         </div>
       </div>
     </div>

@@ -48,7 +48,7 @@ import { api } from '@/services/api'
 // ── Default settings values ──────────────────────────────────────────────────
 const DEFAULTS: Record<string, string> = {
   // Business Info
-  'biz.name': 'SML Legacy Limited',
+  'biz.name': 'SOFIYEM Legacy Limited',
   'biz.type': 'Cold store',
   'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
   'biz.phone': '+233 54 386 4610',
@@ -70,7 +70,7 @@ const DEFAULTS: Record<string, string> = {
   // Receipt & Invoice
   'receipt.paperSize': '58mm',
   'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-  'receipt.footerText': 'Thank you for choosing SML Legacy! Keep frozen at -18°C.',
+  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
   'receipt.showLogo': 'true',
   'receipt.showAddress': 'true',
   'receipt.showPhone': 'true',
@@ -410,7 +410,7 @@ export default function Settings() {
                       id="biz-name"
                       value={form['biz.name']}
                       onChange={(e) => set('biz.name', e.target.value)}
-                      placeholder="e.g. SML Legacy Limited"
+                      placeholder="e.g. SOFIYEM Legacy Limited"
                       className="h-9 text-sm"
                     />
                   </FieldRow>
@@ -523,7 +523,7 @@ export default function Settings() {
                       id="biz-website"
                       value={form['biz.website']}
                       onChange={(e) => set('biz.website', e.target.value)}
-                      placeholder="https://smllegacy.com"
+                      placeholder="https://SOFIYEMlegacy.com"
                       className="h-9 text-sm"
                     />
                   </FieldRow>
@@ -904,7 +904,7 @@ export default function Settings() {
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
                       <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
                       <p className="text-xs text-amber-800">
-                        <strong>Browser Notice:</strong> Web Bluetooth is not supported in this browser environment. For direct Bluetooth thermal printing on Android, please use the installed <strong>SML Cold Store Tablet App</strong>, or open Google Chrome.
+                        <strong>Browser Notice:</strong> Web Bluetooth is not supported in this browser environment. For direct Bluetooth thermal printing on Android, please use the installed <strong>SOFIYEM Cold Store Tablet App</strong>, or open Google Chrome.
                       </p>
                     </div>
                   )}
@@ -1073,11 +1073,10 @@ export default function Settings() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-gray-800">Barcode Scanner</span>
                         {scannerConfig.enabled ? (
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            scannerConfig.connectionType.startsWith('bluetooth')
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scannerConfig.connectionType.startsWith('bluetooth')
                               ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
                               : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
-                          }`}>
+                            }`}>
                             {scannerConfig.connectionType.startsWith('bluetooth') ? (
                               <>
                                 <Bluetooth className="h-3 w-3 text-blue-600" />
@@ -1109,9 +1108,8 @@ export default function Settings() {
                 </div>
 
                 <CardContent
-                  className={`p-5 space-y-5 transition-opacity ${
-                    scannerConfig.enabled ? 'opacity-100' : 'opacity-35 pointer-events-none'
-                  }`}
+                  className={`p-5 space-y-5 transition-opacity ${scannerConfig.enabled ? 'opacity-100' : 'opacity-35 pointer-events-none'
+                    }`}
                 >
                   {/* Scanner Connection Mode */}
                   <div>
@@ -1156,11 +1154,10 @@ export default function Settings() {
                             key={mode.id}
                             type="button"
                             onClick={() => updateScanner({ connectionType: mode.id })}
-                            className={`flex flex-col text-left p-3 rounded-xl border transition-all ${
-                              isSelected
+                            className={`flex flex-col text-left p-3 rounded-xl border transition-all ${isSelected
                                 ? 'border-blue-600 bg-blue-50/80 shadow-2xs ring-1 ring-blue-500'
                                 : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center justify-between gap-1 w-full mb-1">
                               <div className="flex items-center gap-1.5">
@@ -1168,9 +1165,8 @@ export default function Settings() {
                                 <span className="text-xs font-bold text-gray-800">{mode.label}</span>
                               </div>
                               <span
-                                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                                  isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
-                                }`}
+                                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                                  }`}
                               >
                                 {mode.badge}
                               </span>
@@ -1264,18 +1260,16 @@ export default function Settings() {
                             key={lat.id}
                             type="button"
                             onClick={() => updateScanner({ latencyTolerance: lat.id })}
-                            className={`p-2.5 rounded-lg border text-left transition-all ${
-                              isSelected
+                            className={`p-2.5 rounded-lg border text-left transition-all ${isSelected
                                 ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-500'
                                 : 'border-gray-200 bg-white hover:bg-gray-50'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center justify-between mb-0.5">
                               <span className="text-xs font-bold text-gray-800">{lat.label}</span>
                               {lat.rec && (
-                                <span className={`text-[9px] font-bold px-1 rounded ${
-                                  isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                                }`}>
+                                <span className={`text-[9px] font-bold px-1 rounded ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                                  }`}>
                                   {lat.rec}
                                 </span>
                               )}

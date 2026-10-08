@@ -30,6 +30,8 @@ import {
   Printer,
   Bluetooth,
   BluetoothConnected,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import type { Category, Customer, Medicine } from '@/types'
 import { cn } from '@/utils'
@@ -240,6 +242,7 @@ function CartPanelContent({
   setToast,
   onClose,
 }: any) {
+  const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
   const allocatedTotal = paymentMethod === 'SPLIT'
     ? splitPayments.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0)
     : total
@@ -427,7 +430,69 @@ function CartPanelContent({
         )}
       </div>
 
-      {enableDiscount && (
+      {/* ── Summary & Checkout Tray ── */}
+      <div className="border-t border-slate-200/90 bg-white shadow-lg transition-all duration-300">
+        {/* Tray Toggle Bar (Down/Up arrow header) */}
+        <div
+          onClick={() => setIsTrayCollapsed(!isTrayCollapsed)}
+          className="flex cursor-pointer items-center justify-between border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/40 px-3.5 py-2 hover:bg-slate-100/90 transition-colors select-none group"
+        >
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              id="pos-tray-toggle-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsTrayCollapsed(!isTrayCollapsed)
+              }}
+              title={isTrayCollapsed ? "Push up to view checkout summary" : "Push down to view selected items"}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs transition-all group-hover:border-blue-300 group-hover:text-blue-600 active:scale-95"
+            >
+              {isTrayCollapsed ? (
+                <ChevronUp className="h-4 w-4 text-blue-600 transition-transform" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-slate-600 group-hover:text-blue-600 transition-transform" />
+              )}
+            </button>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                Totals & Checkout
+                <span className="rounded-full bg-blue-100 px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700">
+                  {cart.reduce((sum: number, item: any) => sum + item.quantity, 0)} items
+                </span>
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {isTrayCollapsed ? 'Click up arrow to view payment & complete sale' : 'Click down arrow to view selected items'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total</p>
+              <p className="text-sm font-black text-blue-600">{currencySymbol}{total.toFixed(2)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsTrayCollapsed(!isTrayCollapsed)
+              }}
+              className="p-1 text-slate-400 group-hover:text-blue-600 transition-colors"
+            >
+              {isTrayCollapsed ? (
+                <ChevronUp className="h-4 w-4 text-blue-600" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Collapsible Tray Content */}
+        {!isTrayCollapsed && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+            {enableDiscount && (
         <div className="border-t border-slate-200/80 bg-white px-4 py-3">
           <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="flex-shrink-0 text-[11px] font-medium text-slate-500">% Discount</span>
@@ -800,6 +865,9 @@ function CartPanelContent({
           <Trash2 className="h-3.5 w-3.5" />
           Clear Cart
         </button>
+      </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -119,6 +119,10 @@ export default function SyncPage() {
   const [outboxFilter, setOutboxFilter] = useState<string>('ALL')
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error' | 'info'
+    message: string
+  } | null>(null)
 
   const handleFreshReset = async () => {
     setIsResetting(true)

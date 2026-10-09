@@ -39,7 +39,12 @@ export async function getDashboardStats() {
         payments: true,
       },
     }),
-    prisma.sale.findMany({ where: { date: { gte: lastMonthStart, lte: lastMonthEnd } } }),
+    prisma.sale.findMany({
+      where: { date: { gte: lastMonthStart, lte: lastMonthEnd } },
+      include: {
+        items: { include: { batch: { include: { medicine: true } } } },
+      },
+    }),
     prisma.purchase.findMany({ where: { date: { gte: startOfMonth, lte: endOfDay } } }),
     prisma.purchase.findMany({ where: { date: { gte: lastMonthStart, lte: lastMonthEnd } } }),
     prisma.sale.findMany({ where: { date: { gte: last7DaysStart, lte: endOfDay } } }),
@@ -61,7 +66,7 @@ export async function getDashboardStats() {
   const sumPurchases = (purchases: any[]) => purchases.reduce((acc, p) => acc + p.total, 0)
   const calcTrendStr = (current: number, previous: number) => {
     if (previous === 0) return current > 0 ? '+100%' : '0%'
-    const trend = ((current - previous) / previous) * 100
+    const trend = ((current - previous) / Math.abs(previous)) * 100
     return trend > 0 ? `+${trend.toFixed(1)}%` : `${trend.toFixed(1)}%`
   }
 
@@ -76,8 +81,32 @@ export async function getDashboardStats() {
   const todayTransactions = todaySales.length
   const todayTransactionsTrend = calcTrendStr(todayTransactions, yesterdaySales.length)
 
-  const mtdGrossProfit = mtdRevenue - sumPurchases(mtdPurchases)
-  const lastMonthGrossProfit = lastMonthRevenue - sumPurchases(lastMonthPurchases)
+  // Realized Gross Profit = Sales Revenue - Cost of Goods Sold (COGS)
+  const sumSalesCogs = (salesList: any[]) => {
+    let totalCogs = 0
+    for (const sale of salesList) {
+      for (const item of (sale.items || [])) {
+        const qty = Number(item.quantity) || 0
+        const unitCost = Number(
+          item.cost ??
+          item.unitCost ??
+          item.unit_cost ??
+          item.batch?.costPrice ??
+          item.batch?.cost ??
+          item.batch?.medicine?.cost ??
+          0
+        )
+        totalCogs += qty * unitCost
+      }
+    }
+    return totalCogs
+  }
+
+  const mtdCogs = sumSalesCogs(mtdSales)
+  const lastMonthCogs = sumSalesCogs(lastMonthSales)
+
+  const mtdGrossProfit = mtdRevenue - mtdCogs
+  const lastMonthGrossProfit = lastMonthRevenue - lastMonthCogs
   const mtdGrossProfitTrend = calcTrendStr(mtdGrossProfit, lastMonthGrossProfit)
 
   // Sales Overview (Last 7 days)
@@ -326,8 +355,8 @@ export async function getReportsData(startDate: string, endDate: string) {
   }
 
   // 3. Profit Earned (Realized Gross Profit on sales: Total Sales - COGS)
-  const profitEarned = totalCogs > 0 ? (totalSales - totalCogs) : (totalSales - totalPurchases)
-  const prevProfitEarned = prevTotalCogs > 0 ? (prevTotalSales - prevTotalCogs) : (prevTotalSales - prevTotalPurchases)
+  const profitEarned = totalSales - totalCogs
+  const prevProfitEarned = prevTotalSales - prevTotalCogs
   const profitMargin = totalSales > 0 ? (profitEarned / totalSales) * 100 : 0
   const grossProfit = profitEarned
   const prevGrossProfit = prevProfitEarned

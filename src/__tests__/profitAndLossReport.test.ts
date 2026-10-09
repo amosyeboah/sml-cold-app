@@ -158,4 +158,57 @@ describe('Profit and Loss Report Calculations', () => {
     expect(chicken?.stockCost).toBe(1600)
     expect(chicken?.expectedProfit).toBe(600) // 10 * (220 - 160)
   })
+
+  it('calculates getDashboardStats gross profit accurately without deducting inventory bulk purchases', async () => {
+    const medicines = [
+      { id: 'm-1', name: 'Tilapia Fish', price: 95, cost: 62, stockQuantity: 50 },
+    ]
+    const batches = [
+      { id: 'b-1', medicineId: 'm-1', batchNumber: 'T-01', quantity: 50, expiryDate: '2028-01-01' },
+    ]
+    const today = new Date().toISOString()
+    // Sale of 10 items @ 95 = 950 revenue. COGS is 10 * 62 = 620. Gross profit earned = 950 - 620 = 330.
+    const sales = [
+      {
+        id: 's-1',
+        date: today,
+        total: 950,
+        items: [
+          { id: 'item-1', batchId: 'b-1', medicineId: 'm-1', name: 'Tilapia Fish', quantity: 10, price: 95, cost: 62 },
+        ],
+      },
+    ]
+    // A large restocking purchase order of 20,000 to stock cold store freezers
+    const purchases = [
+      {
+        id: 'p-1',
+        date: today,
+        total: 20000,
+        items: [{ name: 'Tilapia Fish Bulk', quantity: 200, unitCost: 100, totalCost: 20000 }],
+      },
+    ]
+
+    storageMap.set('sml_coldstore_medicines', JSON.stringify(medicines))
+    storageMap.set('sml_coldstore_batches', JSON.stringify(batches))
+    storageMap.set('sml_coldstore_sales', JSON.stringify(sales))
+    storageMap.set('sml_coldstore_purchases', JSON.stringify(purchases))
+
+    const stats = await mobileApi.getDashboardStats()
+
+    // Revenue MTD should be 950
+    expect(stats.mtdRevenue).toBe(950)
+    // Gross Profit must be positive earned profit (950 - 620 = 330), NOT negative (950 - 20000 = -19050)
+    expect(stats.mtdGrossProfit).toBe(330)
+    expect(stats.mtdGrossProfit).toBeGreaterThan(0)
+  })
+
+  it('flushes outbox without Maximum call stack size exceeded recursion', async () => {
+    (globalThis as any).window = globalThis
+    ;(globalThis as any).window.api = mobileApi
+
+    const res = await mobileApi.flushSyncOutbox(50)
+    expect(res).toBeDefined()
+    expect(typeof res.success).toBe('boolean')
+    expect(res.attempted).toBeGreaterThanOrEqual(0)
+  })
 })

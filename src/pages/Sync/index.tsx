@@ -169,6 +169,9 @@ export default function SyncPage() {
     }
   }
 
+  const isDesktop = typeof window !== 'undefined' && Boolean((window as any).electron?.ipcRenderer)
+  const storageName = isDesktop ? 'Local SQLite' : 'Tablet Storage'
+
   const handleRunReconciliation = async () => {
     setIsReconciling(true)
     setFeedback(null)
@@ -178,7 +181,7 @@ export default function SyncPage() {
       if (report.status === 'IN_SYNC') {
         setFeedback({
           type: 'success',
-          message: 'Reconciliation verified: Local SQLite and Supabase are in 100% agreement.',
+          message: `Reconciliation verified: ${storageName} and Supabase are in 100% agreement.`,
         })
       } else if (report.status === 'DISCREPANCY_DETECTED') {
         setFeedback({
@@ -250,7 +253,7 @@ export default function SyncPage() {
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-100">
-                Authoritative SQLite ↔ Supabase
+                {isDesktop ? 'Authoritative SQLite ↔ Supabase' : 'Tablet Storage ↔ Supabase'}
               </span>
               <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-mono text-white">
                 Depot: {status.depotId}
@@ -444,10 +447,12 @@ export default function SyncPage() {
               <div>
                 <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
                   <Database className="w-4 h-4 text-amber-500" />
-                  Local Transactional Outbox (Atomically Committed in SQLite)
+                  Local Transactional Outbox ({isDesktop ? 'Atomically Committed in SQLite' : 'Committed in Tablet Storage'})
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-500 mt-1">
-                  Events are committed inside the local SQLite business transaction and sent to Supabase with idempotent keys.
+                  {isDesktop
+                    ? 'Events are committed inside the local SQLite business transaction and sent to Supabase with idempotent keys.'
+                    : 'Events are saved in tablet offline storage and flushed to Supabase when connected.'}
                 </CardDescription>
               </div>
 
@@ -544,7 +549,7 @@ export default function SyncPage() {
               <div>
                 <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-cyan-600" />
-                  Diagnostic Reconciliation: Local SQLite vs. Supabase Cloud
+                  Diagnostic Reconciliation: {storageName} vs. Supabase Cloud
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-500 mt-1">
                   Non-destructive audit comparing transactional counts, revenue, and stock movements. No data is silently modified.
@@ -619,7 +624,7 @@ export default function SyncPage() {
                     <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
                       <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                         <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                          <Server className="w-3.5 h-3.5 text-blue-600" /> Local Depot SQLite (Authoritative)
+                          <Server className="w-3.5 h-3.5 text-blue-600" /> {isDesktop ? 'Local Depot SQLite (Authoritative)' : 'Tablet Storage (Authoritative)'}
                         </span>
                         <span className="text-[11px] font-mono text-slate-500">Live Database</span>
                       </div>

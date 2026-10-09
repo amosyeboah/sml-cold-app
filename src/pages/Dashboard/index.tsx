@@ -192,7 +192,11 @@ export default function Dashboard() {
         />
         <KPICard
           title="Gross Profit"
-          value={`₵${(stats?.mtdGrossProfit ?? 0).toLocaleString()}.00`}
+          value={
+            (stats?.mtdGrossProfit ?? 0) < 0
+              ? `-₵${Math.abs(stats?.mtdGrossProfit ?? 0).toLocaleString()}.00`
+              : `₵${(stats?.mtdGrossProfit ?? 0).toLocaleString()}.00`
+          }
           trend={stats?.mtdGrossProfitTrend ?? '0%'}
           trendLabel="vs last month"
           iconBg="linear-gradient(135deg, #8b5cf6, #6d28d9)"

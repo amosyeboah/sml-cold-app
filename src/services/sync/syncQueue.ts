@@ -38,6 +38,10 @@ type SyncListener = (status: {
 const listeners: Set<SyncListener> = new Set()
 let isCurrentlySyncing = false
 
+export function isSyncInProgress(): boolean {
+  return isCurrentlySyncing
+}
+
 export function subscribeToSyncState(listener: SyncListener): () => void {
   listeners.add(listener)
   const refresh = () => publishSyncState(listener)
@@ -57,6 +61,16 @@ function publishSyncState(listener: SyncListener): void {
 
   if (isCloudHosting()) {
     listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
+    return
+  }
+
+  // Mobile / Tablet / Web mode: use local authoritative sync state directly
+  if (!(window as any).electron?.ipcRenderer) {
+    listener({
+      isSyncing: isCurrentlySyncing,
+      pendingCount: getPendingQueue().length,
+      lastSyncTime: getLastSyncTime(),
+    })
     return
   }
 
@@ -95,7 +109,7 @@ export function saveQueue(queue: SyncQueueItem[]): void {
 }
 
 export function getPendingQueue(): SyncQueueItem[] {
-  return getQueue().filter((item) => item.status === 'PENDING' || item.status === 'FAILED')
+  return getQueue().filter((item) => item.status === 'PENDING' || item.status === 'FAILED' || item.status === 'SYNCING')
 }
 
 export function enqueueSyncItem(entity: SyncEntity, action: SyncAction, payload: any): SyncQueueItem {
@@ -167,24 +181,6 @@ export async function flushSyncQueue(): Promise<{
     return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local hub.' }
   }
 
-  const flush = typeof window !== 'undefined' && (window as any).api?.flushSyncOutbox
-    ? (size: number) => (window as any).api.flushSyncOutbox(size)
-    : (size: number) => hubClient.flushSyncOutbox(size)
-  const result = await flush(50)
-  return {
-    success: Boolean(result.success),
-    syncedCount: Number(result.succeeded) || 0,
-    failedCount: Number(result.failed) || 0,
-    message: result.error || `Hub outbox: ${Number(result.succeeded) || 0} synced, ${Number(result.failed) || 0} failed.`,
-  }
-}
-
-async function legacyFlushSyncQueue(): Promise<{
-  success: boolean
-  syncedCount: number
-  failedCount: number
-  message: string
-}> {
   if (isCurrentlySyncing) {
     return {
       success: false,
@@ -195,7 +191,7 @@ async function legacyFlushSyncQueue(): Promise<{
   }
 
   const queue = getQueue()
-  const pendingItems = queue.filter((i) => i.status === 'PENDING' || i.status === 'FAILED')
+  const pendingItems = queue.filter((i) => i.status === 'PENDING' || i.status === 'FAILED' || i.status === 'SYNCING')
 
   if (pendingItems.length === 0) {
     // Queue is empty, but verify cloud connection and update last checked
@@ -249,7 +245,7 @@ async function legacyFlushSyncQueue(): Promise<{
 
   try {
     for (const item of queue) {
-      if (item.status !== 'PENDING' && item.status !== 'FAILED') {
+      if (item.status !== 'PENDING' && item.status !== 'FAILED' && item.status !== 'SYNCING') {
         continue
       }
 

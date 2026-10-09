@@ -33,14 +33,43 @@ export async function createProduct(data: {
   username?: string
   userRole?: string
 }) {
+  const trimmedName = (data.name || '').trim()
+  const trimmedSku = (data.sku || '').trim()
+
+  if (!trimmedName) {
+    throw new Error('Product name is required.')
+  }
+
+  // 1. Strict Duplicate Name Check
+  const existingName = await prisma.medicine.findFirst({
+    where: { name: trimmedName },
+  })
+  if (existingName) {
+    throw new Error(
+      `A product named "${trimmedName}" already exists (SKU: ${existingName.sku || 'N/A'}). Please restock the existing product or use a distinct name.`
+    )
+  }
+
+  // 2. Strict Duplicate SKU Check
+  if (trimmedSku) {
+    const existingSku = await prisma.medicine.findFirst({
+      where: { sku: trimmedSku },
+    })
+    if (existingSku) {
+      throw new Error(
+        `A product with SKU "${trimmedSku}" already exists (${existingSku.name}). Please use a unique SKU/barcode.`
+      )
+    }
+  }
+
   return await prisma.$transaction(async (tx) => {
     const id = randomUUID()
     const product = await tx.medicine.create({
       data: {
         id,
-        name: data.name,
-        genericName: data.genericName || null,
-        sku: data.sku,
+        name: trimmedName,
+        genericName: data.genericName ? data.genericName.trim() : null,
+        sku: trimmedSku,
         categoryId: data.categoryId,
         price: Number(data.price) || 0,
         cost: Number(data.cost) || 0,
@@ -81,6 +110,41 @@ export async function updateProduct(
   data: any,
   meta?: { deviceId?: string; username?: string; userRole?: string }
 ) {
+  if (data.name !== undefined) {
+    const trimmedName = data.name.trim()
+    if (!trimmedName) throw new Error('Product name cannot be empty.')
+    const existingName = await prisma.medicine.findFirst({
+      where: {
+        id: { not: id },
+        name: trimmedName,
+      },
+    })
+    if (existingName) {
+      throw new Error(
+        `A product named "${trimmedName}" already exists (SKU: ${existingName.sku || 'N/A'}). Please use a distinct name.`
+      )
+    }
+    data.name = trimmedName
+  }
+
+  if (data.sku !== undefined) {
+    const trimmedSku = data.sku.trim()
+    if (trimmedSku) {
+      const existingSku = await prisma.medicine.findFirst({
+        where: {
+          id: { not: id },
+          sku: trimmedSku,
+        },
+      })
+      if (existingSku) {
+        throw new Error(
+          `A product with SKU "${trimmedSku}" already exists (${existingSku.name}). Please use a unique SKU/barcode.`
+        )
+      }
+      data.sku = trimmedSku
+    }
+  }
+
   return await prisma.$transaction(async (tx) => {
     const existing = await tx.medicine.findUnique({ where: { id } })
     if (!existing) throw new Error(`Product ${id} not found`)

@@ -327,4 +327,124 @@ export function subscribeToCloudAuditLogs(onUpdate: (payload: any) => void): () 
   }
 }
 
+/**
+ * Realtime subscription to cloud_categories table.
+ */
+export function subscribeToCloudCategories(onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient()
+  if (!client) return () => {}
+
+  try {
+    const channel = client
+      .channel('cloud_categories_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cloud_categories' },
+        (payload) => onUpdate(payload)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('📡 [Supabase Realtime] Connected to cloud_categories stream')
+        }
+      })
+
+    return () => {
+      client.removeChannel(channel)
+    }
+  } catch (err) {
+    console.warn('📡 [Supabase Realtime] Categories subscription error:', err)
+    return () => {}
+  }
+}
+
+/**
+ * Realtime subscription to cloud_customers table.
+ */
+export function subscribeToCloudCustomers(onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient()
+  if (!client) return () => {}
+
+  try {
+    const channel = client
+      .channel('cloud_customers_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cloud_customers' },
+        (payload) => onUpdate(payload)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('📡 [Supabase Realtime] Connected to cloud_customers stream')
+        }
+      })
+
+    return () => {
+      client.removeChannel(channel)
+    }
+  } catch (err) {
+    console.warn('📡 [Supabase Realtime] Customers subscription error:', err)
+    return () => {}
+  }
+}
+
+/**
+ * Realtime subscription to cloud_suppliers table.
+ */
+export function subscribeToCloudSuppliers(onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient()
+  if (!client) return () => {}
+
+  try {
+    const channel = client
+      .channel('cloud_suppliers_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cloud_suppliers' },
+        (payload) => onUpdate(payload)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('📡 [Supabase Realtime] Connected to cloud_suppliers stream')
+        }
+      })
+
+    return () => {
+      client.removeChannel(channel)
+    }
+  } catch (err) {
+    console.warn('📡 [Supabase Realtime] Suppliers subscription error:', err)
+    return () => {}
+  }
+}
+
+/**
+ * Realtime subscription to cloud_users table.
+ */
+export function subscribeToCloudUsers(onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient()
+  if (!client) return () => {}
+
+  try {
+    const channel = client
+      .channel('cloud_users_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cloud_users' },
+        (payload) => onUpdate(payload)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('📡 [Supabase Realtime] Connected to cloud_users stream')
+        }
+      })
+
+    return () => {
+      client.removeChannel(channel)
+    }
+  } catch (err) {
+    console.warn('📡 [Supabase Realtime] Users subscription error:', err)
+    return () => {}
+  }
+}
+
 

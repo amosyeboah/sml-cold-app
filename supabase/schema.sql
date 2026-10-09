@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS cloud_products (
 
 CREATE INDEX IF NOT EXISTS idx_cloud_products_sku ON cloud_products(sku);
 CREATE INDEX IF NOT EXISTS idx_cloud_products_category ON cloud_products(category_name);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cloud_products_store_name ON cloud_products(store_id, LOWER(TRIM(name))) WHERE name != 'Historical Item (Deleted)';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cloud_products_store_sku ON cloud_products(store_id, LOWER(TRIM(sku))) WHERE sku IS NOT NULL AND TRIM(sku) != '';
 
 -- 4. CLOUD BATCHES (Freezer lots & expiry)
 CREATE TABLE IF NOT EXISTS cloud_batches (
@@ -234,6 +236,58 @@ CREATE TABLE IF NOT EXISTS cloud_sync_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_cloud_sync_sessions_created_at ON cloud_sync_sessions(created_at DESC);
 
+-- 14. CLOUD CATEGORIES
+CREATE TABLE IF NOT EXISTS cloud_categories (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_categories_name ON cloud_categories(name);
+
+-- 15. CLOUD CUSTOMERS
+CREATE TABLE IF NOT EXISTS cloud_customers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    balance NUMERIC(12, 2) DEFAULT 0.00,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_customers_phone ON cloud_customers(phone);
+CREATE INDEX IF NOT EXISTS idx_cloud_customers_name ON cloud_customers(name);
+
+-- 16. CLOUD SUPPLIERS
+CREATE TABLE IF NOT EXISTS cloud_suppliers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    contact TEXT,
+    email TEXT,
+    address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_suppliers_name ON cloud_suppliers(name);
+
+-- 17. CLOUD USERS
+CREATE TABLE IF NOT EXISTS cloud_users (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    pin TEXT DEFAULT '1234',
+    role TEXT NOT NULL DEFAULT 'CASHIER',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_users_username ON cloud_users(username);
+
 -- ==============================================================================
 -- ROW LEVEL SECURITY (RLS) & ACCESS POLICIES
 -- ==============================================================================
@@ -250,6 +304,10 @@ ALTER TABLE cloud_stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_sync_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_sync_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_suppliers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_users ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public read for portal" ON sml_stores;
 DROP POLICY IF EXISTS "Allow POS and Portal access devices" ON cloud_devices;

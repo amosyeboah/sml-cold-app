@@ -24,6 +24,13 @@ describe('Purchase Report History System', () => {
   beforeEach(async () => {
     storageMap.clear()
     await mobileApi.seedInitialDataIfNeeded()
+    storageMap.set('sml_coldstore_suppliers', JSON.stringify([
+      { id: 'sup-test-1', name: 'Test Cold Supplier Ltd', contact: '0241234567' }
+    ]))
+    storageMap.set('sml_coldstore_medicines', JSON.stringify([
+      { id: 'prod-test-1', name: 'Test Whole Chicken', sku: 'TST-CHK-01', price: 85, cost: 58, minStockLevel: 10 }
+    ]))
+    storageMap.set('sml_coldstore_batches', JSON.stringify([]))
   })
 
   it('1. Generates purchase history within getReportsData with full line item details', async () => {

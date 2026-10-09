@@ -52,6 +52,7 @@ export default function Medicines() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [productToDelete, setProductToDelete] = useState<Medicine | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [medFormError, setMedFormError] = useState<string | null>(null)
 
   const { data: medicines = [], isLoading: medsLoading } = useQuery<Medicine[]>({
     queryKey: ['medicines'],
@@ -73,6 +74,10 @@ export default function Medicines() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['medicines'] })
       setIsMedOpen(false)
+      setMedFormError(null)
+    },
+    onError: (err: any) => {
+      setMedFormError(err?.message || 'Failed to create product.')
     },
   })
 
@@ -85,6 +90,10 @@ export default function Medicines() {
       queryClient.invalidateQueries({ queryKey: ['reports'] })
       setEditingMed(null)
       setIsMedOpen(false)
+      setMedFormError(null)
+    },
+    onError: (err: any) => {
+      setMedFormError(err?.message || 'Failed to update product.')
     },
   })
 
@@ -118,12 +127,14 @@ export default function Medicines() {
 
   const handleOpenCreate = () => {
     setEditingMed(null)
+    setMedFormError(null)
     reset({ name: '', genericName: '', sku: '', categoryId: '', price: 0, cost: 0, minStockLevel: 10 })
     setIsMedOpen(true)
   }
 
   const handleOpenEdit = (med: Medicine) => {
     setEditingMed(med)
+    setMedFormError(null)
     setValue('name', med.name)
     setValue('genericName', med.genericName || '')
     setValue('sku', med.sku)
@@ -135,10 +146,31 @@ export default function Medicines() {
   }
 
   const onSubmit = (data: MedFormData) => {
+    const trimmedName = data.name.trim()
+    const trimmedSku = data.sku.trim()
+
+    // Immediate duplicate checks
+    const duplicateName = medicines.find(
+      (m) => (!editingMed || m.id !== editingMed.id) && m.name && m.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    )
+    if (duplicateName) {
+      setMedFormError(`A product named "${trimmedName}" already exists (SKU: ${duplicateName.sku || 'N/A'}). Please restock the existing product or use a distinct name.`)
+      return
+    }
+
+    const duplicateSku = medicines.find(
+      (m) => (!editingMed || m.id !== editingMed.id) && m.sku && m.sku.trim().toLowerCase() === trimmedSku.toLowerCase()
+    )
+    if (duplicateSku) {
+      setMedFormError(`A product with SKU "${trimmedSku}" already exists (${duplicateSku.name}). Please use a unique SKU/barcode.`)
+      return
+    }
+
+    setMedFormError(null)
     if (editingMed) {
-      updateMedMutation.mutate({ id: editingMed.id, data })
+      updateMedMutation.mutate({ id: editingMed.id, data: { ...data, name: trimmedName, sku: trimmedSku } })
     } else {
-      createMedMutation.mutate(data)
+      createMedMutation.mutate({ ...data, name: trimmedName, sku: trimmedSku })
     }
   }
 
@@ -523,11 +555,27 @@ export default function Medicines() {
       )}
 
       {/* ── Add / Edit Dialog ──────────────────────────────────────── */}
-      <Dialog open={isMedOpen} onOpenChange={setIsMedOpen}>
+      <Dialog
+        open={isMedOpen}
+        onOpenChange={(open) => {
+          setIsMedOpen(open)
+          if (!open) {
+            setMedFormError(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-xl w-[calc(100vw-2rem)] sm:w-full max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingMed ? 'Edit Product' : 'Add New Product'}</DialogTitle>
           </DialogHeader>
+
+          {medFormError && (
+            <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 border border-amber-300 flex items-start gap-2.5 my-1">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="leading-snug font-medium">{medFormError}</div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
@@ -573,8 +621,15 @@ export default function Medicines() {
                 {errors.minStockLevel && <p className="text-xs text-red-500">{errors.minStockLevel.message}</p>}
               </div>
             </div>
-            <Button type="submit" className="mt-4 w-full text-white" style={{ backgroundColor: '#2563eb' }}>
-              {editingMed ? 'Update Product' : 'Save Product'}
+            <Button
+              type="submit"
+              disabled={createMedMutation.isPending || updateMedMutation.isPending}
+              className="mt-4 w-full text-white"
+              style={{ backgroundColor: '#2563eb' }}
+            >
+              {createMedMutation.isPending || updateMedMutation.isPending
+                ? 'Saving...'
+                : (editingMed ? 'Update Product' : 'Save Product')}
             </Button>
           </form>
         </DialogContent>

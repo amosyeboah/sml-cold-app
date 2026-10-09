@@ -38,6 +38,7 @@ import { cn } from '@/utils'
 import { bluetoothPrinter, BluetoothPrinterStatus } from '@/services/hardware/bluetoothPrinter'
 import { barcodeScanner } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
+import { useAuthStore } from '@/store/authStore'
 
 export interface SplitPaymentEntry {
   method: 'CASH' | 'MOBILE'
@@ -875,6 +876,7 @@ function CartPanelContent({
 
 export default function POS() {
   const queryClient = useQueryClient()
+  const { user } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -1494,6 +1496,8 @@ export default function POS() {
       total,
       items,
       customerId: selectedCustomerId || undefined,
+      cashier: user?.username || 'cashier',
+      userRole: user?.role || 'CASHIER',
     })
   }
 

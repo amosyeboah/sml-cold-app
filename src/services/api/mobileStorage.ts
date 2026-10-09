@@ -88,6 +88,9 @@ const STORAGE_KEYS = {
   AUDIT_LOGS: 'sml_coldstore_audit_logs',
   DELETED_MEDICINE_IDS: 'sml_coldstore_deleted_medicine_ids',
   DELETED_BATCH_IDS: 'sml_coldstore_deleted_batch_ids',
+  DELETED_CATEGORY_IDS: 'sml_coldstore_deleted_category_ids',
+  DELETED_CUSTOMER_IDS: 'sml_coldstore_deleted_customer_ids',
+  DELETED_SUPPLIER_IDS: 'sml_coldstore_deleted_supplier_ids',
   SEEDED: 'sml_coldstore_initialized_flag'
 }
 
@@ -108,7 +111,12 @@ function setItem<T>(key: string, value: T): void {
   } catch {}
 }
 
-const isOnline = (): boolean => (typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true)
+const isOnline = (): boolean => {
+  if (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.VITEST)) {
+    return false
+  }
+  return typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : false
+}
 
 /** Fetches the live cloud sales mirror without persisting or merging browser sales. */
 export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
@@ -210,7 +218,11 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 export async function pushLocalStorageToCloudIfAvailable(): Promise<{ pushedSales: number }> {
   const localSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
   const client = getSupabaseClient()
-  if (!client || !isOnline() || localSales.length === 0) {
+  if (!client || !isOnline()) {
+    return { pushedSales: 0 }
+  }
+
+  if (localSales.length === 0) {
     return { pushedSales: 0 }
   }
 
@@ -285,25 +297,53 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
       .select('*')
       .order('name', { ascending: true })
 
-    if (error || !cloudProducts || cloudProducts.length === 0) {
+    if (error) {
       return localMeds.filter((m) => !deletedIds.has(m.id))
     }
 
-    // Build categories mapping
-    const existingCats = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
-    const catMap = new Map<string, string>()
-    existingCats.forEach((c) => catMap.set(c.name.toLowerCase().trim(), c.id))
+    if (!cloudProducts || cloudProducts.length === 0) {
+      // Cloud catalog is empty (e.g. fresh production database)
+      const pendingInserts = getPendingQueue()
+        .filter((q) => q.entity === 'PRODUCT' && q.action === 'INSERT')
+        .map((q) => q.payload)
+        .filter(Boolean)
+      setItem(STORAGE_KEYS.MEDICINES, pendingInserts)
+      return pendingInserts
+    }
 
-    const updatedCats = [...existingCats]
+    // Build categories mapping (deduplicated by normalized name)
+    const existingCats = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
+    const deletedCatIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_CATEGORY_IDS, []))
+    const catMap = new Map<string, string>()
+    const deduplicatedExistingCats: any[] = []
+    const seenCatNames = new Set<string>()
+
+    existingCats.forEach((c) => {
+      const normName = (c.name || '').toLowerCase().trim()
+      if (normName && !seenCatNames.has(normName) && !deletedCatIds.has(c.id)) {
+        seenCatNames.add(normName)
+        catMap.set(normName, c.id)
+        deduplicatedExistingCats.push(c)
+      }
+    })
+
+    const updatedCats = [...deduplicatedExistingCats]
+    let hasNewCategory = false
     cloudProducts.forEach((p) => {
       const catName = (p.category_name || 'General').trim()
-      if (!catMap.has(catName.toLowerCase())) {
+      const normName = catName.toLowerCase()
+      if (normName && !catMap.has(normName)) {
         const newCatId = `cat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
-        catMap.set(catName.toLowerCase(), newCatId)
+        catMap.set(normName, newCatId)
+        seenCatNames.add(normName)
         updatedCats.push({ id: newCatId, name: catName })
+        hasNewCategory = true
       }
     })
     setItem(STORAGE_KEYS.CATEGORIES, updatedCats)
+    if (hasNewCategory) {
+      pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', updatedCats).catch(() => {})
+    }
 
     // Filter out deleted items and tombstone placeholders from cloud results
     const validCloudProducts = cloudProducts.filter((p) => !deletedIds.has(p.id) && p.name !== 'Historical Item (Deleted)')
@@ -321,68 +361,24 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
       minStockLevel: Number(p.min_stock_level) || 10,
     }))
 
-    // Local storage is authoritative. If local catalog exists, never resurrect missing items.
-    const localMap = new Map(localMeds.filter((m) => !deletedIds.has(m.id)).map((m) => [m.id, m]))
-    
-    // Index existing local products by normalized SKU to prevent duplicate seed entries
-    const skuToIdMap = new Map<string, string>()
-    localMap.forEach((m) => {
-      const s = (m.sku || '').trim().toUpperCase()
-      if (s) skuToIdMap.set(s, m.id)
-    })
+    // Cloud catalog is authoritative when populated.
+    // Include any pending offline-created products from the queue.
+    const pendingInserts = getPendingQueue()
+      .filter((q) => q.entity === 'PRODUCT' && q.action === 'INSERT')
+      .map((q) => q.payload)
+      .filter(Boolean)
 
-    // Merge cloud products: reconcile matching SKUs to canonical cloud IDs and eliminate duplicate seed items
+    const finalMedsMap = new Map<string, any>()
     mappedMeds.forEach((cm) => {
-      const cmSku = (cm.sku || '').trim().toUpperCase()
-      const existingIdBySku = cmSku ? skuToIdMap.get(cmSku) : null
-
-      if (localMap.has(cm.id)) {
-        const current = localMap.get(cm.id)!
-        localMap.set(cm.id, { ...cm, ...current })
-      } else if (existingIdBySku && existingIdBySku !== cm.id) {
-        // Reconcile duplicate: same SKU exists locally under a legacy seed UUID.
-        // Migrate to the canonical cloud product ID and preserve any local overrides.
-        const oldId = existingIdBySku
-        const existingItem = localMap.get(oldId)
-        localMap.delete(oldId)
-
-        // Migrate any batches attached to the old seed ID to point to the canonical cloud ID
-        const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
-        let batchesModified = false
-        batches.forEach((b) => {
-          if (b.medicineId === oldId) {
-            b.medicineId = cm.id
-            batchesModified = true
-          }
-        })
-        if (batchesModified) {
-          setItem(STORAGE_KEYS.BATCHES, batches)
-        }
-
-        const reconciled = { ...cm, ...(existingItem || {}), id: cm.id }
-        localMap.set(cm.id, reconciled)
-        skuToIdMap.set(cmSku, cm.id)
-      } else if (!deletedIds.has(cm.id)) {
-        localMap.set(cm.id, cm)
-        if (cmSku) skuToIdMap.set(cmSku, cm.id)
+      finalMedsMap.set(cm.id, cm)
+    })
+    pendingInserts.forEach((pm) => {
+      if (pm.id && !finalMedsMap.has(pm.id)) {
+        finalMedsMap.set(pm.id, pm)
       }
     })
 
-    // Final sweep: purge any duplicate products that have identical names or SKUs
-    const seenSkus = new Set<string>()
-    const seenNames = new Set<string>()
-    const deduplicatedMeds: any[] = []
-
-    for (const m of localMap.values()) {
-      const s = (m.sku || '').trim().toUpperCase()
-      const n = (m.name || '').trim().toLowerCase()
-      if (s && seenSkus.has(s)) continue
-      if (n && seenNames.has(n)) continue
-      if (s) seenSkus.add(s)
-      if (n) seenNames.add(n)
-      deduplicatedMeds.push(m)
-    }
-
+    const deduplicatedMeds = Array.from(finalMedsMap.values())
     setItem(STORAGE_KEYS.MEDICINES, deduplicatedMeds)
     return deduplicatedMeds
   } catch (err) {
@@ -392,16 +388,35 @@ export async function fetchCloudProductsIfAvailable(): Promise<any[]> {
 }
 
 /**
- * Fetches latest batches directly from Supabase Cloud, respecting local deletions.
+ * Helper to deduplicate a batch array strictly by normalized batch number.
+ */
+export function deduplicateBatchesList(batches: any[]): any[] {
+  const seen = new Set<string>()
+  const result: any[] = []
+  for (const b of batches) {
+    const num = (b.batchNumber || '').trim().toUpperCase()
+    if (num && seen.has(num)) continue
+    if (num) seen.add(num)
+    result.push(b)
+  }
+  return result
+}
+
+/**
+ * Fetches latest batches directly from Supabase Cloud, reconciling legacy seed IDs and eliminating duplicates.
  */
 export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
-
   const localBatches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
   const deletedMedIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_MEDICINE_IDS, []))
   const deletedBatchIds = new Set(getItem<string[]>(STORAGE_KEYS.DELETED_BATCH_IDS, []))
   const client = getSupabaseClient()
   if (!client || !isOnline()) {
-    return localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+    const filtered = localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+    const deduped = deduplicateBatchesList(filtered)
+    if (deduped.length !== localBatches.length) {
+      setItem(STORAGE_KEYS.BATCHES, deduped)
+    }
+    return deduped
   }
 
   try {
@@ -414,8 +429,22 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
       .select('*')
       .order('expiry_date', { ascending: true })
 
-    if (error || !cloudBatches || cloudBatches.length === 0) {
-      return localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+    if (error) {
+      const filtered = localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+      const deduped = deduplicateBatchesList(filtered)
+      if (deduped.length !== localBatches.length) {
+        setItem(STORAGE_KEYS.BATCHES, deduped)
+      }
+      return deduped
+    }
+
+    if (!cloudBatches || cloudBatches.length === 0) {
+      const pendingBatches = getPendingQueue()
+        .filter((q) => q.entity === 'BATCH' && q.action === 'INSERT')
+        .map((q) => q.payload)
+        .filter(Boolean)
+      setItem(STORAGE_KEYS.BATCHES, pendingBatches)
+      return pendingBatches
     }
 
     const validCloudBatches = cloudBatches.filter(
@@ -430,28 +459,31 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
       quantity: Number(b.quantity ?? b.quantity_current ?? b.quantity_received) || 0,
     }))
 
-    const localMap = new Map(
-      localBatches
-        .filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
-        .map((b) => [b.id, b])
-    )
+    // Cloud batches are authoritative when populated.
+    // Include any pending offline-created batches from the queue.
+    const pendingBatchInserts = getPendingQueue()
+      .filter((q) => q.entity === 'BATCH' && q.action === 'INSERT')
+      .map((q) => q.payload)
+      .filter(Boolean)
 
-    // Merge cloud batches: update existing metadata, and add newly discovered non-deleted batches
+    const finalBatchesMap = new Map<string, any>()
     mappedBatches.forEach((cb) => {
-      if (localMap.has(cb.id)) {
-        const current = localMap.get(cb.id)!
-        localMap.set(cb.id, { ...cb, ...current })
-      } else if (!deletedBatchIds.has(cb.id) && !deletedMedIds.has(cb.medicineId)) {
-        localMap.set(cb.id, cb)
+      finalBatchesMap.set(cb.id, cb)
+    })
+    pendingBatchInserts.forEach((pb) => {
+      if (pb.id && !finalBatchesMap.has(pb.id)) {
+        finalBatchesMap.set(pb.id, pb)
       }
     })
 
-    const mergedBatches = Array.from(localMap.values())
-    setItem(STORAGE_KEYS.BATCHES, mergedBatches)
-    return mergedBatches
+    const deduplicatedBatches = deduplicateBatchesList(Array.from(finalBatchesMap.values()))
+    setItem(STORAGE_KEYS.BATCHES, deduplicatedBatches)
+    return deduplicatedBatches
   } catch (err) {
     console.warn('Failed to fetch cloud batches in mobileStorage:', err)
-    return localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+    const filtered = localBatches.filter((b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.medicineId))
+    const deduped = deduplicateBatchesList(filtered)
+    return deduped
   }
 }
 
@@ -480,25 +512,48 @@ function extractStateMirrorPayload(row: any): any {
  * Pushes full snapshot of non-tabular entities (Users, Customers, Suppliers, Purchases, Settings, Categories)
  * into Supabase cloud_audit_logs to guarantee 100% offline/online reflection.
  */
-export async function pushCloudStateMirror(stateId: string, category: string, dataKey: string, payload: any): Promise<void> {
+export async function pushCloudStateMirror(
+  stateId: string,
+  category: string,
+  dataKey: string,
+  payload: any,
+  options?: { forceOverwrite?: boolean }
+): Promise<void> {
   const client = getSupabaseClient()
   if (!client || !isOnline()) return
   try {
-    const { data } = await client.from('cloud_audit_logs').select('*').eq('id', stateId).maybeSingle()
     let mergedPayload = payload
-    const existing = extractStateMirrorPayload(data)
+    if (!options?.forceOverwrite) {
+      const { data } = await client.from('cloud_audit_logs').select('*').eq('id', stateId).maybeSingle()
+      const existing = extractStateMirrorPayload(data)
 
-    if (existing && existing[dataKey]) {
-      if (Array.isArray(payload) && Array.isArray(existing[dataKey])) {
-        const cloudList = existing[dataKey]
-        const localIds = new Set(payload.map((i: any) => i.id))
-        const cloudOnly = cloudList.filter((i: any) => !localIds.has(i.id))
-        mergedPayload = [...payload, ...cloudOnly]
-      } else if (typeof payload === 'object' && typeof existing[dataKey] === 'object') {
-        mergedPayload = { ...existing[dataKey], ...payload }
+      if (existing && existing[dataKey]) {
+        if (Array.isArray(payload) && Array.isArray(existing[dataKey])) {
+          const cloudList = existing[dataKey]
+          const getKey = (item: any) => {
+            if (stateId === 'STATE_CATEGORIES') return (item.name || '').trim().toLowerCase()
+            if (stateId === 'STATE_CUSTOMERS') {
+              const p = (item.phone || '').trim()
+              return p ? `p:${p}` : `n:${(item.name || '').trim().toLowerCase()}`
+            }
+            if (stateId === 'STATE_SUPPLIERS') return (item.name || '').trim().toLowerCase()
+            if (stateId === 'STATE_USERS') return (item.username || '').trim().toLowerCase()
+            return item.id
+          }
+
+          const localKeys = new Set(payload.map(getKey))
+          const deletedKey =
+            stateId === 'STATE_CATEGORIES' ? STORAGE_KEYS.DELETED_CATEGORY_IDS :
+            stateId === 'STATE_CUSTOMERS' ? STORAGE_KEYS.DELETED_CUSTOMER_IDS :
+            stateId === 'STATE_SUPPLIERS' ? STORAGE_KEYS.DELETED_SUPPLIER_IDS : null
+          const deletedSet = deletedKey ? new Set(getItem<string[]>(deletedKey, [])) : new Set<string>()
+
+          const cloudOnly = cloudList.filter((i: any) => !localKeys.has(getKey(i)) && !deletedSet.has(i.id))
+          mergedPayload = [...payload, ...cloudOnly]
+        } else if (typeof payload === 'object' && typeof existing[dataKey] === 'object') {
+          mergedPayload = { ...existing[dataKey], ...payload }
+        }
       }
-    } else if (existing && typeof payload === 'object' && !Array.isArray(payload)) {
-      mergedPayload = { ...existing, ...payload }
     }
 
     const payloadJson = JSON.stringify({ [dataKey]: mergedPayload })
@@ -524,6 +579,7 @@ export async function pushCloudStateMirror(stateId: string, category: string, da
 
 /**
  * Fetches all state mirrors from Supabase cloud_audit_logs and syncs into local storage.
+ * Automatically deduplicates categories, customers, and suppliers and propagates new records back to cloud.
  */
 export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
   const client = getSupabaseClient()
@@ -533,10 +589,6 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
       .from('cloud_audit_logs')
       .select('*')
       .in('id', [
-        'STATE_USERS',
-        'STATE_CATEGORIES',
-        'STATE_CUSTOMERS',
-        'STATE_SUPPLIERS',
         'STATE_PURCHASES',
         'STATE_SETTINGS'
       ])
@@ -547,27 +599,7 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
       const meta = extractStateMirrorPayload(row)
       if (!meta) continue
 
-      if (row.id === 'STATE_USERS' && Array.isArray(meta.users) && meta.users.length > 0) {
-        const local = getItem<any[]>(STORAGE_KEYS.USERS, [])
-        const cloudIds = new Set(meta.users.map((u: any) => u.id))
-        const localOnly = local.filter((u) => !cloudIds.has(u.id))
-        setItem(STORAGE_KEYS.USERS, [...meta.users, ...localOnly])
-      } else if (row.id === 'STATE_CATEGORIES' && Array.isArray(meta.categories) && meta.categories.length > 0) {
-        const local = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
-        const cloudIds = new Set(meta.categories.map((c: any) => c.id))
-        const localOnly = local.filter((c) => !cloudIds.has(c.id))
-        setItem(STORAGE_KEYS.CATEGORIES, [...meta.categories, ...localOnly])
-      } else if (row.id === 'STATE_CUSTOMERS' && Array.isArray(meta.customers) && meta.customers.length > 0) {
-        const local = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
-        const cloudIds = new Set(meta.customers.map((c: any) => c.id))
-        const localOnly = local.filter((c) => !cloudIds.has(c.id))
-        setItem(STORAGE_KEYS.CUSTOMERS, [...meta.customers, ...localOnly])
-      } else if (row.id === 'STATE_SUPPLIERS' && Array.isArray(meta.suppliers) && meta.suppliers.length > 0) {
-        const local = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
-        const cloudIds = new Set(meta.suppliers.map((s: any) => s.id))
-        const localOnly = local.filter((s) => !cloudIds.has(s.id))
-        setItem(STORAGE_KEYS.SUPPLIERS, [...meta.suppliers, ...localOnly])
-      } else if (row.id === 'STATE_PURCHASES' && Array.isArray(meta.purchases)) {
+      if (row.id === 'STATE_PURCHASES' && Array.isArray(meta.purchases)) {
         const local = getItem<any[]>(STORAGE_KEYS.PURCHASES, [])
         const cloudIds = new Set(meta.purchases.map((p: any) => p.id))
         const localOnly = local.filter((p) => !cloudIds.has(p.id))
@@ -585,18 +617,156 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
   }
 }
 
+/**
+ * Fetches latest categories directly from Supabase cloud_categories table.
+ */
+export async function fetchCloudCategoriesIfAvailable(): Promise<any[]> {
+  const local = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
+  const client = getSupabaseClient()
+  if (!client || !isOnline()) return local
+
+  try {
+    const { data, error } = await client.from('cloud_categories').select('*').order('name')
+    if (error) {
+      console.warn('Cloud categories fetch notice:', error.message)
+      return local
+    }
+
+    if (Array.isArray(data)) {
+      const cloudCats = data.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description
+      }))
+      setItem(STORAGE_KEYS.CATEGORIES, cloudCats)
+      return cloudCats
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloud categories:', err)
+  }
+  return local
+}
+
+/**
+ * Fetches latest customers directly from Supabase cloud_customers table.
+ */
+export async function fetchCloudCustomersIfAvailable(): Promise<any[]> {
+  const local = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
+  const client = getSupabaseClient()
+  if (!client || !isOnline()) return local
+
+  try {
+    const { data, error } = await client.from('cloud_customers').select('*').order('name')
+    if (error) {
+      console.warn('Cloud customers fetch notice:', error.message)
+      return local
+    }
+
+    if (Array.isArray(data)) {
+      const cloudCusts = data.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone || '',
+        email: r.email || '',
+        address: r.address || '',
+        balance: Number(r.balance) || 0,
+        createdAt: r.created_at || new Date().toISOString()
+      }))
+      setItem(STORAGE_KEYS.CUSTOMERS, cloudCusts)
+      return cloudCusts
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloud customers:', err)
+  }
+  return local
+}
+
+/**
+ * Fetches latest suppliers directly from Supabase cloud_suppliers table.
+ */
+export async function fetchCloudSuppliersIfAvailable(): Promise<any[]> {
+  const local = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
+  const client = getSupabaseClient()
+  if (!client || !isOnline()) return local
+
+  try {
+    const { data, error } = await client.from('cloud_suppliers').select('*').order('name')
+    if (error) {
+      console.warn('Cloud suppliers fetch notice:', error.message)
+      return local
+    }
+
+    if (Array.isArray(data)) {
+      const cloudSups = data.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        contact: r.contact || '',
+        email: r.email || '',
+        address: r.address || '',
+        createdAt: r.created_at || new Date().toISOString()
+      }))
+      setItem(STORAGE_KEYS.SUPPLIERS, cloudSups)
+      return cloudSups
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloud suppliers:', err)
+  }
+  return local
+}
+
+/**
+ * Fetches latest users directly from Supabase cloud_users table.
+ */
+export async function fetchCloudUsersIfAvailable(): Promise<any[]> {
+  const local = getItem<any[]>(STORAGE_KEYS.USERS, [])
+  const client = getSupabaseClient()
+  if (!client || !isOnline()) return local
+
+  try {
+    const { data, error } = await client.from('cloud_users').select('*').order('username')
+    if (error) {
+      console.warn('Cloud users fetch notice:', error.message)
+      return local
+    }
+
+    if (Array.isArray(data)) {
+      const cloudUsers = data.map((r: any) => ({
+        id: r.id,
+        username: r.username,
+        password: r.password_hash,
+        pin: r.pin || '1234',
+        role: r.role || 'CASHIER',
+        createdAt: r.created_at || new Date().toISOString()
+      }))
+      setItem(STORAGE_KEYS.USERS, cloudUsers)
+      return cloudUsers
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloud users:', err)
+  }
+  return local
+}
+
 export async function syncAllCloudDataIfAvailable(): Promise<{
   medicines: any[]
   batches: any[]
   sales: any[]
+  categories: any[]
+  customers: any[]
+  suppliers: any[]
+  users: any[]
 }> {
-  const [medicines, batches, sales] = await Promise.all([
+  const [medicines, batches, sales, categories, customers, suppliers, users] = await Promise.all([
     fetchCloudProductsIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.MEDICINES, [])),
     fetchCloudBatchesIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.BATCHES, [])),
     fetchCloudSalesIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.SALES, [])),
+    fetchCloudCategoriesIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])),
+    fetchCloudCustomersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])),
+    fetchCloudSuppliersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])),
+    fetchCloudUsersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.USERS, [])),
     fetchCloudStateMirrorsIfAvailable().catch(() => {}),
   ])
-  return { medicines, batches, sales }
+  return { medicines, batches, sales, categories, customers, suppliers, users }
 }
 
 
@@ -671,151 +841,50 @@ const PAYMENT_LABELS: Record<string, string> = {
 }
 
 
-// Seed initial data if empty or migrate legacy dummy data
+// Initialize fallback settings and ensure local storage has baseline structure
 async function seedInitialDataIfNeeded() {
   try {
     let users = getItem<any[]>(STORAGE_KEYS.USERS, [])
     if (!Array.isArray(users)) users = []
-    const adminPassword = await hashPassword('admin1234')
-    const managerPassword = await hashPassword('manager123')
-    const cashierPassword = await hashPassword('cashier123')
 
-    const adminUser = users.find(u => u.username && u.username.toLowerCase() === 'admin')
-    if (adminUser) {
-      adminUser.password = adminUser.password || adminPassword
-      adminUser.pin = adminUser.pin || '1111'
-      adminUser.role = 'ADMIN'
-    } else {
-      users.push({ id: generateId(), username: 'admin', password: adminPassword, pin: '1111', role: 'ADMIN', createdAt: new Date().toISOString() })
+    // If no users exist locally (e.g. offline first launch before cloud sync), provide initial role accounts
+    if (users.length === 0) {
+      const adminPassword = await hashPassword('admin1234')
+      const managerPassword = await hashPassword('manager123')
+      const cashierPassword = await hashPassword('cashier123')
+      users.push(
+        {
+          id: 'usr_admin_root',
+          username: 'admin',
+          password: adminPassword,
+          pin: '1111',
+          role: 'ADMIN',
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: 'usr_manager_01',
+          username: 'manager',
+          password: managerPassword,
+          pin: '2222',
+          role: 'MANAGER',
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: 'usr_cashier_01',
+          username: 'cashier',
+          password: cashierPassword,
+          pin: '1234',
+          role: 'CASHIER',
+          createdAt: new Date().toISOString()
+        }
+      )
+      setItem(STORAGE_KEYS.USERS, users)
     }
-
-    const cashierUser = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
-    if (cashierUser) {
-      cashierUser.password = cashierUser.password || cashierPassword
-      cashierUser.pin = cashierUser.pin || '1234'
-      cashierUser.role = 'CASHIER'
-    } else {
-      users.push({ id: generateId(), username: 'cashier', password: cashierPassword, pin: '1234', role: 'CASHIER', createdAt: new Date().toISOString() })
-    }
-
-    const managerUser = users.find(u => u.username && u.username.toLowerCase() === 'manager')
-    if (managerUser) {
-      managerUser.password = managerUser.password || managerPassword
-      managerUser.pin = managerUser.pin || '2222'
-      managerUser.role = 'MANAGER'
-    } else {
-      users.push({ id: generateId(), username: 'manager', password: managerPassword, pin: '2222', role: 'MANAGER', createdAt: new Date().toISOString() })
-    }
-
-    setItem(STORAGE_KEYS.USERS, users)
   } catch (err) {
-    console.warn('Seed users error:', err)
+    console.warn('Seed users notice:', err)
   }
 
-  // Initial Categories
-  const initialCategories = [
-    { id: '79c12559-883a-41c0-aa7e-48d98ac54237', name: 'Poultry' },
-    { id: '449dec85-0565-4040-a301-2788e4b421f2', name: 'Fish & Seafood' },
-    { id: '8486b92d-d282-4193-b7b3-bb0b9df3d928', name: 'Beef & Mutton' },
-    { id: '1cccec0e-8664-41b6-a82b-ded4592e9bdc', name: 'Pork Products' },
-    { id: '69e4fb2c-f1d6-4620-9346-dc732c4e6567', name: 'Processed Meat' },
-    { id: '8fead2c2-e239-4091-9ce0-f853217a5b82', name: 'Frozen Vegetables' },
-    { id: '60441f27-2fd7-40f6-95c7-e00ba00d06f6', name: 'Dairy & Eggs' }
-  ]
-
-  // Initial Suppliers (Ghana-based cold store suppliers)
-  const initialSuppliers = [
-    { id: 'sup-1', name: 'Accra Frozen Foods Ltd', contact: '+233 30 222 4455', email: 'sales@accrafrozen.com.gh', address: 'Industrial Area, Accra, Ghana' },
-    { id: 'sup-2', name: 'Gold Coast Meat Distributors', contact: '+233 24 500 7890', email: 'orders@gcmeat.com.gh', address: 'Tema Port Area, Tema, Ghana' },
-    { id: 'sup-3', name: 'West Africa Poultry Hub', contact: '+233 54 112 3399', email: 'info@wapoultry.com.gh', address: 'Spintex Road, Accra, Ghana' }
-  ]
-
-  // Initial Customers
-  const initialCustomers = [
-    { id: 'cust-1', name: 'Kofi Mensah', phone: '0244112233' },
-    { id: 'cust-2', name: 'Ama Asante', phone: '0554321098' },
-    { id: 'cust-3', name: 'Kwame Boateng', phone: '0201987654' },
-    { id: 'cust-4', name: 'Sofiyat Yusuf', phone: '+447999007775' }
-  ]
-
-  // Initial Cold Store Products (matching SQLite and Supabase)
-  const initialMedicines = [
-    { id: '37a5d650-1524-4f59-a6dd-cbbe7ef2881b', name: 'Whole Chicken (Frozen)', genericName: 'Broiler Chicken', sku: 'SML-PTR-001', categoryId: '79c12559-883a-41c0-aa7e-48d98ac54237', categoryName: 'Poultry', price: 85, cost: 58, minStockLevel: 20 },
-    { id: 'be415fce-3c23-499c-9aa4-2621e7cd4283', name: 'Chicken Legs (5kg Pack)', genericName: 'Chicken Drumsticks', sku: 'SML-PTR-002', categoryId: '79c12559-883a-41c0-aa7e-48d98ac54237', categoryName: 'Poultry', price: 120, cost: 82, minStockLevel: 15 },
-    { id: 'e6e2c37e-2abd-4dad-b83b-48a39a6dc917', name: 'Chicken Breast (Boneless)', genericName: 'Breast Fillet', sku: 'SML-PTR-003', categoryId: '79c12559-883a-41c0-aa7e-48d98ac54237', categoryName: 'Poultry', price: 145, cost: 98, minStockLevel: 10 },
-    { id: 'ed11f170-2018-46a1-ab34-2d496834b657', name: 'Turkey (Whole Frozen)', genericName: 'Turkey Bird', sku: 'SML-PTR-004', categoryId: '79c12559-883a-41c0-aa7e-48d98ac54237', categoryName: 'Poultry', price: 320, cost: 220, minStockLevel: 5 },
-    { id: 'c270e28f-39c7-429a-afd8-fc32ad601353', name: 'Tilapia Fish (Fresh Frozen)', genericName: 'Oreochromis niloticus', sku: 'SML-FSH-001', categoryId: '449dec85-0565-4040-a301-2788e4b421f2', categoryName: 'Fish & Seafood', price: 95, cost: 62, minStockLevel: 10 },
-    { id: '92988ace-446e-462e-9dd6-a3b8ae1b174d', name: 'Mackerel (Frozen, 1kg)', genericName: 'Scomber scombrus', sku: 'SML-FSH-002', categoryId: '449dec85-0565-4040-a301-2788e4b421f2', categoryName: 'Fish & Seafood', price: 55, cost: 36, minStockLevel: 30 },
-    { id: '8dfbd3f1-5689-4cd9-8eb1-5bac0a57b041', name: 'Tiger Prawns (500g)', genericName: 'Penaeus monodon', sku: 'SML-FSH-003', categoryId: '449dec85-0565-4040-a301-2788e4b421f2', categoryName: 'Fish & Seafood', price: 180, cost: 125, minStockLevel: 10 },
-    { id: '12c42394-fe38-4abe-afc9-8f5cfc1cb59d', name: 'Squid Rings (Frozen)', genericName: 'Loligo vulgaris', sku: 'SML-FSH-004', categoryId: '449dec85-0565-4040-a301-2788e4b421f2', categoryName: 'Fish & Seafood', price: 140, cost: 95, minStockLevel: 10 },
-    { id: 'ae2508c6-2562-433a-be86-ee2628698810', name: 'Beef Chuck (1kg)', genericName: 'Bovine Chuck Cut', sku: 'SML-BEF-001', categoryId: '8486b92d-d282-4193-b7b3-bb0b9df3d928', categoryName: 'Beef & Mutton', price: 130, cost: 90, minStockLevel: 20 },
-    { id: '06b9c137-8e59-4ba0-9f6f-58566b7af925', name: 'Minced Beef (500g)', genericName: 'Ground Beef', sku: 'SML-BEF-002', categoryId: '8486b92d-d282-4193-b7b3-bb0b9df3d928', categoryName: 'Beef & Mutton', price: 70, cost: 48, minStockLevel: 25 },
-    { id: 'ad058b73-91ce-4fe3-aaf1-817df616b081', name: 'Mutton Leg (Frozen)', genericName: 'Ovine Leg Cut', sku: 'SML-MTN-001', categoryId: '8486b92d-d282-4193-b7b3-bb0b9df3d928', categoryName: 'Beef & Mutton', price: 200, cost: 140, minStockLevel: 10 },
-    { id: 'c6686721-6530-49e9-add5-d41215bb2004', name: 'Oxtail (Frozen, 1kg)', genericName: 'Bovine Tail', sku: 'SML-BEF-003', categoryId: '8486b92d-d282-4193-b7b3-bb0b9df3d928', categoryName: 'Beef & Mutton', price: 155, cost: 105, minStockLevel: 10 },
-    { id: 'bc239d26-9828-462b-b0b1-55aa836ad379', name: 'Pork Ribs (Frozen)', genericName: 'Porcine Ribs', sku: 'SML-PRK-001', categoryId: '1cccec0e-8664-41b6-a82b-ded4592e9bdc', categoryName: 'Pork Products', price: 110, cost: 75, minStockLevel: 15 },
-    { id: '622fcf37-ee76-42a0-8350-7e0ea6564981', name: 'Chicken wings (1kg)', genericName: 'Chicken Foods', sku: 'SML-CHK-002', categoryId: '79c12559-883a-41c0-aa7e-48d98ac54237', categoryName: 'Poultry', price: 100, cost: 68, minStockLevel: 12 },
-    { id: 'bf64f1fd-6841-4009-b8db-244ed8c9cdda', name: 'Beef Sausages (500g)', genericName: 'Processed Beef Sausage', sku: 'SML-PRC-001', categoryId: '69e4fb2c-f1d6-4620-9346-dc732c4e6567', categoryName: 'Processed Meat', price: 65, cost: 42, minStockLevel: 20 },
-    { id: 'eeae3fed-ba46-448a-95c4-487fefb519b9', name: 'Chicken Hot Dogs (300g)', genericName: 'Processed Chicken Frankfurter', sku: 'SML-PRC-002', categoryId: '69e4fb2c-f1d6-4620-9346-dc732c4e6567', categoryName: 'Processed Meat', price: 45, cost: 28, minStockLevel: 20 },
-    { id: 'bde469d3-2a18-4c61-9b23-c1275fb48fff', name: 'Smoked Bacon Strips', genericName: 'Cured Pork Bacon', sku: 'SML-PRC-003', categoryId: '69e4fb2c-f1d6-4620-9346-dc732c4e6567', categoryName: 'Processed Meat', price: 90, cost: 60, minStockLevel: 15 },
-    { id: '13519c67-df8f-454a-8656-82d30d803090', name: 'Mixed Vegetables (1kg)', genericName: 'Frozen Mixed Veg', sku: 'SML-VEG-001', categoryId: '8fead2c2-e239-4091-9ce0-f853217a5b82', categoryName: 'Frozen Vegetables', price: 30, cost: 18, minStockLevel: 30 },
-    { id: 'd35aa4e9-cdf7-47b4-9bd3-ab22559f55e1', name: 'Green Beans (Frozen)', genericName: 'Phaseolus vulgaris', sku: 'SML-VEG-002', categoryId: '8fead2c2-e239-4091-9ce0-f853217a5b82', categoryName: 'Frozen Vegetables', price: 25, cost: 14, minStockLevel: 25 },
-    { id: 'a0dcb2d1-3530-43f1-8722-9c4f02008ada', name: 'Unsalted Butter (250g)', genericName: 'Dairy Butter', sku: 'SML-DRY-001', categoryId: '60441f27-2fd7-40f6-95c7-e00ba00d06f6', categoryName: 'Dairy & Eggs', price: 40, cost: 26, minStockLevel: 20 },
-    { id: '972d4193-08eb-4f8a-8d58-131446008150', name: 'Crate of Eggs (30 pcs)', genericName: 'Chicken Eggs', sku: 'SML-DRY-002', categoryId: '60441f27-2fd7-40f6-95c7-e00ba00d06f6', categoryName: 'Dairy & Eggs', price: 55, cost: 38, minStockLevel: 15 },
-    { id: '2341b5e9-f531-4cfc-9240-824e1b4c77dc', name: 'Catfish (Frozen, 1kg)', genericName: 'Fresh Frozen Catfish', sku: 'SML-FSH-005', categoryId: '449dec85-0565-4040-a301-2788e4b421f2', categoryName: 'Fish & Seafood', price: 80, cost: 50, minStockLevel: 10 }
-  ]
-
-  // Initial Batches
-  const initialBatches = [
-    { id: '625bc9ae-9c02-4204-8801-328742f16848', medicineId: '37a5d650-1524-4f59-a6dd-cbbe7ef2881b', batchNumber: 'CHK-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 79 },
-    { id: 'e0cc86cb-6a6b-4410-bbe5-84b7ad2f7388', medicineId: 'be415fce-3c23-499c-9aa4-2621e7cd4283', batchNumber: 'CHL-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 60 },
-    { id: '87a2d385-2fb7-4807-8b08-3f86187b7718', medicineId: 'e6e2c37e-2abd-4dad-b83b-48a39a6dc917', batchNumber: 'CHB-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 49 },
-    { id: '694fc776-f0ba-4829-80e9-43446738b3f9', medicineId: 'ed11f170-2018-46a1-ab34-2d496834b657', batchNumber: 'TKY-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 18 },
-    { id: '4c1b2483-1696-41fa-b0d0-a08daf1fc45d', medicineId: 'c270e28f-39c7-429a-afd8-fc32ad601353', batchNumber: 'TLP-2024-001', expiryDate: '2026-10-10T14:30:13.686Z', quantity: 9 },
-    { id: '22b0b3ba-b343-4ac4-9b8f-dd059d24ddc3', medicineId: 'c270e28f-39c7-429a-afd8-fc32ad601353', batchNumber: 'TLP-2024-002', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 90 },
-    { id: '63712642-3d27-4eff-99fd-a9912ad8dcf2', medicineId: '92988ace-446e-462e-9dd6-a3b8ae1b174d', batchNumber: 'MCK-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 119 },
-    { id: 'dbc6c387-c759-4b94-9e24-c2263b077c78', medicineId: '8dfbd3f1-5689-4cd9-8eb1-5bac0a57b041', batchNumber: 'PRW-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 39 },
-    { id: '73b485c3-9b90-4362-87d3-68a163b9e87c', medicineId: '12c42394-fe38-4abe-afc9-8f5cfc1cb59d', batchNumber: 'SQD-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 35 },
-    { id: 'f026e640-95f4-449f-8f53-1713350e6026', medicineId: 'ae2508c6-2562-433a-be86-ee2628698810', batchNumber: 'BFC-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 75 },
-    { id: '5c142866-fff8-4420-8606-a4ab9dc8a625', medicineId: '06b9c137-8e59-4ba0-9f6f-58566b7af925', batchNumber: 'BFM-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 99 },
-    { id: '7454a04e-c3a8-4acb-b49e-f5c636bf8467', medicineId: 'ad058b73-91ce-4fe3-aaf1-817df616b081', batchNumber: 'MTN-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 30 },
-    { id: 'dcca192d-544e-4c8f-b47d-48fde1784ad0', medicineId: 'c6686721-6530-49e9-add5-d41215bb2004', batchNumber: 'OXT-2024-001', expiryDate: '2026-08-20T14:30:13.686Z', quantity: 5 },
-    { id: 'dcb09924-f3ff-4293-b943-6f5c109da8f1', medicineId: 'c6686721-6530-49e9-add5-d41215bb2004', batchNumber: 'OXT-2024-002', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 45 },
-    { id: '5c91a840-6a7a-4973-88a2-7caa2229b0be', medicineId: 'bc239d26-9828-462b-b0b1-55aa836ad379', batchNumber: 'PRK-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 55 },
-    { id: '512c7098-79ba-4ecb-ab2c-efc213b3e1ff', medicineId: '622fcf37-ee76-42a0-8350-7e0ea6564981', batchNumber: 'PKB-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 48 },
-    { id: '3fa036a5-a99c-456c-924e-0986e467d630', medicineId: 'bf64f1fd-6841-4009-b8db-244ed8c9cdda', batchNumber: 'BSG-2024-001', expiryDate: '2028-09-20T14:30:13.686Z', quantity: 90 },
-    { id: 'fce193a5-56c1-4d1e-9c8f-4d28502d27df', medicineId: 'eeae3fed-ba46-448a-95c4-487fefb519b9', batchNumber: 'CHD-2024-001', expiryDate: '2028-09-20T14:30:13.686Z', quantity: 110 },
-    { id: '558d92a9-69ba-4197-80f6-7ab28dcb1970', medicineId: 'bde469d3-2a18-4c61-9b23-c1275fb48fff', batchNumber: 'BCN-2024-001', expiryDate: '2028-09-20T14:30:13.686Z', quantity: 70 },
-    { id: 'b7fb0cd8-67cf-4d46-9925-bf6586f132c9', medicineId: '13519c67-df8f-454a-8656-82d30d803090', batchNumber: 'MVG-2024-001', expiryDate: '2028-09-20T14:30:13.686Z', quantity: 150 },
-    { id: 'f4f6449d-dbb7-4d9d-8b02-4389f608147a', medicineId: 'd35aa4e9-cdf7-47b4-9bd3-ab22559f55e1', batchNumber: 'GBN-2024-001', expiryDate: '2028-09-20T14:30:13.686Z', quantity: 120 },
-    { id: '8ad8fb5b-10b2-4982-b2f0-0bab097ae3d3', medicineId: 'a0dcb2d1-3530-43f1-8722-9c4f02008ada', batchNumber: 'BTR-2024-001', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 80 },
-    { id: 'c15fb55a-944c-4bb8-a74e-c393cfebd804', medicineId: '972d4193-08eb-4f8a-8d58-131446008150', batchNumber: 'EGG-2024-001', expiryDate: '2026-10-10T14:30:13.686Z', quantity: 8 },
-    { id: '36b081bf-2bd0-4b30-9e27-558b7960d12a', medicineId: '972d4193-08eb-4f8a-8d58-131446008150', batchNumber: 'EGG-2024-002', expiryDate: '2027-09-20T14:30:13.686Z', quantity: 50 },
-    { id: 'e5f60ae1-d756-4da5-b7ab-d2b78e85db4a', medicineId: 'c270e28f-39c7-429a-afd8-fc32ad601353', batchNumber: 'Tyuryr', expiryDate: '2027-03-19T00:00:00.000Z', quantity: 12 },
-    { id: 'ddd7b772-e061-4bd4-b28f-fa485d5b73e0', medicineId: '2341b5e9-f531-4cfc-9240-824e1b4c77dc', batchNumber: 'GAT-587575', expiryDate: '2028-06-22T00:00:00.000Z', quantity: 8 }
-  ]
-
-  // Seed catalog ONLY on very first initialization, never resurrect deleted items
-  const alreadySeeded = getItem<boolean>(STORAGE_KEYS.SEEDED, false)
-  if (!alreadySeeded) {
-    setItem(STORAGE_KEYS.CATEGORIES, initialCategories)
-    setItem(STORAGE_KEYS.SUPPLIERS, initialSuppliers)
-    setItem(STORAGE_KEYS.CUSTOMERS, initialCustomers)
-    setItem(STORAGE_KEYS.MEDICINES, initialMedicines)
-    setItem(STORAGE_KEYS.BATCHES, initialBatches)
-    setItem(STORAGE_KEYS.SEEDED, true)
-  }
-
-  // Replace legacy dummy product 'Aspirin' with 'Catfish' in stored catalog if present
-  const currentMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
-  const aspirin = currentMeds.find(m => m.name === 'Aspirin')
-  if (aspirin) {
-    aspirin.name = 'Catfish (Frozen, 1kg)'
-    aspirin.genericName = 'Fresh Frozen Catfish'
-    aspirin.sku = 'SML-FSH-005'
-    setItem(STORAGE_KEYS.MEDICINES, currentMeds)
-  }
-
-  // Initial Settings
+  // Initial Settings if missing
   const currentSettings = getItem(STORAGE_KEYS.SETTINGS, null)
   if (!currentSettings) {
     setItem(STORAGE_KEYS.SETTINGS, {
@@ -840,6 +909,7 @@ async function seedInitialDataIfNeeded() {
     })
   }
 }
+
 
 
 // Initialize seed on module load
@@ -1223,14 +1293,29 @@ export const mobileApi = {
 
   // Categories
   getCategories: async () => {
-    await fetchCloudProductsIfAvailable().catch(() => {})
-    return getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
+    return await fetchCloudCategoriesIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.CATEGORIES, []))
   },
   createCategory: async (data: { name: string }) => {
     const list = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
-    const newItem = { id: generateId(), ...data }
+    const trimmed = (data.name || '').trim()
+    const existing = list.find(c => (c.name || '').trim().toLowerCase() === trimmed.toLowerCase())
+    if (existing) {
+      return existing
+    }
+    const newItem = { id: generateId(), name: trimmed }
     list.push(newItem)
     setItem(STORAGE_KEYS.CATEGORIES, list)
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_categories').upsert({
+        id: newItem.id,
+        store_id: 'sml_accra_main',
+        name: newItem.name,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })).catch((e) => console.warn('Cloud category upsert failed:', e))
+    }
     pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', list).catch(() => {})
     logAuditAction({
       action: 'CATEGORY_CREATE',
@@ -1246,8 +1331,16 @@ export const mobileApi = {
     const idx = list.findIndex(i => i.id === id)
     if (idx !== -1) {
       const oldName = list[idx].name
-      list[idx] = { ...list[idx], ...data }
+      list[idx] = { ...list[idx], ...data, name: (data.name || '').trim() }
       setItem(STORAGE_KEYS.CATEGORIES, list)
+
+      const client = getSupabaseClient()
+      if (client && isOnline()) {
+        Promise.resolve(client.from('cloud_categories').update({
+          name: list[idx].name,
+          updated_at: new Date().toISOString()
+        }).eq('id', id)).catch((e) => console.warn('Cloud category update failed:', e))
+      }
       pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', list).catch(() => {})
       logAuditAction({
         action: 'CATEGORY_UPDATE',
@@ -1261,11 +1354,21 @@ export const mobileApi = {
     throw new Error('Category not found')
   },
   deleteCategory: async (id: string) => {
+    const deletedCatIds = getItem<string[]>(STORAGE_KEYS.DELETED_CATEGORY_IDS, [])
+    if (!deletedCatIds.includes(id)) {
+      deletedCatIds.push(id)
+      setItem(STORAGE_KEYS.DELETED_CATEGORY_IDS, deletedCatIds)
+    }
     const list = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
     const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.CATEGORIES, newList)
-    pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', newList).catch(() => {})
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_categories').delete().eq('id', id)).catch((e) => console.warn('Cloud category delete failed:', e))
+    }
+    pushCloudStateMirror('STATE_CATEGORIES', 'INVENTORY', 'categories', newList, { forceOverwrite: true }).catch(() => {})
     logAuditAction({
       action: 'CATEGORY_DELETE',
       category: 'INVENTORY',
@@ -1294,11 +1397,42 @@ export const mobileApi = {
   },
   createMedicine: async (data: any) => {
     const medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+    const trimmedName = (data.name || '').trim()
+    const trimmedSku = (data.sku || '').trim()
+
+    if (!trimmedName) {
+      throw new Error('Product name is required.')
+    }
+
+    // 1. Strict Duplicate Name Check (Case-insensitive)
+    const existingName = medicines.find(
+      (m: any) => m.name && m.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    )
+    if (existingName) {
+      throw new Error(
+        `A product named "${trimmedName}" already exists (SKU: ${existingName.sku || 'N/A'}). Please restock the existing product or use a distinct name.`
+      )
+    }
+
+    // 2. Strict Duplicate SKU Check (Case-insensitive)
+    if (trimmedSku) {
+      const existingSku = medicines.find(
+        (m: any) => m.sku && m.sku.trim().toLowerCase() === trimmedSku.toLowerCase()
+      )
+      if (existingSku) {
+        throw new Error(
+          `A product with SKU "${trimmedSku}" already exists (${existingSku.name}). Please use a unique SKU/barcode.`
+        )
+      }
+    }
+
     const categories = getItem<any[]>(STORAGE_KEYS.CATEGORIES, [])
     const cat = categories.find(c => c.id === data.categoryId)
     const newMed = {
       id: generateId(),
       ...data,
+      name: trimmedName,
+      sku: trimmedSku,
       categoryName: cat?.name || data.categoryName || 'General'
     }
     medicines.push(newMed)
@@ -1338,6 +1472,40 @@ export const mobileApi = {
     const idx = medicines.findIndex(m => m.id === id)
     if (idx !== -1) {
       const oldMed = medicines[idx]
+
+      // 1. Duplicate Name Check (if name is being updated)
+      if (data.name !== undefined) {
+        const trimmedName = data.name.trim()
+        if (!trimmedName) {
+          throw new Error('Product name cannot be empty.')
+        }
+        const existingName = medicines.find(
+          (m: any) => m.id !== id && m.name && m.name.trim().toLowerCase() === trimmedName.toLowerCase()
+        )
+        if (existingName) {
+          throw new Error(
+            `A product named "${trimmedName}" already exists (SKU: ${existingName.sku || 'N/A'}). Please use a distinct name.`
+          )
+        }
+        data.name = trimmedName
+      }
+
+      // 2. Duplicate SKU Check (if sku is being updated)
+      if (data.sku !== undefined) {
+        const trimmedSku = data.sku.trim()
+        if (trimmedSku) {
+          const existingSku = medicines.find(
+            (m: any) => m.id !== id && m.sku && m.sku.trim().toLowerCase() === trimmedSku.toLowerCase()
+          )
+          if (existingSku) {
+            throw new Error(
+              `A product with SKU "${trimmedSku}" already exists (${existingSku.name}). Please use a unique SKU/barcode.`
+            )
+          }
+        }
+        data.sku = trimmedSku
+      }
+
       const cat = categories.find(c => c.id === data.categoryId) || categories.find(c => c.id === oldMed.categoryId)
       const oldName = oldMed.name
       const priceChanged = data.price !== undefined && Number(data.price) !== Number(oldMed.price)
@@ -1459,6 +1627,7 @@ export const mobileApi = {
   // Batches
   getBatches: async (startDate?: string, endDate?: string) => {
     let batches = await fetchCloudBatchesIfAvailable()
+    batches = deduplicateBatchesList(batches)
     let medicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
     if (!medicines || medicines.length === 0) {
       try {
@@ -1485,33 +1654,49 @@ export const mobileApi = {
   },
   createBatch: async (data: any) => {
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
-    const newBatch = { id: generateId(), ...data }
-    batches.push(newBatch)
-    setItem(STORAGE_KEYS.BATCHES, batches)
-    enqueueSyncItem('BATCH', 'INSERT', newBatch)
+    const trimmedNum = (data.batchNumber || '').trim().toUpperCase()
+    const existingIdx = batches.findIndex(b => (b.batchNumber || '').trim().toUpperCase() === trimmedNum)
+    let batchToSave: any
+
+    if (existingIdx !== -1) {
+      batches[existingIdx] = {
+        ...batches[existingIdx],
+        ...data,
+        batchNumber: trimmedNum,
+        quantity: (Number(batches[existingIdx].quantity) || 0) + (Number(data.quantity) || 0)
+      }
+      batchToSave = batches[existingIdx]
+      setItem(STORAGE_KEYS.BATCHES, batches)
+      enqueueSyncItem('BATCH', 'UPDATE', batchToSave)
+    } else {
+      batchToSave = { id: generateId(), ...data, batchNumber: trimmedNum }
+      batches.push(batchToSave)
+      setItem(STORAGE_KEYS.BATCHES, batches)
+      enqueueSyncItem('BATCH', 'INSERT', batchToSave)
+    }
 
     logAuditAction({
       action: 'BATCH_CREATE',
       category: 'INVENTORY',
-      details: `Created batch #${newBatch.batchNumber} with ${newBatch.quantity} items`,
+      details: `Created/restocked batch #${batchToSave.batchNumber} with ${batchToSave.quantity} items`,
       severity: 'INFO',
-      metadata: { batchId: newBatch.id, batchNumber: newBatch.batchNumber },
+      metadata: { batchId: batchToSave.id, batchNumber: batchToSave.batchNumber },
     })
 
     const client = getSupabaseClient()
     if (client && isOnline()) {
       client.from('cloud_batches').upsert({
-        id: newBatch.id,
-        product_id: newBatch.medicineId,
+        id: batchToSave.id,
+        product_id: batchToSave.medicineId,
         store_id: 'sml_accra_main',
-        batch_number: newBatch.batchNumber,
-        expiry_date: newBatch.expiryDate,
-        quantity_current: Number(newBatch.quantity) || 0,
-        quantity_received: Number(newBatch.quantity) || 0,
+        batch_number: batchToSave.batchNumber,
+        expiry_date: batchToSave.expiryDate,
+        quantity_current: Number(batchToSave.quantity) || 0,
+        quantity_received: Number(batchToSave.quantity) || 0,
         updated_at: new Date().toISOString()
       }).then(() => {}).catch(() => {})
     }
-    return newBatch
+    return batchToSave
   },
   updateBatch: async (id: string, data: any) => {
     const batches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
@@ -1589,12 +1774,33 @@ export const mobileApi = {
   },
 
   // Suppliers
-  getSuppliers: async () => getItem<any[]>(STORAGE_KEYS.SUPPLIERS, []),
+  getSuppliers: async () => {
+    return await fetchCloudSuppliersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.SUPPLIERS, []))
+  },
   createSupplier: async (data: any) => {
     const list = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
-    const newItem = { id: generateId(), ...data }
+    const trimmedName = (data.name || '').trim()
+    const existing = list.find(s => (s.name || '').trim().toLowerCase() === trimmedName.toLowerCase())
+    if (existing) {
+      return existing
+    }
+    const newItem = { id: generateId(), ...data, name: trimmedName }
     list.push(newItem)
     setItem(STORAGE_KEYS.SUPPLIERS, list)
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_suppliers').upsert({
+        id: newItem.id,
+        store_id: 'sml_accra_main',
+        name: newItem.name,
+        contact: newItem.contact || null,
+        email: newItem.email || null,
+        address: newItem.address || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })).catch((e) => console.warn('Cloud supplier upsert failed:', e))
+    }
     pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', list).catch(() => {})
 
     logAuditAction({
@@ -1614,6 +1820,17 @@ export const mobileApi = {
       const oldSup = list[idx]
       list[idx] = { ...oldSup, ...data }
       setItem(STORAGE_KEYS.SUPPLIERS, list)
+
+      const client = getSupabaseClient()
+      if (client && isOnline()) {
+        Promise.resolve(client.from('cloud_suppliers').update({
+          name: list[idx].name,
+          contact: list[idx].contact || null,
+          email: list[idx].email || null,
+          address: list[idx].address || null,
+          updated_at: new Date().toISOString()
+        }).eq('id', id)).catch((e) => console.warn('Cloud supplier update failed:', e))
+      }
       pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', list).catch(() => {})
 
       logAuditAction({
@@ -1629,11 +1846,21 @@ export const mobileApi = {
     throw new Error('Supplier not found')
   },
   deleteSupplier: async (id: string) => {
+    const deletedSupIds = getItem<string[]>(STORAGE_KEYS.DELETED_SUPPLIER_IDS, [])
+    if (!deletedSupIds.includes(id)) {
+      deletedSupIds.push(id)
+      setItem(STORAGE_KEYS.DELETED_SUPPLIER_IDS, deletedSupIds)
+    }
     const list = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
     const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.SUPPLIERS, newList)
-    pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', newList).catch(() => {})
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_suppliers').delete().eq('id', id)).catch((e) => console.warn('Cloud supplier delete failed:', e))
+    }
+    pushCloudStateMirror('STATE_SUPPLIERS', 'SUPPLIERS', 'suppliers', newList, { forceOverwrite: true }).catch(() => {})
 
     logAuditAction({
       action: 'SUPPLIER_DELETE',
@@ -1645,12 +1872,39 @@ export const mobileApi = {
   },
 
   // Customers
-  getCustomers: async () => getItem<any[]>(STORAGE_KEYS.CUSTOMERS, []),
+  getCustomers: async () => {
+    return await fetchCloudCustomersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.CUSTOMERS, []))
+  },
   createCustomer: async (data: any) => {
     const list = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
-    const newItem = { id: generateId(), ...data }
+    const trimmedName = (data.name || '').trim()
+    const trimmedPhone = (data.phone || '').trim()
+    const existing = list.find(c => {
+      if (trimmedPhone && (c.phone || '').trim() === trimmedPhone) return true
+      if (trimmedName && (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase()) return true
+      return false
+    })
+    if (existing) {
+      return existing
+    }
+    const newItem = { id: generateId(), ...data, name: trimmedName, phone: trimmedPhone }
     list.push(newItem)
     setItem(STORAGE_KEYS.CUSTOMERS, list)
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_customers').upsert({
+        id: newItem.id,
+        store_id: 'sml_accra_main',
+        name: newItem.name,
+        phone: newItem.phone || null,
+        email: newItem.email || null,
+        address: newItem.address || null,
+        balance: Number(newItem.balance) || 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })).catch((e) => console.warn('Cloud customer upsert failed:', e))
+    }
     pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', list).catch(() => {})
 
     logAuditAction({
@@ -1670,6 +1924,18 @@ export const mobileApi = {
       const oldCust = list[idx]
       list[idx] = { ...oldCust, ...data }
       setItem(STORAGE_KEYS.CUSTOMERS, list)
+
+      const client = getSupabaseClient()
+      if (client && isOnline()) {
+        Promise.resolve(client.from('cloud_customers').update({
+          name: list[idx].name,
+          phone: list[idx].phone || null,
+          email: list[idx].email || null,
+          address: list[idx].address || null,
+          balance: Number(list[idx].balance) || 0,
+          updated_at: new Date().toISOString()
+        }).eq('id', id)).catch((e) => console.warn('Cloud customer update failed:', e))
+      }
       pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', list).catch(() => {})
 
       logAuditAction({
@@ -1685,11 +1951,21 @@ export const mobileApi = {
     throw new Error('Customer not found')
   },
   deleteCustomer: async (id: string) => {
+    const deletedCustIds = getItem<string[]>(STORAGE_KEYS.DELETED_CUSTOMER_IDS, [])
+    if (!deletedCustIds.includes(id)) {
+      deletedCustIds.push(id)
+      setItem(STORAGE_KEYS.DELETED_CUSTOMER_IDS, deletedCustIds)
+    }
     const list = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
     const target = list.find(i => i.id === id)
     const newList = list.filter(i => i.id !== id)
     setItem(STORAGE_KEYS.CUSTOMERS, newList)
-    pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', newList).catch(() => {})
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_customers').delete().eq('id', id)).catch((e) => console.warn('Cloud customer delete failed:', e))
+    }
+    pushCloudStateMirror('STATE_CUSTOMERS', 'CUSTOMERS', 'customers', newList, { forceOverwrite: true }).catch(() => {})
 
     logAuditAction({
       action: 'CUSTOMER_DELETE',
@@ -1759,6 +2035,10 @@ export const mobileApi = {
 
     const customerObj = customers.find(c => c.id === data.customerId)
 
+    const op = getCurrentOperator()
+    const cashierName = (data as any).cashier || (data as any).username || op.username || 'cashier'
+    const userRole = (data as any).userRole || op.userRole || 'CASHIER'
+
     const newSale = {
       id: saleId,
       customerId: data.customerId || null,
@@ -1767,7 +2047,8 @@ export const mobileApi = {
       payments: paymentRecords,
       total: finalTotal,
       date: new Date().toISOString(),
-      cashier: 'cashier',
+      cashier: cashierName,
+      userRole: userRole,
       items: data.items.map(item => {
         const batch = batches.find(b => b.id === item.batchId)
         const med = medicines.find(m => m.id === (batch?.medicineId || item.medicineId)) || item.medicine
@@ -1804,12 +2085,16 @@ export const mobileApi = {
         id: newSale.id,
         store_id: 'sml_accra_main',
         invoice_number: newSale.saleNumber || `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
+        sale_number: newSale.saleNumber || `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
         customer_name: newSale.customerName || 'Walk-in Customer',
         total_amount: totalAmt,
+        total: totalAmt,
         subtotal: Number(newSale.subtotal ?? totalAmt),
         payment_method: newSale.paymentMethod || 'CASH',
-        cashier_name: newSale.cashier || 'cashier',
+        cashier_name: cashierName,
+        cashier_username: cashierName,
         sold_at: saleDate,
+        date: saleDate,
         created_at: saleDate,
       }).then(async () => {
         const cloudItems = newSale.items.map((i: any) => {
@@ -1866,9 +2151,19 @@ export const mobileApi = {
     logAuditAction({
       action: saleTotal >= 500 ? 'HIGH_VALUE_SALE' : 'POS_SALE',
       category: 'SALES',
-      details: `POS transaction completed: GH₵${saleTotal.toFixed(2)} (${newSale.items.length} items, ${newSale.paymentMethod})`,
+      username: cashierName,
+      userRole: userRole,
+      details: `POS transaction completed: GH₵${saleTotal.toFixed(2)} (${newSale.items.length} items, ${newSale.paymentMethod}) by ${cashierName}`,
       severity: saleTotal >= 500 ? 'WARNING' : 'INFO',
-      metadata: { saleId: newSale.id, total: saleTotal, paymentMethod: newSale.paymentMethod, customer: newSale.customerName },
+      metadata: { 
+        saleId: newSale.id, 
+        cashier: cashierName,
+        userRole: userRole,
+        total: saleTotal, 
+        paymentMethod: newSale.paymentMethod, 
+        customer: newSale.customerName,
+        itemsCount: newSale.items.length,
+      },
     })
 
     return newSale
@@ -2112,7 +2407,7 @@ export const mobileApi = {
 
   // Users
   getUsers: async () => {
-    const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
+    const users = await fetchCloudUsersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.USERS, []))
     return users.map(({ password, ...rest }) => rest)
   },
   createUser: async (data: any) => {
@@ -2121,6 +2416,20 @@ export const mobileApi = {
     const newUser = { id: generateId(), username: data.username, role: data.role || 'CASHIER', password: hashedPassword, pin: data.pin || null, createdAt: new Date().toISOString() }
     users.push(newUser)
     setItem(STORAGE_KEYS.USERS, users)
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_users').upsert({
+        id: newUser.id,
+        store_id: 'sml_accra_main',
+        username: newUser.username,
+        password_hash: newUser.password,
+        pin: newUser.pin || null,
+        role: newUser.role,
+        created_at: newUser.createdAt,
+        updated_at: new Date().toISOString()
+      })).catch((e) => console.warn('Cloud user upsert failed:', e))
+    }
     pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', users).catch(() => {})
 
     logAuditAction({
@@ -2144,6 +2453,17 @@ export const mobileApi = {
       }
       users[idx] = { ...users[idx], ...data }
       setItem(STORAGE_KEYS.USERS, users)
+
+      const client = getSupabaseClient()
+      if (client && isOnline()) {
+        Promise.resolve(client.from('cloud_users').update({
+          username: users[idx].username,
+          password_hash: users[idx].password,
+          pin: users[idx].pin || null,
+          role: users[idx].role,
+          updated_at: new Date().toISOString()
+        }).eq('id', id)).catch((e) => console.warn('Cloud user update failed:', e))
+      }
       pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', users).catch(() => {})
 
       logAuditAction({
@@ -2164,6 +2484,11 @@ export const mobileApi = {
     const target = users.find(u => u.id === id)
     const newUsers = users.filter(u => u.id !== id)
     setItem(STORAGE_KEYS.USERS, newUsers)
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_users').delete().eq('id', id)).catch((e) => console.warn('Cloud user delete failed:', e))
+    }
     pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', newUsers).catch(() => {})
 
     logAuditAction({
@@ -2989,6 +3314,12 @@ export const mobileApi = {
       inboundCursor: 0,
       depotId: 'sml_accra_main',
       cloudConfigured: true,
+      users: getItem<any[]>(STORAGE_KEYS.USERS, []),
+      categories: getItem<any[]>(STORAGE_KEYS.CATEGORIES, []),
+      customers: getItem<any[]>(STORAGE_KEYS.CUSTOMERS, []),
+      suppliers: getItem<any[]>(STORAGE_KEYS.SUPPLIERS, []),
+      purchases: getItem<any[]>(STORAGE_KEYS.PURCHASES, []),
+      settings: getItem<any>(STORAGE_KEYS.SETTINGS, {}),
     }
   },
 
@@ -3023,8 +3354,7 @@ export const mobileApi = {
   },
 
   pullSyncChanges: async () => {
-    await fetchCloudSalesIfAvailable().catch(() => {})
-    await fetchCloudProductsIfAvailable().catch(() => {})
+    await syncAllCloudDataIfAvailable().catch(() => {})
     return { pulledCount: 0, appliedCount: 0, newCursor: 0 }
   },
 

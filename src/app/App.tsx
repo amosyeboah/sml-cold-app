@@ -2,9 +2,28 @@ import { useEffect } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { router } from '@/routes'
 import { Providers } from './providers'
-import { subscribeToCloudSales, subscribeToCloudProducts, subscribeToCloudBatches, subscribeToCloudAuditLogs } from '@/services/sync/supabaseClient'
+import {
+  subscribeToCloudSales,
+  subscribeToCloudProducts,
+  subscribeToCloudBatches,
+  subscribeToCloudAuditLogs,
+  subscribeToCloudCategories,
+  subscribeToCloudCustomers,
+  subscribeToCloudSuppliers,
+  subscribeToCloudUsers
+} from '@/services/sync/supabaseClient'
 import { queryClient } from '@/lib/queryClient'
-import { syncAllCloudDataIfAvailable, fetchCloudSalesIfAvailable, fetchCloudProductsIfAvailable, fetchCloudBatchesIfAvailable, fetchCloudStateMirrorsIfAvailable } from '@/services/api/mobileStorage'
+import {
+  syncAllCloudDataIfAvailable,
+  fetchCloudSalesIfAvailable,
+  fetchCloudProductsIfAvailable,
+  fetchCloudBatchesIfAvailable,
+  fetchCloudStateMirrorsIfAvailable,
+  fetchCloudCategoriesIfAvailable,
+  fetchCloudCustomersIfAvailable,
+  fetchCloudSuppliersIfAvailable,
+  fetchCloudUsersIfAvailable
+} from '@/services/api/mobileStorage'
 
 export default function App() {
   useEffect(() => {
@@ -61,11 +80,44 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['audit-logs'] })
     })
 
+    // 6. Real-time subscription to cloud_categories table
+    const unsubscribeCategories = subscribeToCloudCategories(async (payload) => {
+      console.log('📡 [Supabase Realtime] Cloud categories update:', payload.eventType)
+      await fetchCloudCategoriesIfAvailable().catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['medicines'] })
+    })
+
+    // 7. Real-time subscription to cloud_customers table
+    const unsubscribeCustomers = subscribeToCloudCustomers(async (payload) => {
+      console.log('📡 [Supabase Realtime] Cloud customers update:', payload.eventType)
+      await fetchCloudCustomersIfAvailable().catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+    })
+
+    // 8. Real-time subscription to cloud_suppliers table
+    const unsubscribeSuppliers = subscribeToCloudSuppliers(async (payload) => {
+      console.log('📡 [Supabase Realtime] Cloud suppliers update:', payload.eventType)
+      await fetchCloudSuppliersIfAvailable().catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+    })
+
+    // 9. Real-time subscription to cloud_users table
+    const unsubscribeUsers = subscribeToCloudUsers(async (payload) => {
+      console.log('📡 [Supabase Realtime] Cloud users update:', payload.eventType)
+      await fetchCloudUsersIfAvailable().catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    })
+
     return () => {
       unsubscribeSales()
       unsubscribeProducts()
       unsubscribeBatches()
       unsubscribeAudit()
+      unsubscribeCategories()
+      unsubscribeCustomers()
+      unsubscribeSuppliers()
+      unsubscribeUsers()
     }
   }, [])
 

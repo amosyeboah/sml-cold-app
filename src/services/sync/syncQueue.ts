@@ -515,7 +515,7 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
   let pushedCount = 0
 
   // 2. If running in Electron Desktop App, perform bidirectional reconciliation with Supabase
-  if (typeof window !== 'undefined' && (window as any).api?.getSales) {
+  if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer && (window as any).api?.getSales) {
     try {
       // 2a. Reconcile Products (Local SQLite is Authoritative -> Cloud DB for Monitoring)
       if ((window as any).api?.getMedicines) {

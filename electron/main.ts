@@ -253,23 +253,23 @@ ipcMain.handle('auth:loginWithPin', async (_, pin: string, selectedRole?: string
     user = allUsers.find(u => u.pin === cleanPin)
   }
 
-  // Fallback to hardcoded default PINs if user didn't set a custom PIN yet
+  // Fallback ONLY for legacy unmigrated accounts where pin was never set in the database
   if (!user) {
-    let targetUsername = ''
-    if (cleanPin === '1111' && (!selectedRole || selectedRole === 'ADMIN')) {
-      targetUsername = 'admin'
-    } else if (cleanPin === '2222' && (!selectedRole || selectedRole === 'MANAGER')) {
-      targetUsername = 'manager'
-    } else if (cleanPin === '1234' && (!selectedRole || selectedRole === 'CASHIER')) {
-      targetUsername = 'cashier'
-    }
-    if (targetUsername) {
-      user = allUsers.find(u => u.username.toLowerCase() === targetUsername.toLowerCase())
+    const legacyUser = allUsers.find(u => {
+      const hasNoPin = !u.pin || String(u.pin).trim() === ''
+      if (!hasNoPin) return false // User has an explicit PIN configured: default bypass is strictly forbidden!
+      if (cleanPin === '1111' && u.username.toLowerCase() === 'admin' && (!selectedRole || u.role === 'ADMIN')) return true
+      if (cleanPin === '2222' && u.username.toLowerCase() === 'manager' && (!selectedRole || u.role === 'MANAGER')) return true
+      if (cleanPin === '1234' && u.username.toLowerCase() === 'cashier' && (!selectedRole || u.role === 'CASHIER')) return true
+      return false
+    })
+    if (legacyUser) {
+      user = legacyUser
     }
   }
 
   if (!user) {
-    throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
+    throw new Error('Invalid PIN code')
   }
 
   await recordAudit({
@@ -872,6 +872,57 @@ ipcMain.handle('backup:export', async () => {
     return { success: true, path: filePath }
   }
   return { success: false }
+})
+
+ipcMain.handle('database:freshReset', async () => {
+  try {
+    await prisma.salePayment.deleteMany()
+    await prisma.saleItem.deleteMany()
+    await prisma.prescription.deleteMany()
+    await prisma.sale.deleteMany()
+    await prisma.stockMovement.deleteMany()
+    await prisma.syncOutbox.deleteMany()
+    await prisma.syncInbox.deleteMany()
+    try { await prisma.syncSession.deleteMany() } catch {}
+    await prisma.auditLog.deleteMany()
+    await prisma.purchaseItem.deleteMany()
+    await prisma.purchase.deleteMany()
+    await prisma.batch.deleteMany()
+    await prisma.medicine.deleteMany()
+    await prisma.category.deleteMany()
+    await prisma.supplier.deleteMany()
+    await prisma.customer.deleteMany()
+    await prisma.user.deleteMany()
+
+    const bcrypt = require('bcryptjs')
+    const adminPasswordHash = await bcrypt.hash('admin1234', 10)
+    await prisma.user.create({
+      data: {
+        id: 'usr_admin_root',
+        username: 'admin',
+        password: adminPasswordHash,
+        pin: '1111',
+        role: 'ADMIN',
+      }
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        id: 'aud_prod_init_' + Date.now(),
+        action: 'SYSTEM_INIT',
+        category: 'SYSTEM',
+        details: 'Cold store production database initialized cleanly. Ready for live inventory.',
+        username: 'admin',
+        userRole: 'ADMIN',
+        severity: 'INFO',
+      }
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Failed to reset database:', err)
+    return { success: false, error: err?.message || 'Database reset failed' }
+  }
 })
 
 // ─── Print POS ────────────────────────────────────────────────────────────────
@@ -1691,7 +1742,7 @@ ipcMain.handle('reports:exportExcel', async (_, startDate: string, endDate: stri
 
   const workbook = new ExcelJS.Workbook()
   const summary = workbook.addWorksheet('Summary')
-  summary.addRow(['SML Legacy Limited Cold Store Report'])
+  summary.addRow(['SOFIYEM Legacy Limited Cold Store Report'])
   summary.addRow(['Period', `${startDate} to ${endDate}`])
   summary.addRow([])
   summary.addRow(['Metric', 'Value'])
@@ -1853,6 +1904,15 @@ ipcMain.handle('settings:get', async () => {
   const result: Record<string, string> = {}
   for (const row of rows) {
     result[row.key] = row.value
+  }
+  if (result['biz.name'] === 'SML Legacy Limited') {
+    result['biz.name'] = 'SOFIYEM Legacy Limited'
+  }
+  if (result['storeName'] === 'SML Legacy Limited') {
+    result['storeName'] = 'SOFIYEM Legacy Limited'
+  }
+  if (result['receipt.footerText']?.includes('SML Legacy')) {
+    result['receipt.footerText'] = result['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
   }
   return result
 })

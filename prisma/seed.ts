@@ -28,6 +28,7 @@ async function main() {
     data: {
       username: 'admin',
       password: adminPassword,
+      pin: '1111',
       role: 'ADMIN',
     },
   })
@@ -36,6 +37,7 @@ async function main() {
     data: {
       username: 'manager',
       password: managerPassword,
+      pin: '2222',
       role: 'MANAGER',
     },
   })
@@ -44,6 +46,7 @@ async function main() {
     data: {
       username: 'cashier',
       password: cashierPassword,
+      pin: '1234',
       role: 'CASHIER',
     },
   })
@@ -452,7 +455,7 @@ async function main() {
   console.log('👤 Admin login:   admin   / admin1234   (Role: System Admin)')
   console.log('👤 Manager login: manager / manager123 (Role: Store Manager)')
   console.log('👤 Cashier login: cashier / cashier123 (Role: Cashier)')
-  console.log('🏪 Business: SML Legacy Limited — Cold Store POS')
+  console.log('🏪 Business: SOFIYEM Legacy Limited — Cold Store POS')
 }
 
 main()

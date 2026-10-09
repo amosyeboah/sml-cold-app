@@ -884,10 +884,10 @@ async function seedInitialDataIfNeeded() {
   }
 
   // Initial Settings if missing
-  const currentSettings = getItem(STORAGE_KEYS.SETTINGS, null)
+  const currentSettings = getItem<Record<string, string> | null>(STORAGE_KEYS.SETTINGS, null)
   if (!currentSettings) {
     setItem(STORAGE_KEYS.SETTINGS, {
-      'biz.name': 'SML Legacy Limited',
+      'biz.name': 'SOFIYEM Legacy Limited',
       'biz.type': 'Cold store',
       'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
       'biz.phone': '+233 54 386 4610',
@@ -899,13 +899,20 @@ async function seedInitialDataIfNeeded() {
       'biz.city': 'Accra, Greater Accra',
       'biz.currency': 'GHS',
       'biz.currencySymbol': 'GH₵',
-      'receipt.footerText': 'Thank you for choosing SML Legacy! Keep frozen at -18°C.',
+      'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
       'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-      storeName: 'SML Legacy Limited',
+      storeName: 'SOFIYEM Legacy Limited',
       currency: 'GHS',
       address: 'Cold Store Market Depot, Accra, Ghana',
       phone: '+233 54 386 4610'
     })
+  } else if (currentSettings['biz.name'] === 'SML Legacy Limited' || currentSettings.storeName === 'SML Legacy Limited') {
+    currentSettings['biz.name'] = 'SOFIYEM Legacy Limited'
+    currentSettings.storeName = 'SOFIYEM Legacy Limited'
+    if (currentSettings['receipt.footerText']?.includes('SML Legacy')) {
+      currentSettings['receipt.footerText'] = currentSettings['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+    }
+    setItem(STORAGE_KEYS.SETTINGS, currentSettings)
   }
 }
 
@@ -1043,19 +1050,23 @@ export const mobileApi = {
       user = users.find(u => u.pin === cleanPin)
     }
 
-    // Default seeded PIN fallbacks if user didn't set a custom PIN yet
+    // Default seeded PIN fallback ONLY if the account has NO custom PIN set (empty or unconfigured)
     if (!user) {
-      if (cleanPin === '1111' && (!selectedRole || selectedRole === 'ADMIN')) {
-        user = users.find(u => u.username && u.username.toLowerCase() === 'admin')
-      } else if (cleanPin === '2222' && (!selectedRole || selectedRole === 'MANAGER')) {
-        user = users.find(u => u.username && u.username.toLowerCase() === 'manager')
-      } else if (cleanPin === '1234' && (!selectedRole || selectedRole === 'CASHIER')) {
-        user = users.find(u => u.username && u.username.toLowerCase() === 'cashier')
+      const legacyUser = users.find(u => {
+        const hasNoPin = !u.pin || String(u.pin).trim() === ''
+        if (!hasNoPin) return false // User has an explicit PIN configured: default bypass is strictly forbidden!
+        if (cleanPin === '1111' && u.username && u.username.toLowerCase() === 'admin' && (!selectedRole || u.role === 'ADMIN')) return true
+        if (cleanPin === '2222' && u.username && u.username.toLowerCase() === 'manager' && (!selectedRole || u.role === 'MANAGER')) return true
+        if (cleanPin === '1234' && u.username && u.username.toLowerCase() === 'cashier' && (!selectedRole || u.role === 'CASHIER')) return true
+        return false
+      })
+      if (legacyUser) {
+        user = legacyUser
       }
     }
 
     if (!user) {
-      throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
+      throw new Error('Invalid PIN code')
     }
 
     logAuditAction({
@@ -3158,8 +3169,8 @@ export const mobileApi = {
 
   // Settings
   getSettings: async () => {
-    const cached = getItem(STORAGE_KEYS.SETTINGS, {
-      'biz.name': 'SML Legacy Limited',
+    let cached = getItem(STORAGE_KEYS.SETTINGS, {
+      'biz.name': 'SOFIYEM Legacy Limited',
       'biz.type': 'Cold store',
       'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
       'biz.phone': '+233 54 386 4610',
@@ -3171,17 +3182,27 @@ export const mobileApi = {
       'biz.city': 'Accra, Greater Accra',
       'biz.currency': 'GHS',
       'biz.currencySymbol': 'GH₵',
-      'receipt.footerText': 'Thank you for choosing SML Legacy! Keep frozen at -18°C.',
+      'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
       'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
       'pos.enableDiscount': 'false',
       'pos.enableTax': 'false',
       'pos.taxRate': '0',
       'pos.enableRefund': 'true',
-      storeName: 'SML Legacy Limited',
+      storeName: 'SOFIYEM Legacy Limited',
       currency: 'GHS',
       address: 'Cold Store Market Depot, Accra, Ghana',
       phone: '+233 54 386 4610'
     })
+
+    if (cached['biz.name'] === 'SML Legacy Limited') {
+      cached['biz.name'] = 'SOFIYEM Legacy Limited'
+    }
+    if (cached['storeName'] === 'SML Legacy Limited') {
+      cached['storeName'] = 'SOFIYEM Legacy Limited'
+    }
+    if (cached['receipt.footerText']?.includes('SML Legacy')) {
+      cached['receipt.footerText'] = cached['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+    }
 
     const client = getSupabaseClient()
     if (client && isOnline()) {
@@ -3197,6 +3218,15 @@ export const mobileApi = {
           const cloudSettings = parsed?.settings || parsed
           if (cloudSettings && typeof cloudSettings === 'object') {
             const merged = { ...cached, ...cloudSettings }
+            if (merged['biz.name'] === 'SML Legacy Limited') {
+              merged['biz.name'] = 'SOFIYEM Legacy Limited'
+            }
+            if (merged['storeName'] === 'SML Legacy Limited') {
+              merged['storeName'] = 'SOFIYEM Legacy Limited'
+            }
+            if (merged['receipt.footerText']?.includes('SML Legacy')) {
+              merged['receipt.footerText'] = merged['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+            }
             setItem(STORAGE_KEYS.SETTINGS, merged)
             return merged
           }
@@ -3205,6 +3235,7 @@ export const mobileApi = {
         console.warn('Could not fetch cloud settings:', err)
       }
     }
+    setItem(STORAGE_KEYS.SETTINGS, cached)
     return cached
   },
   setSetting: async (updates: Record<string, string>) => {
@@ -3229,50 +3260,43 @@ export const mobileApi = {
   // Audit Logs (Important Activities Only)
   getAuditLogs: async (filters?: { category?: string; severity?: string; startDate?: string; endDate?: string }) => {
     let logs = getItem<any[]>(STORAGE_KEYS.AUDIT_LOGS, [])
-    if (!logs || logs.length === 0) {
-      logs = [
-        {
-          id: 'aud_init_1',
-          action: 'USER_CREATE',
-          category: 'AUTH',
-          details: 'System Admin account provisioned for SML Legacy Limited Cold Store POS',
-          username: 'admin',
-          userRole: 'ADMIN',
-          severity: 'WARNING',
-          createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-        },
-        {
-          id: 'aud_init_2',
-          action: 'SETTINGS_UPDATE',
-          category: 'SYSTEM',
-          details: 'Store profile configured: SML Legacy Limited Cold Store (+233 54 386 4610)',
-          username: 'admin',
-          userRole: 'ADMIN',
-          severity: 'WARNING',
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-        },
-        {
-          id: 'aud_init_3',
-          action: 'PURCHASE_CREATE',
-          category: 'INVENTORY',
-          details: 'Restock purchase order created for GH₵6,200.00 (Atlantic Salmon & Tilapia)',
-          username: 'manager',
-          userRole: 'MANAGER',
-          severity: 'INFO',
-          createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-        },
-        {
-          id: 'aud_init_4',
-          action: 'HIGH_VALUE_SALE',
-          category: 'SALES',
-          details: 'High-value POS transaction completed: GH₵850.00 (Bulk Chicken Quarters Carton)',
-          username: 'cashier',
-          userRole: 'CASHIER',
-          severity: 'INFO',
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-        },
-      ]
-      setItem(STORAGE_KEYS.AUDIT_LOGS, logs)
+    if (!logs || !Array.isArray(logs)) {
+      logs = []
+    }
+
+    const client = getSupabaseClient()
+    if (client && isOnline()) {
+      try {
+        const { data: cloudLogs, error } = await client
+          .from('cloud_audit_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100)
+
+        if (!error && Array.isArray(cloudLogs) && cloudLogs.length > 0) {
+          const mapped = cloudLogs.map((cl: any) => ({
+            id: cl.id,
+            action: cl.action || 'SYSTEM',
+            category: cl.category || cl.entity_name || 'SYSTEM',
+            details: cl.details || '',
+            username: cl.operator || cl.user_name || 'System',
+            userRole: cl.role || 'ADMIN',
+            severity: cl.severity || 'INFO',
+            createdAt: cl.created_at,
+          }))
+          const seen = new Set(logs.map(l => l.id))
+          for (const item of mapped) {
+            if (!seen.has(item.id)) {
+              logs.push(item)
+              seen.add(item.id)
+            }
+          }
+          logs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          setItem(STORAGE_KEYS.AUDIT_LOGS, logs)
+        }
+      } catch (err) {
+        console.warn('Failed to fetch cloud audit logs:', err)
+      }
     }
 
     if (filters?.category && filters.category !== 'all') {
@@ -3479,5 +3503,60 @@ export const mobileApi = {
       saveQueue(queue)
     }
     return { success: true, count }
+  },
+
+  clearAllLocalData: async () => {
+    const adminPassword = await hashPassword('admin1234')
+    if (typeof localStorage !== 'undefined') {
+      const keysToRemove = [
+        STORAGE_KEYS.CATEGORIES,
+        STORAGE_KEYS.SUPPLIERS,
+        STORAGE_KEYS.CUSTOMERS,
+        STORAGE_KEYS.MEDICINES,
+        STORAGE_KEYS.BATCHES,
+        STORAGE_KEYS.PURCHASES,
+        STORAGE_KEYS.SALES,
+        STORAGE_KEYS.PRESCRIPTIONS,
+        STORAGE_KEYS.AUDIT_LOGS,
+        STORAGE_KEYS.DELETED_MEDICINE_IDS,
+        STORAGE_KEYS.DELETED_BATCH_IDS,
+        STORAGE_KEYS.DELETED_CATEGORY_IDS,
+        STORAGE_KEYS.DELETED_CUSTOMER_IDS,
+        STORAGE_KEYS.DELETED_SUPPLIER_IDS,
+        'sml_coldstore_sync_queue',
+        'sml_coldstore_sync_history',
+        'sml_coldstore_last_synced_at',
+      ]
+      keysToRemove.forEach((k) => localStorage.removeItem(k))
+
+      setItem(STORAGE_KEYS.USERS, [
+        {
+          id: 'usr_admin_root',
+          username: 'admin',
+          password: adminPassword,
+          pin: '1111',
+          role: 'ADMIN',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+
+      setItem(STORAGE_KEYS.AUDIT_LOGS, [
+        {
+          id: 'aud_prod_init_' + Date.now(),
+          action: 'SYSTEM_INIT',
+          category: 'SYSTEM',
+          details: 'Cold store production database initialized cleanly. Ready for live inventory.',
+          username: 'admin',
+          userRole: 'ADMIN',
+          severity: 'INFO',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+    }
+    return { success: true }
+  },
+
+  freshResetDatabase: async () => {
+    return await mobileApi.clearAllLocalData()
   },
 }

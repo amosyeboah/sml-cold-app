@@ -81,4 +81,25 @@ describe('Authentication & Password Security Verification', () => {
     const manager = await mobileApi.loginWithPin('2222', 'MANAGER')
     expect(manager.role).toBe('MANAGER')
   }, 25000)
+
+  it('revokes old default PIN immediately when a user updates their PIN code', async () => {
+    const users = await mobileApi.getUsers()
+    const adminUser = users.find((u: any) => u.username === 'admin')
+    expect(adminUser).toBeDefined()
+
+    // 1. Initial PIN 1111 works
+    const initialLogin = await mobileApi.loginWithPin('1111', 'ADMIN')
+    expect(initialLogin.role).toBe('ADMIN')
+
+    // 2. Admin changes their PIN to 7890
+    await mobileApi.updateUser(adminUser.id, { pin: '7890' })
+
+    // 3. New PIN 7890 works
+    const newPinLogin = await mobileApi.loginWithPin('7890', 'ADMIN')
+    expect(newPinLogin.role).toBe('ADMIN')
+
+    // 4. Old default PIN 1111 MUST be rejected both with and without role filter
+    await expect(mobileApi.loginWithPin('1111', 'ADMIN')).rejects.toThrow('Invalid PIN code')
+    await expect(mobileApi.loginWithPin('1111')).rejects.toThrow('Invalid PIN code')
+  }, 25000)
 })

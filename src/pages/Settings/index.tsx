@@ -1074,8 +1074,8 @@ export default function Settings() {
                         <span className="text-sm font-bold text-gray-800">Barcode Scanner</span>
                         {scannerConfig.enabled ? (
                           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scannerConfig.connectionType.startsWith('bluetooth')
-                              ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
-                              : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                            ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
+                            : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
                             }`}>
                             {scannerConfig.connectionType.startsWith('bluetooth') ? (
                               <>
@@ -1155,8 +1155,8 @@ export default function Settings() {
                             type="button"
                             onClick={() => updateScanner({ connectionType: mode.id })}
                             className={`flex flex-col text-left p-3 rounded-xl border transition-all ${isSelected
-                                ? 'border-blue-600 bg-blue-50/80 shadow-2xs ring-1 ring-blue-500'
-                                : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
+                              ? 'border-blue-600 bg-blue-50/80 shadow-2xs ring-1 ring-blue-500'
+                              : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
                               }`}
                           >
                             <div className="flex items-center justify-between gap-1 w-full mb-1">
@@ -1261,8 +1261,8 @@ export default function Settings() {
                             type="button"
                             onClick={() => updateScanner({ latencyTolerance: lat.id })}
                             className={`p-2.5 rounded-lg border text-left transition-all ${isSelected
-                                ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-500'
-                                : 'border-gray-200 bg-white hover:bg-gray-50'
+                              ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-500'
+                              : 'border-gray-200 bg-white hover:bg-gray-50'
                               }`}
                           >
                             <div className="flex items-center justify-between mb-0.5">

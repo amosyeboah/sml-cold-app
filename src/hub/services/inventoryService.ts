@@ -646,6 +646,15 @@ export async function getSettings(): Promise<Record<string, string>> {
   const rows = await prisma.setting.findMany()
   const map: Record<string, string> = {}
   for (const r of rows) map[r.key] = r.value
+  if (map['biz.name'] === 'SML Legacy Limited') {
+    map['biz.name'] = 'SOFIYEM Legacy Limited'
+  }
+  if (map['storeName'] === 'SML Legacy Limited') {
+    map['storeName'] = 'SOFIYEM Legacy Limited'
+  }
+  if (map['receipt.footerText']?.includes('SML Legacy')) {
+    map['receipt.footerText'] = map['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+  }
   return map
 }
 

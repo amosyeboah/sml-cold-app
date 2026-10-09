@@ -63,29 +63,15 @@ export default function LoginPage() {
       if (typeof apiClient.loginWithPin === 'function') {
         res = await apiClient.loginWithPin(pinValue, selectedPinRole || undefined)
       } else {
-        let username = ''
-        let password = ''
-        if (pinValue === '1111' && (!selectedPinRole || selectedPinRole === 'ADMIN')) {
-          username = 'admin'
-          password = 'admin1234'
-        } else if (pinValue === '2222' && (!selectedPinRole || selectedPinRole === 'MANAGER')) {
-          username = 'manager'
-          password = 'manager123'
-        } else if (pinValue === '1234' && (!selectedPinRole || selectedPinRole === 'CASHIER')) {
-          username = 'cashier'
-          password = 'cashier123'
-        } else {
-          throw new Error('Invalid PIN code. Try 1111 (Admin), 2222 (Manager), or 1234 (Cashier)')
-        }
-        res = await apiClient.login(username, password)
+        throw new Error('PIN login is unavailable on this system')
       }
 
       if (res?.success === false) {
-        throw new Error(res.error || 'Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+        throw new Error(res.error || 'Invalid PIN code')
       }
       const user = res?.user ? res.user : res
       if (!user || !user.role) {
-        throw new Error('Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+        throw new Error('Invalid PIN code')
       }
 
       login(user)
@@ -96,7 +82,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       console.error(err)
-      setPinError(err.message || 'Invalid PIN code. Try 1111 (Admin) or 1234 (Cashier)')
+      setPinError(err.message || 'Invalid PIN code')
       setTimeout(() => {
         setPin('')
       }, 1000)
@@ -371,7 +357,7 @@ export default function LoginPage() {
                   className="h-11 w-full border-gray-200 bg-white text-[14px] font-semibold text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 rounded-lg shadow-sm"
                 >
                   <Grid3x3 className="h-4 w-4 text-gray-500" />
-                  Login with PIN (Default: 1111)
+                  Quick PIN Sign In
                 </Button>
               </>
             ) : (
@@ -393,7 +379,7 @@ export default function LoginPage() {
                         : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
                     )}
                   >
-                    Admin (1111)
+                    Admin
                   </button>
                   <button
                     type="button"
@@ -405,7 +391,7 @@ export default function LoginPage() {
                         : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                     )}
                   >
-                    Manager (2222)
+                    Manager
                   </button>
                   <button
                     type="button"
@@ -417,7 +403,7 @@ export default function LoginPage() {
                         : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                     )}
                   >
-                    Cashier (1234)
+                    Cashier
                   </button>
                 </div>
 

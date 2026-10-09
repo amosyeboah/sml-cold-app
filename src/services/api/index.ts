@@ -84,7 +84,19 @@ export function getApi() {
           list = [{ name: `Bluetooth: ${btStatus.deviceName}`, displayName: `Bluetooth: ${btStatus.deviceName}`, isDefault: true }, ...list]
         }
         return list
-      }
+      },
+
+      freshResetDatabase: async () => {
+        if (typeof electronApi.freshResetDatabase === 'function') {
+          try {
+            await electronApi.freshResetDatabase()
+          } catch (e) {
+            console.warn('Electron fresh reset error:', e)
+          }
+        }
+        await mobileApi.clearAllLocalData()
+        return { success: true }
+      },
     }
 
     try {

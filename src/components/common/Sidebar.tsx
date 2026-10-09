@@ -119,7 +119,7 @@ export default function Sidebar() {
           </button>
           {!sidebarCollapsed && (
             <div className="min-w-0">
-              <p className="text-xs font-bold leading-none tracking-wide text-white truncate">SML Legacy</p>
+              <p className="text-xs font-bold leading-none tracking-wide text-white truncate">SOFIYEM Legacy</p>
               <p className="mt-0.5 text-[9px] font-medium text-cyan-400 truncate">Cold Store POS</p>
             </div>
           )}

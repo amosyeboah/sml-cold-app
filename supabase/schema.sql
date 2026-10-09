@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 1. STORES / DEPOTS TABLE
 CREATE TABLE IF NOT EXISTS sml_stores (
     id TEXT PRIMARY KEY DEFAULT 'sml_accra_main',
-    name TEXT NOT NULL DEFAULT 'SML Legacy Limited - Cold Store Main Depot',
+    name TEXT NOT NULL DEFAULT 'SOFIYEM Legacy Limited - Cold Store Main Depot',
     location TEXT NOT NULL DEFAULT 'Cold Store Market Depot, Accra, Ghana',
     phone TEXT NOT NULL DEFAULT '+233 54 386 4610',
     email TEXT NOT NULL DEFAULT 'sorphygold@yahoo.com',
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS sml_stores (
 INSERT INTO sml_stores (id, name, location, phone, email, owner_name, owner_phone, currency, currency_symbol)
 VALUES (
     'sml_accra_main',
-    'SML Legacy Limited - Cold Store Main Depot',
+    'SOFIYEM Legacy Limited - Cold Store Main Depot',
     'Cold Store Market Depot, Accra, Ghana',
     '+233 54 386 4610',
     'sorphygold@yahoo.com',
@@ -220,7 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_cloud_sync_events_entity ON cloud_sync_events(ent
 
 -- 13. CLOUD SYNC SESSIONS (Device sync telemetry)
 CREATE TABLE IF NOT EXISTS cloud_sync_sessions (
-    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
     device_id TEXT DEFAULT 'Local Depot Hub',
     sync_type TEXT DEFAULT 'AUTO_BACKGROUND',
@@ -228,11 +228,16 @@ CREATE TABLE IF NOT EXISTS cloud_sync_sessions (
     events_attempted INT NOT NULL DEFAULT 0,
     events_succeeded INT NOT NULL DEFAULT 0,
     events_failed INT NOT NULL DEFAULT 0,
+    items_count INT DEFAULT 0,
     duration_ms INT DEFAULT 0,
     latency_ms INT DEFAULT 0,
     error_summary TEXT,
+    error_message TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE cloud_sync_sessions ADD COLUMN IF NOT EXISTS items_count INT DEFAULT 0;
+ALTER TABLE cloud_sync_sessions ADD COLUMN IF NOT EXISTS error_message TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_cloud_sync_sessions_created_at ON cloud_sync_sessions(created_at DESC);
 

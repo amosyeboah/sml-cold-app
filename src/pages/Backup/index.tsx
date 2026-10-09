@@ -169,7 +169,7 @@ export default function Backup() {
                 {
                   step: '2',
                   title: 'Close the application',
-                  desc: 'Quit the SML Legacy Cold Store app completely before replacing the database file to avoid corruption.',
+                  desc: 'Quit the SOFIYEM Legacy Cold Store app completely before replacing the database file to avoid corruption.',
                 },
                 {
                   step: '3',

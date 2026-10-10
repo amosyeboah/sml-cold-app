@@ -109,7 +109,21 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     })
 
+    // 10. Background sync interval to ensure Android tablets & Web stay in lockstep with Cloud admin controls
+    const pollInterval = setInterval(() => {
+      fetchCloudStateMirrorsIfAvailable().then(() => {
+        queryClient.invalidateQueries({ queryKey: ['settings'] })
+      }).catch(() => {})
+    }, 10000)
+
+    const onSettingsUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    }
+    window.addEventListener('settings_updated', onSettingsUpdated)
+
     return () => {
+      clearInterval(pollInterval)
+      window.removeEventListener('settings_updated', onSettingsUpdated)
       unsubscribeSales()
       unsubscribeProducts()
       unsubscribeBatches()

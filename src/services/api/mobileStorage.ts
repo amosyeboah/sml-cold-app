@@ -93,6 +93,56 @@ const STORAGE_KEYS = {
   SEEDED: 'sml_coldstore_initialized_flag'
 }
 
+export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
+  // Business Info
+  'biz.name': 'SOFIYEM Legacy Limited',
+  'biz.type': 'Cold store',
+  'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
+  'biz.phone': '+233 54 386 4610',
+  'biz.email': 'sorphygold@yahoo.com',
+  'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
+  'biz.ownerEmail': 'sorphygold@yahoo.com',
+  'biz.ownerPhone': '+447999007775',
+  'biz.address': 'Cold Store Market Depot',
+  'biz.city': 'Accra, Greater Accra',
+  'biz.website': '',
+  'biz.taxId': '',
+  'biz.currency': 'GHS',
+  'biz.currencySymbol': 'GH₵',
+  // POS & Checkout
+  'pos.enableDiscount': 'false',
+  'pos.enableTax': 'false',
+  'pos.taxRate': '0',
+  'pos.enableRefund': 'true',
+  // Receipt & Invoice
+  'receipt.paperSize': '58mm',
+  'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
+  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
+  'receipt.showLogo': 'true',
+  'receipt.showAddress': 'true',
+  'receipt.showPhone': 'true',
+  'receipt.showTaxId': 'false',
+  'receipt.showBarcode': 'true',
+  'receipt.alignment': 'center',
+  'receipt.copies': '1',
+  // Hardware
+  'hw.printerName': '',
+  'hw.printerPort': 'USB',
+  'hw.scannerEnabled': 'true',
+  'hw.scannerType': 'bluetooth-hid',
+  'hw.scannerPort': 'Bluetooth (HID)',
+  'hw.scannerLatency': 'relaxed',
+  'hw.scannerAudio': 'true',
+  'hw.scannerAutoAdd': 'true',
+  'hw.drawerEnabled': 'false',
+  'hw.drawerPort': 'COM4',
+  'hw.drawerPulseMs': '200',
+  storeName: 'SOFIYEM Legacy Limited',
+  currency: 'GHS',
+  address: 'Cold Store Market Depot, Accra, Ghana',
+  phone: '+233 54 386 4610'
+}
+
 function getItem<T>(key: string, defaultValue: T): T {
   if (typeof localStorage === 'undefined') return defaultValue
   try {
@@ -522,7 +572,18 @@ export async function pushCloudStateMirror(
   if (!client || !isOnline()) return
   try {
     let mergedPayload = payload
-    if (!options?.forceOverwrite) {
+    if (stateId === 'STATE_SETTINGS') {
+      try {
+        const { data } = await client.from('cloud_audit_logs').select('*').eq('id', stateId).maybeSingle()
+        const existing = extractStateMirrorPayload(data)
+        const cloudExisting = existing?.settings || existing
+        if (cloudExisting && typeof cloudExisting === 'object' && !Array.isArray(cloudExisting)) {
+          mergedPayload = { ...cloudExisting, ...payload }
+        }
+      } catch (e) {
+        // fallback to payload
+      }
+    } else if (!options?.forceOverwrite) {
       const { data } = await client.from('cloud_audit_logs').select('*').eq('id', stateId).maybeSingle()
       const existing = extractStateMirrorPayload(data)
 
@@ -606,8 +667,13 @@ export async function fetchCloudStateMirrorsIfAvailable(): Promise<void> {
       } else if (row.id === 'STATE_SETTINGS') {
         const cloudSettings = meta.settings || meta
         if (cloudSettings && typeof cloudSettings === 'object') {
-          const existing = getItem<Record<string, string>>(STORAGE_KEYS.SETTINGS, {})
-          setItem(STORAGE_KEYS.SETTINGS, { ...existing, ...cloudSettings })
+          const existing = getItem<Record<string, string>>(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
+          const merged = { ...DEFAULT_STORE_SETTINGS, ...existing, ...cloudSettings }
+          setItem(STORAGE_KEYS.SETTINGS, merged)
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('settings_updated', { detail: merged }))
+            window.dispatchEvent(new Event('storage'))
+          }
         }
       }
     }
@@ -2121,20 +2187,17 @@ export const mobileApi = {
     if (client && isOnline()) {
       const saleDate = newSale.date || new Date().toISOString()
       const totalAmt = Number(newSale.total) || 0
+      const invoiceNum = newSale.saleNumber || newSale.invoice_number || `INV-${newSale.id.slice(0, 8).toUpperCase()}`
       client.from('cloud_sales').upsert({
         id: newSale.id,
         store_id: 'sml_accra_main',
-        invoice_number: newSale.saleNumber || `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
-        sale_number: newSale.saleNumber || `INV-${newSale.id.slice(0, 8).toUpperCase()}`,
+        invoice_number: invoiceNum,
         customer_name: newSale.customerName || 'Walk-in Customer',
         total_amount: totalAmt,
-        total: totalAmt,
         subtotal: Number(newSale.subtotal ?? totalAmt),
         payment_method: newSale.paymentMethod || 'CASH',
         cashier_name: cashierName,
-        cashier_username: cashierName,
         sold_at: saleDate,
-        date: saleDate,
         created_at: saleDate,
       }).then(async () => {
         const cloudItems = newSale.items.map((i: any) => {
@@ -3169,30 +3232,8 @@ export const mobileApi = {
 
   // Settings
   getSettings: async () => {
-    let cached = getItem(STORAGE_KEYS.SETTINGS, {
-      'biz.name': 'SOFIYEM Legacy Limited',
-      'biz.type': 'Cold store',
-      'biz.tagline': 'Quality Frozen Foods & Cold Storage Services',
-      'biz.phone': '+233 54 386 4610',
-      'biz.email': 'sorphygold@yahoo.com',
-      'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
-      'biz.ownerEmail': 'sorphygold@yahoo.com',
-      'biz.ownerPhone': '+447999007775',
-      'biz.address': 'Cold Store Market Depot',
-      'biz.city': 'Accra, Greater Accra',
-      'biz.currency': 'GHS',
-      'biz.currencySymbol': 'GH₵',
-      'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
-      'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-      'pos.enableDiscount': 'false',
-      'pos.enableTax': 'false',
-      'pos.taxRate': '0',
-      'pos.enableRefund': 'true',
-      storeName: 'SOFIYEM Legacy Limited',
-      currency: 'GHS',
-      address: 'Cold Store Market Depot, Accra, Ghana',
-      phone: '+233 54 386 4610'
-    })
+    let cached = getItem(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
+    cached = { ...DEFAULT_STORE_SETTINGS, ...cached }
 
     if (cached['biz.name'] === 'SML Legacy Limited') {
       cached['biz.name'] = 'SOFIYEM Legacy Limited'
@@ -3217,7 +3258,7 @@ export const mobileApi = {
           const parsed = extractStateMirrorPayload(data)
           const cloudSettings = parsed?.settings || parsed
           if (cloudSettings && typeof cloudSettings === 'object') {
-            const merged = { ...cached, ...cloudSettings }
+            const merged = { ...DEFAULT_STORE_SETTINGS, ...cached, ...cloudSettings }
             if (merged['biz.name'] === 'SML Legacy Limited') {
               merged['biz.name'] = 'SOFIYEM Legacy Limited'
             }
@@ -3239,12 +3280,39 @@ export const mobileApi = {
     return cached
   },
   setSetting: async (updates: Record<string, string>) => {
-    const current = getItem(STORAGE_KEYS.SETTINGS, {})
-    const updated = { ...current, ...updates }
+    const current = getItem(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
+    const updated = { ...DEFAULT_STORE_SETTINGS, ...current, ...updates }
     setItem(STORAGE_KEYS.SETTINGS, updated)
-    await pushCloudStateMirror('STATE_SETTINGS', 'SYSTEM', 'settings', updated).catch((err) => {
+    await pushCloudStateMirror('STATE_SETTINGS', 'SYSTEM', 'settings', updated, { forceOverwrite: true }).catch((err) => {
       console.warn('Failed to push settings mirror to cloud:', err)
     })
+
+    // Sync business identity to sml_stores table in Supabase
+    if (client && isOnline()) {
+      const storeUpdates: Record<string, any> = {}
+      if (updated['biz.name'] || updated['storeName']) {
+        storeUpdates.name = updated['biz.name'] || updated['storeName']
+      }
+      if (updated['biz.address'] || updated['biz.city']) {
+        storeUpdates.location = [updated['biz.address'], updated['biz.city']].filter(Boolean).join(', ')
+      }
+      if (updated['biz.phone']) storeUpdates.phone = updated['biz.phone']
+      if (updated['biz.email']) storeUpdates.email = updated['biz.email']
+      if (updated['biz.ownerName']) storeUpdates.owner_name = updated['biz.ownerName']
+      if (updated['biz.ownerPhone']) storeUpdates.owner_phone = updated['biz.ownerPhone']
+      if (updated['biz.currency']) storeUpdates.currency = updated['biz.currency']
+      if (updated['biz.currencySymbol']) storeUpdates.currency_symbol = updated['biz.currencySymbol']
+
+      if (Object.keys(storeUpdates).length > 0) {
+        storeUpdates.updated_at = new Date().toISOString()
+        client
+          .from('sml_stores')
+          .update(storeUpdates)
+          .eq('id', 'sml_accra_main')
+          .then(() => {})
+          .catch((err) => console.warn('Could not update sml_stores:', err))
+      }
+    }
 
     logAuditAction({
       action: 'SETTINGS_UPDATE',
@@ -3253,6 +3321,11 @@ export const mobileApi = {
       severity: 'WARNING',
       metadata: { updatedKeys: Object.keys(updates) },
     })
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('settings_updated', { detail: updated }))
+      window.dispatchEvent(new Event('storage'))
+    }
 
     return updated
   },

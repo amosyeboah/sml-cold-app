@@ -269,10 +269,13 @@ async function runComparison() {
       console.log(`\nSales in Cloud Supabase but MISSING in Local SQLite (${missingInLocalSales.length}):`);
       for (const s of missingInLocalSales) {
         // Fetch items for this sale
-        const { data: items } = await supabase.from('cloud_sale_items').select('*').eq('sale_id', s.id);
-        console.log(`  * ID: ${s.id} | Sale#: ${s.sale_number} | Date: ${s.date} | Total: GH₵${s.total} | Method: ${s.payment_method} | Cashier: ${s.cashier_username} | Customer: ${s.customer_name}`);
+        const saleNo = s.invoice_number || s.sale_number || s.id;
+        const saleDate = s.sold_at || s.date || s.created_at;
+        const saleTot = s.total_amount ?? s.total ?? 0;
+        const cashier = s.cashier_name || s.cashier_username || 'cashier';
+        console.log(`  * ID: ${s.id} | Sale#: ${saleNo} | Date: ${saleDate} | Total: GH₵${saleTot} | Method: ${s.payment_method} | Cashier: ${cashier} | Customer: ${s.customer_name}`);
         if (items && items.length > 0) {
-          items.forEach(i => console.log(`      Item: ${i.product_name} | Qty: ${i.quantity} | UnitPrice: GH₵${i.unit_price} | Subtotal: GH₵${i.subtotal}`));
+          items.forEach(i => console.log(`      Item: ${i.product_name} | Qty: ${i.quantity} | UnitPrice: GH₵${i.unit_price} | Subtotal: GH₵${i.total_price ?? i.subtotal}`));
         } else {
           console.log(`      (No items in cloud_sale_items)`);
         }

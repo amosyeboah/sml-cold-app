@@ -148,16 +148,19 @@ async function reconcile() {
         pm = `SPLIT:CASH=${(s.total || 0) / 2},MOBILE=${(s.total || 0) / 2}`;
       }
 
+      const saleDate = s.date ? new Date(s.date).toISOString() : new Date().toISOString();
+      const totalAmt = Number(s.total) || 0;
       return {
         id: s.id,
         store_id: 'sml_accra_main',
-        sale_number: `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
+        invoice_number: `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
         customer_name: s.customer?.name || 'Walk-in Customer',
-        total: Number(s.total) || 0,
+        total_amount: totalAmt,
+        subtotal: Number(s.subtotal ?? totalAmt),
         payment_method: pm,
-        cashier_username: 'cashier',
-        date: s.date ? new Date(s.date).toISOString() : new Date().toISOString(),
-        synced_at: new Date().toISOString()
+        cashier_name: s.cashier || 'cashier',
+        sold_at: saleDate,
+        created_at: saleDate
       };
     });
 
@@ -173,20 +176,19 @@ async function reconcile() {
     const allSaleItems = [];
     for (const s of localSales) {
       if (s.items && s.items.length > 0) {
+        const saleDate = s.date ? new Date(s.date).toISOString() : new Date().toISOString();
         for (const item of s.items) {
           const unitPrice = Number(item.price ?? item.batch?.medicine?.price ?? 0);
-          const unitCost = Number(item.batch?.medicine?.cost ?? 0);
           const qty = Number(item.quantity) || 1;
           allSaleItems.push({
             id: item.id,
             sale_id: s.id,
             product_id: item.batch?.medicineId || null,
             product_name: item.batch?.medicine?.name || 'Cold Store Item',
-            sku: item.batch?.medicine?.sku || null,
             quantity: qty,
             unit_price: unitPrice,
-            unit_cost: unitCost,
-            subtotal: qty * unitPrice
+            total_price: qty * unitPrice,
+            created_at: saleDate
           });
         }
       }

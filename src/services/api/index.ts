@@ -86,6 +86,29 @@ export function getApi() {
         return list
       },
 
+      getSettings: async () => {
+        try {
+          const cloudSettings = await mobileApi.getSettings()
+          return cloudSettings
+        } catch {
+          if (typeof electronApi.getSettings === 'function') {
+            return await electronApi.getSettings()
+          }
+          return {}
+        }
+      },
+
+      setSetting: async (updates: Record<string, string>) => {
+        if (typeof electronApi.setSetting === 'function') {
+          try {
+            await electronApi.setSetting(updates)
+          } catch (e) {
+            console.warn('Electron setSetting error:', e)
+          }
+        }
+        return await mobileApi.setSetting(updates)
+      },
+
       freshResetDatabase: async () => {
         if (typeof electronApi.freshResetDatabase === 'function') {
           try {

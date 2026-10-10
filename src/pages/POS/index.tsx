@@ -965,6 +965,14 @@ export default function POS() {
   const taxRate = enableTax ? (Number(storedSettings['pos.taxRate']) || 0) : 0
   const currencySymbol = storedSettings['biz.currencySymbol'] || '₵'
 
+  useEffect(() => {
+    const handleSettingsUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    }
+    window.addEventListener('settings_updated', handleSettingsUpdated)
+    return () => window.removeEventListener('settings_updated', handleSettingsUpdated)
+  }, [queryClient])
+
   // Group valid non-expired batches by Medicine for POS display & auto FEFO allocation
   const productsList = useMemo(() => {
     const today = new Date()

@@ -265,29 +265,36 @@ export async function flushSyncQueue(): Promise<{
             pm = `SPLIT:CASH=${cashAmt},MOBILE=${mobileAmt}`
           }
 
+          const saleNumber = sale.saleNumber || sale.invoice_number || `INV-${String(sale.id).slice(0, 8).toUpperCase()}`
+          const totalAmt = Number(sale.total ?? sale.total_amount ?? 0)
+          const saleDate = sale.date || sale.sold_at || sale.created_at || new Date().toISOString()
+          const cashierName = sale.cashier || sale.cashier_name || sale.cashier_username || sale.username || 'cashier'
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
-            sale_number: sale.saleNumber || `INV-${sale.id.slice(0, 8).toUpperCase()}`,
+            invoice_number: saleNumber,
             customer_name: sale.customer?.name || sale.customerName || 'Walk-in Customer',
-            total: sale.total,
+            total_amount: totalAmt,
+            subtotal: Number(sale.subtotal ?? totalAmt),
             payment_method: pm,
-            cashier_username: sale.cashier || 'cashier',
-            date: sale.date || new Date().toISOString(),
-            synced_at: new Date().toISOString(),
+            cashier_name: cashierName,
+            sold_at: saleDate,
+            created_at: saleDate,
           })
 
           if (saleErr) uploadError = saleErr
 
           // 2. Upload sale items
-          if (!uploadError && sale.items && Array.isArray(sale.items)) {
+          if (!uploadError && sale.items && Array.isArray(sale.items) && sale.items.length > 0) {
             const cloudItems = sale.items.map((i: any) => {
               const unitPrice = Number(i.price ?? i.unit_price ?? i.medicine?.price ?? 0)
-              const unitCost = Number(i.cost ?? i.unit_cost ?? i.medicine?.cost ?? 0)
               const qty = Number(i.quantity) || 1
               return {
+                id: i.id || `${sale.id}_${i.batch?.medicineId || i.medicineId || i.productId || Math.random().toString(36).substring(2, 7)}`,
                 sale_id: sale.id,
                 product_id: i.batch?.medicineId || i.medicineId || i.productId || null,
+                batch_id: i.batchId || i.batch?.id || null,
                 product_name:
                   i.batch?.medicine?.name ||
                   i.medicine?.name ||
@@ -295,16 +302,26 @@ export async function flushSyncQueue(): Promise<{
                   i.productName ||
                   i.name ||
                   'Cold Store Item',
-                sku: i.batch?.medicine?.sku || i.sku || null,
                 quantity: qty,
                 unit_price: unitPrice,
-                unit_cost: unitCost,
-                subtotal: (Number(i.subtotal) || (qty * unitPrice)),
+                total_price: Number(i.total_price) || (qty * unitPrice),
+                created_at: saleDate,
               }
             })
 
-            const { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
-            if (itemsErr) uploadError = itemsErr
+            let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
+            if (itemsErr && itemsErr.code === '23503') {
+              // Retry with null foreign keys if product or batch not yet present in cloud
+              const safeItems = cloudItems.map((item: any) => ({
+                ...item,
+                product_id: null,
+                batch_id: null,
+              }))
+              const { error: retryErr } = await client.from('cloud_sale_items').upsert(safeItems)
+              if (retryErr) uploadError = retryErr
+            } else if (itemsErr) {
+              uploadError = itemsErr
+            }
           }
         } else if (item.entity === 'AUDIT_LOG') {
           const log = item.payload
@@ -359,7 +376,8 @@ export async function flushSyncQueue(): Promise<{
           } else {
             const { error } = await client.from('cloud_batches').upsert({
               id: batch.id,
-              product_id: batch.medicineId,
+              store_id: 'sml_accra_main',
+              product_id: batch.medicineId || batch.productId,
               batch_number: batch.batchNumber,
               expiry_date: batch.expiryDate,
               quantity: batch.quantity,
@@ -604,37 +622,55 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
             pm = `SPLIT:CASH=${(sale.total || 0) / 2},MOBILE=${(sale.total || 0) / 2}`
           }
 
+          const saleNumber = sale.saleNumber || sale.invoice_number || `INV-${String(sale.id).slice(0, 8).toUpperCase()}`
+          const totalAmt = Number(sale.total ?? sale.total_amount ?? 0)
+          const saleDate = sale.date || sale.sold_at || sale.created_at || new Date().toISOString()
+          const cashierName = sale.cashier || sale.cashier_name || sale.cashier_username || sale.username || 'cashier'
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
-            sale_number: `INV-${String(sale.id).slice(0, 8).toUpperCase()}`,
-            customer_name: sale.customer?.name || 'Walk-in Customer',
-            total: Number(sale.total) || 0,
+            invoice_number: saleNumber,
+            customer_name: sale.customer?.name || sale.customerName || 'Walk-in Customer',
+            total_amount: totalAmt,
+            subtotal: Number(sale.subtotal ?? totalAmt),
             payment_method: pm,
-            cashier_username: 'cashier',
-            date: sale.date || new Date().toISOString(),
-            synced_at: new Date().toISOString(),
+            cashier_name: cashierName,
+            sold_at: saleDate,
+            created_at: saleDate,
           })
 
-          if (!saleErr && sale.items && Array.isArray(sale.items)) {
-            const cloudItems = sale.items.map((i: any) => ({
-              id: i.id,
-              sale_id: sale.id,
-              product_id: i.batch?.medicineId || i.medicineId || i.batchId || null,
-              product_name:
-                i.batch?.medicine?.name ||
-                i.medicine?.name ||
-                i.product_name ||
-                i.productName ||
-                i.name ||
-                'Cold Store Item',
-              sku: i.batch?.medicine?.sku || i.sku || null,
-              quantity: Number(i.quantity) || 1,
-              unit_price: Number(i.price ?? i.batch?.medicine?.price ?? 0),
-              unit_cost: Number(i.batch?.medicine?.cost ?? 0),
-              subtotal: (Number(i.quantity) || 1) * Number(i.price ?? i.batch?.medicine?.price ?? 0),
-            }))
-            await client.from('cloud_sale_items').upsert(cloudItems)
+          if (!saleErr && sale.items && Array.isArray(sale.items) && sale.items.length > 0) {
+            const cloudItems = sale.items.map((i: any) => {
+              const qty = Number(i.quantity) || 1
+              const unitPrice = Number(i.price ?? i.unit_price ?? i.batch?.medicine?.price ?? 0)
+              return {
+                id: i.id || `${sale.id}_${i.batch?.medicineId || i.medicineId || i.batchId || Math.random().toString(36).substring(2, 7)}`,
+                sale_id: sale.id,
+                product_id: i.batch?.medicineId || i.medicineId || i.batchId || null,
+                batch_id: i.batchId || null,
+                product_name:
+                  i.batch?.medicine?.name ||
+                  i.medicine?.name ||
+                  i.product_name ||
+                  i.productName ||
+                  i.name ||
+                  'Cold Store Item',
+                quantity: qty,
+                unit_price: unitPrice,
+                total_price: qty * unitPrice,
+                created_at: saleDate,
+              }
+            })
+            let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
+            if (itemsErr && itemsErr.code === '23503') {
+              const safeItems = cloudItems.map((item: any) => ({
+                ...item,
+                product_id: null,
+                batch_id: null,
+              }))
+              await client.from('cloud_sale_items').upsert(safeItems).catch(() => {})
+            }
             pushedCount++
           }
         }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { PlusCircle, Search, Trash2, Edit2, Tags, Package, ChevronsLeft, ChevronsRight, Snowflake, Lock, AlertTriangle, AlertCircle, LayoutGrid, List, Eye, TrendingUp, DollarSign, Layers, Calendar, Info } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -71,29 +72,36 @@ export default function Medicines() {
 
   const createMedMutation = useMutation({
     mutationFn: (data: MedFormData) => apiClient.createMedicine(data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['medicines'] })
       setIsMedOpen(false)
       setMedFormError(null)
+      toast.success(`Product "${variables.name}" added successfully!`)
     },
     onError: (err: any) => {
-      setMedFormError(err?.message || 'Failed to create product.')
+      const msg = err?.message || 'Failed to create product.'
+      setMedFormError(msg)
+      toast.error(msg)
     },
   })
 
   const updateMedMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: MedFormData }) => apiClient.updateMedicine(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['medicines'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       setEditingMed(null)
       setIsMedOpen(false)
       setMedFormError(null)
+      toast.success(`Product "${variables.data.name}" updated successfully!`)
     },
     onError: (err: any) => {
-      setMedFormError(err?.message || 'Failed to update product.')
+      const msg = err?.message || 'Failed to update product.'
+      setMedFormError(msg)
+      toast.error(msg)
     },
   })
 
@@ -106,18 +114,22 @@ export default function Medicines() {
       setIsDeleteDialogOpen(false)
       setProductToDelete(null)
       setDeleteError(null)
+      toast.success('Product deleted successfully.')
     },
     onError: (err: any) => {
-      setDeleteError(err?.message || 'Failed to delete product. Please check related stock records.')
+      const msg = err?.message || 'Failed to delete product. Please check related stock records.'
+      setDeleteError(msg)
+      toast.error(msg)
     },
   })
 
   const createCatMutation = useMutation({
     mutationFn: (name: string) => apiClient.createCategory({ name }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       setNewCatName('')
       setIsCatOpen(false)
+      toast.success(`Category "${variables}" created successfully!`)
     },
   })
 
@@ -133,15 +145,16 @@ export default function Medicines() {
   }
 
   const handleOpenEdit = (med: Medicine) => {
+    if (!med) return
     setEditingMed(med)
     setMedFormError(null)
-    setValue('name', med.name)
+    setValue('name', med.name || '')
     setValue('genericName', med.genericName || '')
-    setValue('sku', med.sku)
-    setValue('categoryId', med.categoryId)
-    setValue('price', med.price)
-    setValue('cost', med.cost)
-    setValue('minStockLevel', med.minStockLevel)
+    setValue('sku', med.sku || '')
+    setValue('categoryId', med.categoryId || '')
+    setValue('price', Number(med.price) || 0)
+    setValue('cost', Number(med.cost) || 0)
+    setValue('minStockLevel', Number(med.minStockLevel) || 10)
     setIsMedOpen(true)
   }
 
@@ -845,8 +858,12 @@ export default function Medicines() {
                         onClick={() => {
                           const target = selectedProductForDetails
                           setSelectedProductForDetails(null)
-                          setProductToDelete(target)
-                          setIsDeleteDialogOpen(true)
+                          setTimeout(() => {
+                            if (target) {
+                              setProductToDelete(target)
+                              setIsDeleteDialogOpen(true)
+                            }
+                          }, 100)
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -862,7 +879,11 @@ export default function Medicines() {
                         onClick={() => {
                           const target = selectedProductForDetails
                           setSelectedProductForDetails(null)
-                          handleOpenEdit(target)
+                          setTimeout(() => {
+                            if (target) {
+                              handleOpenEdit(target)
+                            }
+                          }, 100)
                         }}
                       >
                         <Edit2 className="h-3.5 w-3.5" /> Edit Product

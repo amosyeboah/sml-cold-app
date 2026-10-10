@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import toast from 'react-hot-toast'
 import type { Batch, Medicine } from '@/types'
 
 const batchSchema = z.object({
@@ -85,6 +86,10 @@ export default function Inventory() {
       queryClient.invalidateQueries({ queryKey: ['medicines'] })
       setIsOpen(false)
       reset()
+      toast.success('Stock lot received and added successfully!')
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to add stock lot.')
     },
   })
 
@@ -99,6 +104,10 @@ export default function Inventory() {
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['medicines'] })
       setEditingBatchId(null)
+      toast.success('Stock lot updated successfully!')
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to update stock lot.')
     },
   })
 
@@ -784,7 +793,6 @@ export default function Inventory() {
                                   value={editQuantity}
                                   onChange={(e) => setEditQuantity(Number(e.target.value))}
                                   className="h-8.5 text-sm font-bold bg-white"
-                                  autoFocus
                                 />
                               </div>
                               <div className="space-y-1">

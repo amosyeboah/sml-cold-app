@@ -3,6 +3,7 @@ import { recordStockMovement } from './stockMovementService'
 import { enqueueOutboxItem } from './syncOutboxService'
 import { recordAudit } from './auditService'
 import { flushOutboxBatch } from './syncEngine'
+import { getHubSupabaseClient } from './hubSupabase'
 import { randomUUID } from 'crypto'
 
 // ─── Products (Medicines) ───────────────────────────────────────────────────
@@ -646,6 +647,36 @@ export async function getSettings(): Promise<Record<string, string>> {
   const rows = await prisma.setting.findMany()
   const map: Record<string, string> = {}
   for (const r of rows) map[r.key] = r.value
+
+  // Check Supabase cloud mirror if available (Admin controls take precedence)
+  try {
+    const client = getHubSupabaseClient()
+    if (client) {
+      const { data } = await client
+        .from('cloud_audit_logs')
+        .select('*')
+        .eq('id', 'STATE_SETTINGS')
+        .maybeSingle()
+
+      if (data) {
+        let parsed: any = null
+        if (typeof data.details === 'string') {
+          try {
+            parsed = JSON.parse(data.details)
+          } catch {}
+        } else if (data.details) {
+          parsed = data.details
+        }
+        const cloudSettings = parsed?.settings || parsed
+        if (cloudSettings && typeof cloudSettings === 'object') {
+          Object.assign(map, cloudSettings)
+        }
+      }
+    }
+  } catch (err) {
+    // Local SQLite settings remain available offline
+  }
+
   if (map['biz.name'] === 'SML Legacy Limited') {
     map['biz.name'] = 'SOFIYEM Legacy Limited'
   }
@@ -668,6 +699,55 @@ export async function setSettings(updates: Record<string, string>, meta?: { user
       })
     }
   })
+
+  // Mirror full settings to Supabase cloud_audit_logs
+  try {
+    const allRows = await prisma.setting.findMany()
+    const fullMap: Record<string, string> = {}
+    for (const r of allRows) fullMap[r.key] = r.value
+    Object.assign(fullMap, updates)
+
+    const client = getHubSupabaseClient()
+    if (client) {
+      await client.from('cloud_audit_logs').upsert({
+        id: 'STATE_SETTINGS',
+        store_id: 'sml_accra_main',
+        action: 'SYSTEM_STATE_SNAPSHOT',
+        entity_name: 'settings',
+        entity_id: 'STATE_SETTINGS',
+        user_name: meta?.username || 'system',
+        details: JSON.stringify({ settings: fullMap }),
+        created_at: new Date().toISOString(),
+      })
+
+      // Also update sml_stores table in Supabase
+      const storeUpdates: Record<string, any> = {}
+      if (fullMap['biz.name'] || fullMap['storeName']) {
+        storeUpdates.name = fullMap['biz.name'] || fullMap['storeName']
+      }
+      if (fullMap['biz.address'] || fullMap['biz.city']) {
+        storeUpdates.location = [fullMap['biz.address'], fullMap['biz.city']].filter(Boolean).join(', ')
+      }
+      if (fullMap['biz.phone']) storeUpdates.phone = fullMap['biz.phone']
+      if (fullMap['biz.email']) storeUpdates.email = fullMap['biz.email']
+      if (fullMap['biz.ownerName']) storeUpdates.owner_name = fullMap['biz.ownerName']
+      if (fullMap['biz.ownerPhone']) storeUpdates.owner_phone = fullMap['biz.ownerPhone']
+      if (fullMap['biz.currency']) storeUpdates.currency = fullMap['biz.currency']
+      if (fullMap['biz.currencySymbol']) storeUpdates.currency_symbol = fullMap['biz.currencySymbol']
+
+      if (Object.keys(storeUpdates).length > 0) {
+        storeUpdates.updated_at = new Date().toISOString()
+        await client
+          .from('sml_stores')
+          .update(storeUpdates)
+          .eq('id', 'sml_accra_main')
+          .catch(() => {})
+      }
+    }
+  } catch (err) {
+    console.warn('Could not push settings mirror to cloud:', err)
+  }
+
   await recordAudit({
     action: 'SETTINGS_UPDATE',
     category: 'SYSTEM',
@@ -680,3 +760,4 @@ export async function setSettings(updates: Record<string, string>, meta?: { user
   }).catch(() => {})
   return res
 }
+

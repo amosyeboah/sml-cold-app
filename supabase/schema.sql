@@ -89,20 +89,31 @@ CREATE INDEX IF NOT EXISTS idx_cloud_batches_expiry ON cloud_batches(expiry_date
 CREATE TABLE IF NOT EXISTS cloud_sales (
     id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
-    sale_number TEXT,
-    customer_name TEXT DEFAULT 'Walk-in Customer',
-    total NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    payment_method TEXT NOT NULL DEFAULT 'CASH',
-    cashier_username TEXT DEFAULT 'cashier',
     device_id TEXT,
-    date TIMESTAMPTZ NOT NULL,
-    synced_at TIMESTAMPTZ DEFAULT NOW(),
+    invoice_number TEXT,
+    cashier_name TEXT DEFAULT 'cashier',
+    customer_name TEXT DEFAULT 'Walk-in Customer',
+    customer_phone TEXT,
+    subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    discount_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    payment_method TEXT NOT NULL DEFAULT 'CASH',
+    payment_status TEXT NOT NULL DEFAULT 'COMPLETED',
+    notes TEXT,
+    sold_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Compatibility aliases
+    sale_number TEXT,
+    cashier_username TEXT,
+    total NUMERIC(12, 2),
+    date TIMESTAMPTZ,
+    synced_at TIMESTAMPTZ,
     CONSTRAINT uq_cloud_sales_store_id UNIQUE (store_id, id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_sales_date ON cloud_sales(date DESC);
-CREATE INDEX IF NOT EXISTS idx_cloud_sales_total ON cloud_sales(total DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_sales_date ON cloud_sales(sold_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cloud_sales_total ON cloud_sales(total_amount DESC);
 
 -- 6. CLOUD SALE ITEMS
 CREATE TABLE IF NOT EXISTS cloud_sale_items (
@@ -111,11 +122,14 @@ CREATE TABLE IF NOT EXISTS cloud_sale_items (
     product_id TEXT,
     batch_id TEXT,
     product_name TEXT NOT NULL,
-    sku TEXT,
     quantity INT NOT NULL DEFAULT 1,
     unit_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0.00
+    total_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Optional compatibility columns
+    sku TEXT,
+    unit_cost NUMERIC(12, 2),
+    subtotal NUMERIC(12, 2)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cloud_sale_items_sale ON cloud_sale_items(sale_id);

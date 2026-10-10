@@ -250,6 +250,14 @@ export default function SalesHistory() {
 
   const enableRefund = storedSettings['pos.enableRefund'] !== 'false'
 
+  useEffect(() => {
+    const handleSettingsUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    }
+    window.addEventListener('settings_updated', handleSettingsUpdated)
+    return () => window.removeEventListener('settings_updated', handleSettingsUpdated)
+  }, [queryClient])
+
   const resolveItemName = (item: any) => {
     // 1. Direct relations and properties
     const direct =

@@ -17,7 +17,6 @@ import {
   Activity,
   Layers,
   FileCheck2,
-  Trash2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -117,35 +116,10 @@ export default function SyncPage() {
   const [isReconciling, setIsReconciling] = useState(false)
   const [isRetryingDeadLetter, setIsRetryingDeadLetter] = useState(false)
   const [outboxFilter, setOutboxFilter] = useState<string>('ALL')
-  const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [isResetting, setIsResetting] = useState(false)
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info'
     message: string
   } | null>(null)
-
-  const handleFreshReset = async () => {
-    setIsResetting(true)
-    try {
-      if (typeof (api as any).freshResetDatabase === 'function') {
-        await (api as any).freshResetDatabase()
-      } else if (typeof (api as any).clearAllLocalData === 'function') {
-        await (api as any).clearAllLocalData()
-      }
-      queryClient.clear()
-      if (typeof window !== 'undefined' && window.location) {
-        window.location.reload()
-      }
-    } catch (err: any) {
-      setFeedback({
-        type: 'error',
-        message: `Reset failed: ${err.message || 'Unknown error'}`,
-      })
-      setIsResetting(false)
-      setShowResetConfirm(false)
-    }
-  }
-
   const refreshData = useCallback(async () => {
     try {
       const syncStatus = await api.getSyncStatus()
@@ -313,15 +287,6 @@ export default function SyncPage() {
               {isReconciling ? 'Auditing...' : 'Reconcile'}
             </Button>
 
-            <Button
-              onClick={() => setShowResetConfirm(true)}
-              disabled={isResetting}
-              variant="outline"
-              className="gap-1.5 border-rose-300/40 bg-rose-500/20 hover:bg-rose-500/40 text-rose-100 font-semibold h-8 px-3 rounded-lg text-xs"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-200" />
-              Reset Local Data
-            </Button>
           </div>
         </div>
       </div>
@@ -852,38 +817,7 @@ export default function SyncPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Confirmation Modal */}
-      {showResetConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600">
-              <Trash2 className="h-6 w-6" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800">Clear All Local Data & Outbox?</h3>
-            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-              This will wipe all locally stored purchases, batch records, outbox sync queues, and audit logs on this device, leaving only a clean slate with the initial Admin account.
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setShowResetConfirm(false)}
-                disabled={isResetting}
-                className="rounded-xl border-slate-200 text-slate-700"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleFreshReset}
-                disabled={isResetting}
-                className="gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold"
-              >
-                {isResetting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {isResetting ? 'Resetting...' : 'Yes, Wipe Local Data'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   )
 }

@@ -354,7 +354,75 @@ export const hubClient = {
 
   // Backup
   exportBackup: async () => {
-    return { success: false, message: 'Database backup available on main depot terminal' }
+    try {
+      const [medicines, batches, categories, customers, suppliers, sales, purchases, settings] = await Promise.all([
+        hubClient.getMedicines().catch(() => []),
+        hubClient.getBatches().catch(() => []),
+        hubClient.getCategories().catch(() => []),
+        hubClient.getCustomers().catch(() => []),
+        hubClient.getSuppliers().catch(() => []),
+        hubClient.getSales().catch(() => []),
+        hubClient.getPurchases().catch(() => []),
+        hubClient.getSettings().catch(() => ({})),
+      ])
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const fileName = `sml_hub_backup_${timestamp}.json`
+      const backupData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        system: 'SOFIYEM Legacy Cold Store (Hub Snapshot)',
+        data: {
+          medicines,
+          batches,
+          categories,
+          customers,
+          suppliers,
+          sales,
+          purchases,
+          settings,
+        }
+      }
+
+      const jsonString = JSON.stringify(backupData, null, 2)
+
+      if (typeof navigator !== 'undefined' && typeof File !== 'undefined' && typeof (navigator as any).canShare === 'function') {
+        try {
+          const file = new File([jsonString], fileName, { type: 'application/json' })
+          if ((navigator as any).canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'SML Cold Store Backup',
+              text: `Hub Database snapshot (${fileName})`,
+              files: [file],
+            })
+            return { success: true, path: fileName }
+          }
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') return { success: true, path: fileName }
+        }
+      }
+
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.style.display = 'none'
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => {
+          try {
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+          } catch {}
+        }, 60000)
+      }
+
+      return { success: true, path: fileName }
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Failed to export backup from hub' }
+    }
   },
 
   // Printing & Hardware

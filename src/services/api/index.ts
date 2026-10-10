@@ -109,6 +109,22 @@ export function getApi() {
         return await mobileApi.setSetting(updates)
       },
 
+      exportBackup: async () => {
+        if (typeof electronApi.exportBackup === 'function') {
+          try {
+            const res = await electronApi.exportBackup()
+            if (res && res.success) return res
+          } catch (e) {
+            console.warn('Electron exportBackup error, falling back to mobile snapshot:', e)
+          }
+        }
+        return await mobileApi.exportBackup()
+      },
+
+      restoreBackup: async (content: string | object) => {
+        return await mobileApi.restoreBackup(content)
+      },
+
       freshResetDatabase: async () => {
         if (typeof electronApi.freshResetDatabase === 'function') {
           try {

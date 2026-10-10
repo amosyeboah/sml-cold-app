@@ -3143,27 +3143,156 @@ export const mobileApi = {
     }
   },
 
-  // Backup
+  // Backup Export
   exportBackup: async () => {
-    const backupData = {
-      users: getItem(STORAGE_KEYS.USERS, []),
-      categories: getItem(STORAGE_KEYS.CATEGORIES, []),
-      suppliers: getItem(STORAGE_KEYS.SUPPLIERS, []),
-      customers: getItem(STORAGE_KEYS.CUSTOMERS, []),
-      medicines: getItem(STORAGE_KEYS.MEDICINES, []),
-      batches: getItem(STORAGE_KEYS.BATCHES, []),
-      purchases: getItem(STORAGE_KEYS.PURCHASES, []),
-      sales: getItem(STORAGE_KEYS.SALES, []),
-      settings: getItem(STORAGE_KEYS.SETTINGS, {})
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const fileName = `sml_coldstore_backup_${timestamp}.json`
+
+      const backupData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        system: 'SOFIYEM Legacy Cold Store',
+        data: {
+          users: getItem(STORAGE_KEYS.USERS, []),
+          categories: getItem(STORAGE_KEYS.CATEGORIES, []),
+          suppliers: getItem(STORAGE_KEYS.SUPPLIERS, []),
+          customers: getItem(STORAGE_KEYS.CUSTOMERS, []),
+          medicines: getItem(STORAGE_KEYS.MEDICINES, []),
+          batches: getItem(STORAGE_KEYS.BATCHES, []),
+          purchases: getItem(STORAGE_KEYS.PURCHASES, []),
+          sales: getItem(STORAGE_KEYS.SALES, []),
+          settings: getItem(STORAGE_KEYS.SETTINGS, {}),
+          prescriptions: getItem(STORAGE_KEYS.PRESCRIPTIONS, []),
+          auditLogs: getItem(STORAGE_KEYS.AUDIT_LOGS, []),
+        }
+      }
+
+      const jsonString = JSON.stringify(backupData, null, 2)
+
+      // 1. Mobile & Android Tablet: Native Web Share API (Save to Drive / Files / WhatsApp / etc.)
+      if (typeof navigator !== 'undefined' && typeof File !== 'undefined' && typeof (navigator as any).canShare === 'function') {
+        try {
+          const file = new File([jsonString], fileName, { type: 'application/json' })
+          if ((navigator as any).canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'SML Cold Store Database Backup',
+              text: `Snapshot exported on ${new Date().toLocaleString()}`,
+              files: [file],
+            })
+            return {
+              success: true,
+              path: fileName,
+              method: 'share',
+              counts: {
+                medicines: backupData.data.medicines.length,
+                batches: backupData.data.batches.length,
+                sales: backupData.data.sales.length,
+              }
+            }
+          }
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') {
+            return { success: true, path: fileName, method: 'share_dismissed' }
+          }
+          console.warn('Native share failed, falling back to download:', shareErr)
+        }
+      }
+
+      // 2. Browser / WebView anchor download
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        try {
+          const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.style.display = 'none'
+          a.href = url
+          a.download = fileName
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(() => {
+            try {
+              document.body.removeChild(a)
+              URL.revokeObjectURL(url)
+            } catch {}
+          }, 60000)
+        } catch (downloadErr) {
+          console.warn('Blob download failed, using data URI:', downloadErr)
+          const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(jsonString)
+          const a = document.createElement('a')
+          a.href = dataUri
+          a.download = fileName
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }
+      }
+
+      return {
+        success: true,
+        path: fileName,
+        counts: {
+          medicines: backupData.data.medicines.length,
+          batches: backupData.data.batches.length,
+          sales: backupData.data.sales.length,
+        }
+      }
+    } catch (err: any) {
+      console.error('Export backup failed:', err)
+      return { success: false, message: err.message || 'Failed to export database backup' }
     }
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `sml_coldstore_backup_${new Date().toISOString().split('T')[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    return { success: true }
+  },
+
+  // Backup Restore
+  restoreBackup: async (jsonContent: string | object) => {
+    try {
+      const parsed = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent
+      const data = parsed.data || parsed
+
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid backup file format.')
+      }
+
+      let restoredCount = 0
+      if (Array.isArray(data.medicines)) { setItem(STORAGE_KEYS.MEDICINES, data.medicines); restoredCount += data.medicines.length }
+      if (Array.isArray(data.batches)) { setItem(STORAGE_KEYS.BATCHES, data.batches); restoredCount += data.batches.length }
+      if (Array.isArray(data.categories)) { setItem(STORAGE_KEYS.CATEGORIES, data.categories); restoredCount += data.categories.length }
+      if (Array.isArray(data.customers)) { setItem(STORAGE_KEYS.CUSTOMERS, data.customers); restoredCount += data.customers.length }
+      if (Array.isArray(data.suppliers)) { setItem(STORAGE_KEYS.SUPPLIERS, data.suppliers); restoredCount += data.suppliers.length }
+      if (Array.isArray(data.sales)) { setItem(STORAGE_KEYS.SALES, data.sales); restoredCount += data.sales.length }
+      if (Array.isArray(data.purchases)) { setItem(STORAGE_KEYS.PURCHASES, data.purchases); restoredCount += data.purchases.length }
+      if (Array.isArray(data.users)) { setItem(STORAGE_KEYS.USERS, data.users); restoredCount += data.users.length }
+      if (data.settings && typeof data.settings === 'object') {
+        const mergedSettings = { ...DEFAULT_STORE_SETTINGS, ...data.settings }
+        setItem(STORAGE_KEYS.SETTINGS, mergedSettings)
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('settings_updated', { detail: mergedSettings }))
+        }
+      }
+      if (Array.isArray(data.auditLogs)) setItem(STORAGE_KEYS.AUDIT_LOGS, data.auditLogs)
+
+      // Audit trail entry
+      const existingLogs = getItem<any[]>(STORAGE_KEYS.AUDIT_LOGS, [])
+      const restoreLog = {
+        id: `aud_restore_${Date.now()}`,
+        action: 'BACKUP_RESTORE',
+        category: 'SYSTEM',
+        details: `Database restored from backup snapshot (${restoredCount} items restored).`,
+        timestamp: new Date().toISOString(),
+        user: 'admin',
+        severity: 'WARN',
+      }
+      setItem(STORAGE_KEYS.AUDIT_LOGS, [restoreLog, ...existingLogs])
+
+      return {
+        success: true,
+        restoredCount,
+        message: `Successfully restored ${restoredCount} database items from backup.`
+      }
+    } catch (err: any) {
+      console.error('Restore backup error:', err)
+      return { success: false, message: err.message || 'Failed to restore backup' }
+    }
   },
 
   // Printing & Hardware

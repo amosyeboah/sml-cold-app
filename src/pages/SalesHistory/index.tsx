@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, ChevronLeft, ChevronRight, Printer, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'

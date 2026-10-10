@@ -154,7 +154,6 @@ export default function Settings() {
   const { data: stored = {}, isLoading } = useQuery<Record<string, string>>({
     queryKey: ['settings'],
     queryFn: () => window.api.getSettings(),
-    refetchInterval: 3000,
   })
 
   const { data: installedPrinters = [] } = useQuery<any[]>({
@@ -307,14 +306,6 @@ export default function Settings() {
     }
   }, [stored])
 
-  useEffect(() => {
-    const handleSettingsUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-    }
-    window.addEventListener('settings_updated', handleSettingsUpdated)
-    return () => window.removeEventListener('settings_updated', handleSettingsUpdated)
-  }, [queryClient])
-
   const saveMutation = useMutation({
     mutationFn: (updates: Record<string, string>) => window.api.setSetting(updates),
     onSuccess: () => {
@@ -327,14 +318,6 @@ export default function Settings() {
   const set = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
   const toggle = (key: string) => set(key, form[key] === 'true' ? 'false' : 'true')
   const bool = (key: string) => form[key] === 'true'
-
-  const handleToggle = (key: string) => {
-    const nextVal = form[key] === 'true' ? 'false' : 'true'
-    const updated = { ...form, [key]: nextVal }
-    setForm(updated)
-    // Instantly save to cloud & local storage so remote and local devices reflect the admin's choice immediately
-    saveMutation.mutate(updated)
-  }
 
   const handleSave = () => saveMutation.mutate(form)
 
@@ -593,24 +576,11 @@ export default function Settings() {
           {activeTab === 'pos' && (
             <>
               <Card className="border-gray-200 shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/60 px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <ShoppingBag className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-semibold text-gray-700">POS Checkout Preferences</span>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live Cloud Sync
-                  </span>
+                <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/60 px-5 py-3">
+                  <ShoppingBag className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-700">POS Checkout Preferences</span>
                 </div>
                 <CardContent className="p-5 space-y-4">
-                  <div className="rounded-lg bg-blue-50/70 p-3 text-xs text-blue-700 border border-blue-100 flex items-start gap-2">
-                    <span className="text-sm leading-none mt-0.5">⚡</span>
-                    <span>
-                      <strong>Centralized Remote Management:</strong> Toggling discount, tax, or refund controls saves immediately to UK Owner Cloud and propagates to Android tablets and POS screens automatically in real time.
-                    </span>
-                  </div>
-
                   <div className="space-y-4 divide-y divide-gray-100">
                     {/* Discount setting */}
                     <div className="flex items-center justify-between gap-4 pt-3 first:pt-0">
@@ -621,7 +591,7 @@ export default function Settings() {
                       <Toggle
                         id="toggle-pos-enableDiscount"
                         checked={bool('pos.enableDiscount')}
-                        onChange={() => handleToggle('pos.enableDiscount')}
+                        onChange={() => toggle('pos.enableDiscount')}
                       />
                     </div>
 
@@ -634,7 +604,7 @@ export default function Settings() {
                       <Toggle
                         id="toggle-pos-enableTax"
                         checked={bool('pos.enableTax')}
-                        onChange={() => handleToggle('pos.enableTax')}
+                        onChange={() => toggle('pos.enableTax')}
                       />
                     </div>
 
@@ -647,7 +617,7 @@ export default function Settings() {
                       <Toggle
                         id="toggle-pos-enableRefund"
                         checked={bool('pos.enableRefund')}
-                        onChange={() => handleToggle('pos.enableRefund')}
+                        onChange={() => toggle('pos.enableRefund')}
                       />
                     </div>
                   </div>
@@ -1152,7 +1122,7 @@ export default function Settings() {
                           id: 'bluetooth-hid' as ScannerConnectionType,
                           label: 'Bluetooth Wireless (HID Mode)',
                           badge: 'Recommended for Bluetooth',
-                          sub: 'Standard wireless keyboard wedge. Works with Netum, Inateck, Eyoyo, Tera, Zebra, Honeywell, Symcode & ring scanners.',
+                          sub: 'Standard wireless keyboard wedge.',
                           icon: Bluetooth,
                         },
                         {
@@ -1173,7 +1143,7 @@ export default function Settings() {
                           id: 'serial' as ScannerConnectionType,
                           label: 'USB Virtual COM / RS-232',
                           badge: 'Serial Port',
-                          sub: 'Emulated virtual COM port connection for legacy retail POS barcode systems.',
+                          sub: 'Emulated virtual COM port connection.',
                           icon: Cpu,
                         },
                       ].map((mode) => {
@@ -1226,7 +1196,7 @@ export default function Settings() {
                           Open Android <strong>Settings → Bluetooth (Connected Devices)</strong> on this tablet and tap <strong>Pair new device</strong>.
                         </li>
                         <li>
-                          Select your barcode scanner (e.g. <em>Netum-Scan, Eyoyo-BT, Barcode Scanner</em>). Once paired, scans will automatically beep and add items to cart!
+                          Select your barcode scanner. Once paired, scans will automatically beep and add items to cart!
                         </li>
                       </ol>
 

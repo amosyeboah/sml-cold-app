@@ -555,6 +555,9 @@ export async function createCustomer(data: { name: string; phone?: string }, met
 }
 
 export async function updateCustomer(id: string, data: { name: string; phone?: string }, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  if (meta?.userRole === 'CASHIER') {
+    throw new Error('Cashiers are not permitted to edit customer data')
+  }
   const existing = await prisma.customer.findUnique({ where: { id } })
   const cust = await prisma.customer.update({ where: { id }, data })
   await recordAudit({
@@ -571,6 +574,9 @@ export async function updateCustomer(id: string, data: { name: string; phone?: s
 }
 
 export async function deleteCustomer(id: string, meta?: { username?: string; userRole?: string; deviceId?: string }) {
+  if (meta?.userRole === 'CASHIER') {
+    throw new Error('Cashiers are not permitted to delete customer data')
+  }
   const existing = await prisma.customer.findUnique({ where: { id } })
   const res = await prisma.customer.delete({ where: { id } })
   await recordAudit({

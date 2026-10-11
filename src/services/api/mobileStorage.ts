@@ -2023,7 +2023,10 @@ export const mobileApi = {
 
     return newItem
   },
-  updateCustomer: async (id: string, data: any) => {
+  updateCustomer: async (id: string, data: any, userRole?: string) => {
+    if (userRole === 'CASHIER') {
+      throw new Error('Cashiers are not permitted to edit customer data')
+    }
     const list = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
     const idx = list.findIndex(i => i.id === id)
     if (idx !== -1) {
@@ -2056,7 +2059,10 @@ export const mobileApi = {
     }
     throw new Error('Customer not found')
   },
-  deleteCustomer: async (id: string) => {
+  deleteCustomer: async (id: string, userRole?: string) => {
+    if (userRole === 'CASHIER') {
+      throw new Error('Cashiers are not permitted to delete customer data')
+    }
     const deletedCustIds = getItem<string[]>(STORAGE_KEYS.DELETED_CUSTOMER_IDS, [])
     if (!deletedCustIds.includes(id)) {
       deletedCustIds.push(id)
@@ -3579,7 +3585,9 @@ export const mobileApi = {
   },
 
   getSyncStatus: async () => {
-    const pending = getPendingQueue().length
+    const pendingQueue = getPendingQueue()
+    const failedItems = pendingQueue.filter((i) => i.status === 'FAILED')
+    const pending = pendingQueue.length
     const isSyncing = isSyncInProgress()
     const isOnline = typeof navigator !== 'undefined' && navigator.onLine
     let state = 'ONLINE'
@@ -3587,6 +3595,8 @@ export const mobileApi = {
       state = 'OFFLINE'
     } else if (isSyncing) {
       state = 'SYNCING'
+    } else if (failedItems.length > 0) {
+      state = 'SYNC_ERROR'
     } else if (pending > 0) {
       state = 'PENDING'
     }
@@ -3596,9 +3606,9 @@ export const mobileApi = {
       state,
       lastSyncTime: getLastSyncTime() || new Date().toISOString(),
       pendingCount: pending,
-      failedCount: 0,
+      failedCount: failedItems.length,
       deadLetterCount: 0,
-      lastError: null,
+      lastError: failedItems[0]?.error || null,
       inboundCursor: 0,
       depotId: 'sml_accra_main',
       cloudConfigured: true,

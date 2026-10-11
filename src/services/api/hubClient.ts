@@ -549,7 +549,8 @@ export const hubClient = {
     const qs = new URLSearchParams()
     if (status) qs.set('status', status)
     if (limit) qs.set('limit', String(limit))
-    return await request<any>(`/api/sync/outbox?${qs.toString()}`)
+    const res = await request<any>(`/api/sync/outbox?${qs.toString()}`)
+    return Array.isArray(res) ? res : res?.items || []
   },
 
   getSyncSessions: async (limit?: number) => {

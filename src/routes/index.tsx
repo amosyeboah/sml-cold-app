@@ -40,7 +40,7 @@ export const router = createHashRouter([
           { path: 'dashboard', element: <Dashboard /> },
           { path: 'pos', element: <POS /> },
           { path: 'sales-history', element: <SalesHistory /> },
-          { path: 'products', element: <Medicines /> },
+          { path: 'products', element: <RoleGuard allowedRoles={['ADMIN', 'MANAGER']}><Medicines /></RoleGuard> },
           { path: 'medicines', element: <Navigate to="/products" replace /> },
           { path: 'inventory', element: <RoleGuard allowedRoles={['ADMIN', 'MANAGER']}><Inventory /></RoleGuard> },
           { path: 'purchases', element: <RoleGuard allowedRoles={['ADMIN', 'MANAGER']}><Purchases /></RoleGuard> },

@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   ExternalLink,
   CheckCircle2,
+  Users,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -34,6 +35,7 @@ import {
 } from 'recharts'
 import { Link } from 'react-router-dom'
 import { cn } from '@/utils'
+import { useAuthStore } from '@/store/authStore'
 
 // ─── Sparkline mini chart ──────────────────────────────────────────────────
 function Sparkline({ data, color }: { data: number[]; color: string }) {
@@ -120,12 +122,14 @@ function KPICard({
 
 // ─── Quick Actions Data ───────────────────────────────────────────────────
 const quickActions = [
-  { label: 'New Sale', icon: ShoppingCart, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', to: '/pos' },
-  { label: 'Add Product', icon: Package, color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0', to: '/products' },
-  { label: 'Purchases', icon: ShoppingBag, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a', to: '/purchases' },
-  { label: 'Inventory', icon: Layers, color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', to: '/inventory' },
-  { label: 'Reports', icon: FileText, color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8', to: '/reports' },
-  { label: 'Cloud Sync', icon: RefreshCw, color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc', to: '/sync' },
+  { label: 'New Sale', icon: ShoppingCart, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', to: '/pos', allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
+  { label: 'Add Product', icon: Package, color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0', to: '/products', allowedRoles: ['ADMIN', 'MANAGER'] },
+  { label: 'Purchases', icon: ShoppingBag, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a', to: '/purchases', allowedRoles: ['ADMIN', 'MANAGER'] },
+  { label: 'Inventory', icon: Layers, color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', to: '/inventory', allowedRoles: ['ADMIN', 'MANAGER'] },
+  { label: 'Customers', icon: Users, color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd', to: '/customers', allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
+  { label: 'Sales History', icon: FileText, color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe', to: '/sales-history', allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
+  { label: 'Reports', icon: FileText, color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8', to: '/reports', allowedRoles: ['ADMIN', 'MANAGER'] },
+  { label: 'Cloud Sync', icon: RefreshCw, color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc', to: '/sync', allowedRoles: ['ADMIN', 'MANAGER'] },
 ]
 
 const kpiSparkBlue = [300, 350, 280, 420, 390, 470, 410, 500, 460, 520]
@@ -147,6 +151,10 @@ const SalesOverviewTooltip = ({ active, payload, label }: any) => {
 }
 
 export default function Dashboard() {
+  const user = useAuthStore((s) => s.user)
+  const role = user?.role || 'CASHIER'
+  const visibleQuickActions = quickActions.filter((a) => !a.allowedRoles || a.allowedRoles.includes(role))
+
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: () => window.api.getDashboardStats(),
@@ -213,7 +221,7 @@ export default function Dashboard() {
           <span className="text-[11px] text-slate-400 font-medium">1-Tap Shortcuts</span>
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-          {quickActions.map((action) => (
+          {visibleQuickActions.map((action) => (
             <Link key={action.label} to={action.to} className="min-w-0">
               <button
                 className="w-full flex flex-col items-center justify-center gap-1.5 p-2 sm:p-2.5 rounded-xl border transition-all duration-150 hover:shadow-sm hover:scale-[1.02] active:scale-95 cursor-pointer min-h-[64px] sm:min-h-[72px]"
@@ -476,11 +484,13 @@ export default function Dashboard() {
                 <p className="text-[11px] text-slate-400">Cartons below reorder thresholds</p>
               </div>
             </div>
-            <Link to="/inventory">
-              <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50 cursor-pointer">
-                Manage
-              </button>
-            </Link>
+            {role !== 'CASHIER' && (
+              <Link to="/inventory">
+                <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50 cursor-pointer">
+                  Manage
+                </button>
+              </Link>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -514,11 +524,13 @@ export default function Dashboard() {
                 <p className="text-[11px] text-slate-400">Batches needing attention</p>
               </div>
             </div>
-            <Link to="/expiry">
-              <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50 cursor-pointer">
-                View
-              </button>
-            </Link>
+            {role !== 'CASHIER' && (
+              <Link to="/expiry">
+                <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50 cursor-pointer">
+                  View
+                </button>
+              </Link>
+            )}
           </div>
 
           <div className="space-y-2">

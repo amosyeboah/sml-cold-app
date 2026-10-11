@@ -331,7 +331,7 @@ export default function TopBar() {
                     const role = user?.role || 'CASHIER'
                     if (role === 'ADMIN') return true
                     if (role === 'MANAGER') return !['/backup', '/users', '/settings'].includes(path)
-                    return ['/dashboard', '/pos', '/products', '/customers'].includes(path)
+                    return ['/dashboard', '/pos', '/customers'].includes(path)
                   })
                   .map(([path, desc]) => (
                   <Command.Item 
@@ -350,7 +350,7 @@ export default function TopBar() {
                 ))}
               </Command.Group>
 
-              {medicines && medicines.length > 0 && (
+              {medicines && medicines.length > 0 && (user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
                 <Command.Group heading="Products" className="text-xs font-semibold text-slate-400 px-2 py-1.5 mt-2 [&_[cmdk-group-heading]]:mb-2">
                   {medicines.map((m: any) => (
                     <Command.Item 

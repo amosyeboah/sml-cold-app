@@ -122,7 +122,10 @@ function formatCurrency(value: number) {
 }
 
 function formatTrend(value: number) {
-  const sign = value >= 0 ? '↑' : '↓'
+  if (value === 0 || Object.is(value, -0)) {
+    return '0.0%'
+  }
+  const sign = value > 0 ? '↑' : '↓'
   return `${sign} ${Math.abs(value).toFixed(1)}%`
 }
 

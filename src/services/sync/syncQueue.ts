@@ -385,6 +385,46 @@ export async function flushSyncQueue(): Promise<{
             })
             if (error) uploadError = error
           }
+        } else if (item.entity === 'PURCHASE') {
+          const purchase = item.payload
+          if (item.action === 'DELETE') {
+            await client.from('cloud_purchase_items').delete().eq('purchase_id', purchase.id).catch(() => {})
+            const { error } = await client.from('cloud_purchases').delete().eq('id', purchase.id)
+            if (error) uploadError = error
+          } else {
+            const poNumber = purchase.poNumber || purchase.po_number || `PO-${String(purchase.id).slice(0, 8).toUpperCase()}`
+            const { error: purErr } = await client.from('cloud_purchases').upsert({
+              id: purchase.id,
+              store_id: 'sml_accra_main',
+              po_number: poNumber,
+              supplier_name: purchase.supplier?.name || purchase.supplierName || 'Local Supplier',
+              total_amount: Number(purchase.total ?? purchase.totalAmount) || 0,
+              status: purchase.status || 'COMPLETED',
+              notes: purchase.notes || null,
+              created_at: purchase.date || purchase.createdAt || new Date().toISOString(),
+            })
+            if (purErr) uploadError = purErr
+
+            if (!uploadError && purchase.items && Array.isArray(purchase.items) && purchase.items.length > 0) {
+              const purchaseItems = purchase.items.map((i: any) => {
+                const qty = Number(i.quantity ?? i.quantityReceived ?? i.quantityOrdered) || 1
+                const costPrice = Number(i.cost ?? i.costPrice) || 0
+                return {
+                  id: i.id || `${purchase.id}_${i.medicineId || i.productId || Math.random().toString(36).substring(2, 7)}`,
+                  purchase_id: purchase.id,
+                  product_id: i.medicineId || i.productId || null,
+                  product_name: i.productName || i.name || 'Cold Store Item',
+                  cost_price: costPrice,
+                  quantity_ordered: qty,
+                  quantity_received: qty,
+                  total_cost: qty * costPrice,
+                  created_at: purchase.date || purchase.createdAt || new Date().toISOString(),
+                }
+              })
+              const { error: itemsErr } = await client.from('cloud_purchase_items').upsert(purchaseItems)
+              if (itemsErr) uploadError = itemsErr
+            }
+          }
         }
 
         if (uploadError) {

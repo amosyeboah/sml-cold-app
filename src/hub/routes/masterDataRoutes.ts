@@ -38,15 +38,23 @@ export const masterDataRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send(created)
   })
 
-  fastify.put('/api/customers/:id', async (request) => {
+  fastify.put('/api/customers/:id', async (request, reply) => {
     const { id } = request.params as any
     const body = request.body as any
-    return await inventoryService.updateCustomer(id, body)
+    const role = (request.headers['x-user-role'] as string) || body?.userRole
+    if (role === 'CASHIER') {
+      return reply.status(403).send({ error: 'Cashiers are not permitted to edit customer data' })
+    }
+    return await inventoryService.updateCustomer(id, body, { userRole: role })
   })
 
-  fastify.delete('/api/customers/:id', async (request) => {
+  fastify.delete('/api/customers/:id', async (request, reply) => {
     const { id } = request.params as any
-    return await inventoryService.deleteCustomer(id)
+    const role = (request.headers['x-user-role'] as string)
+    if (role === 'CASHIER') {
+      return reply.status(403).send({ error: 'Cashiers are not permitted to delete customer data' })
+    }
+    return await inventoryService.deleteCustomer(id, { userRole: role })
   })
 
   // ─── Suppliers ──────────────────────────────────────────────────────────────

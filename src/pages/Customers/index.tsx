@@ -12,6 +12,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Customer } from '@/types'
 import { api } from '@/services/api'
+import { useAuthStore } from '@/store/authStore'
 
 const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
 
@@ -26,6 +27,8 @@ const ITEMS_PER_PAGE = 15
 
 export default function Customers() {
   const queryClient = useQueryClient()
+  const user = useAuthStore((s) => s.user)
+  const isCashier = (user?.role || 'CASHIER') === 'CASHIER'
   const [searchTerm, setSearchTerm] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -53,7 +56,10 @@ export default function Customers() {
   })
 
   const updateCustomerMutation = useMutation({
-    mutationFn: (data: CustomerFormData) => apiClient.updateCustomer(data.id!, data),
+    mutationFn: (data: CustomerFormData) => {
+      if (isCashier) throw new Error('Cashiers are not permitted to edit customer data')
+      return apiClient.updateCustomer(data.id!, data)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       closeModal()
@@ -61,7 +67,10 @@ export default function Customers() {
   })
 
   const deleteCustomerMutation = useMutation({
-    mutationFn: (id: string) => apiClient.deleteCustomer(id),
+    mutationFn: (id: string) => {
+      if (isCashier) throw new Error('Cashiers are not permitted to delete customer data')
+      return apiClient.deleteCustomer(id)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       setIsDeleteDialogOpen(false)
@@ -75,6 +84,7 @@ export default function Customers() {
 
   const onSubmit = (data: CustomerFormData) => {
     if (editingCustomer) {
+      if (isCashier) return
       updateCustomerMutation.mutate(data)
     } else {
       createCustomerMutation.mutate(data)
@@ -82,6 +92,7 @@ export default function Customers() {
   }
 
   const openEditModal = (customer: Customer) => {
+    if (isCashier) return
     setEditingCustomer(customer)
     setValue('id', customer.id)
     setValue('name', customer.name)
@@ -96,6 +107,7 @@ export default function Customers() {
   }
 
   const openDeleteModal = (customer: Customer) => {
+    if (isCashier) return
     setCustomerToDelete(customer)
     setIsDeleteDialogOpen(true)
   }
@@ -177,7 +189,11 @@ export default function Customers() {
           <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-800">Customer records</h2>
-              <p className="text-sm text-slate-500">Review customer activity and communication details.</p>
+              <p className="text-sm text-slate-500">
+                {isCashier
+                  ? 'Review customer profiles and transaction histories (View only).'
+                  : 'Review customer activity and communication details.'}
+              </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="relative w-full sm:w-72">
@@ -376,17 +392,19 @@ export default function Customers() {
                       Close
                     </Button>
 
-                    <Button
-                      onClick={() => {
-                        const toEdit = viewingCustomer
-                        setViewingCustomer(null)
-                        openEditModal(toEdit)
-                      }}
-                      className="gap-2 text-white bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      Edit Profile
-                    </Button>
+                    {!isCashier && (
+                      <Button
+                        onClick={() => {
+                          const toEdit = viewingCustomer
+                          setViewingCustomer(null)
+                          openEditModal(toEdit)
+                        }}
+                        className="gap-2 text-white bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        Edit Profile
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
@@ -442,12 +460,28 @@ export default function Customers() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700" onClick={() => openEditModal(cust)}>
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700" onClick={() => openDeleteModal(cust)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {!isCashier && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700"
+                                onClick={() => openEditModal(cust)}
+                                title="Edit Customer Profile"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-md bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
+                                onClick={() => openDeleteModal(cust)}
+                                title="Delete Customer Profile"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

@@ -13,6 +13,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Medicine, Category } from '@/types'
 import { useAuthStore } from '@/store/authStore'
+import { Navigate } from 'react-router-dom'
 import { api } from '@/services/api'
 
 const medSchema = z.object({
@@ -32,6 +33,11 @@ export default function Medicines() {
   const queryClient = useQueryClient()
   const { user } = useAuthStore()
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+
+  if (!canManage) {
+    return <Navigate to="/pos" replace />
+  }
+
   const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
 
   const [searchTerm, setSearchTerm] = useState('')

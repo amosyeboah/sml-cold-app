@@ -129,6 +129,8 @@ export default function SyncPage() {
       const outbox = await api.getSyncOutbox(undefined, 50)
       if (Array.isArray(outbox)) {
         setOutboxItems(outbox)
+      } else if (outbox && Array.isArray((outbox as any).items)) {
+        setOutboxItems((outbox as any).items)
       }
       const sessionLogs = await api.getSyncSessions(20)
       if (Array.isArray(sessionLogs)) {
@@ -366,8 +368,20 @@ export default function SyncPage() {
                 )}
               </div>
               <p className="text-xs text-slate-500">
-                {status.pendingCount === 0 ? 'All local events synced' : 'Batches queued for upload'}
+                {status.pendingCount === 0
+                  ? 'All local events synced'
+                  : `${status.pendingCount} local event${status.pendingCount === 1 ? '' : 's'} queued for upload`}
               </p>
+              {status.pendingCount > 0 && (
+                <button
+                  onClick={handleFlushOutbox}
+                  disabled={isFlushing}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline flex items-center gap-1 pt-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isFlushing ? 'animate-spin' : ''}`} />
+                  {isFlushing ? 'Pushing outbox...' : 'Push outbox now'}
+                </button>
+              )}
             </div>
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
               <Database className="w-5 h-5" />
@@ -504,11 +518,11 @@ export default function SyncPage() {
                             {item.eventId?.slice(0, 16) || 'N/A'}...
                           </TableCell>
                           <TableCell className="font-semibold text-slate-700">
-                            {item.entityType}
+                            {item.entityType || (item as any).entity}
                           </TableCell>
                           <TableCell>
                             <span className="font-mono text-[10px] bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-700">
-                              {item.operation}
+                              {item.operation || (item as any).action}
                             </span>
                           </TableCell>
                           <TableCell className="text-slate-500">
@@ -533,7 +547,7 @@ export default function SyncPage() {
                             </span>
                           </TableCell>
                           <TableCell className="max-w-xs truncate text-[11px] text-slate-500">
-                            {item.lastError || (item.processedAt ? `Synced at ${new Date(item.processedAt).toLocaleTimeString()}` : 'Queued')}
+                            {item.lastError || (item.processedAt ? `Synced at ${new Date(item.processedAt).toLocaleTimeString()}` : 'Queued for cloud upload')}
                           </TableCell>
                         </TableRow>
                       ))}

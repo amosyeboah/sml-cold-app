@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Cloud,
   CloudOff,
@@ -17,6 +17,7 @@ import {
   Activity,
   Layers,
   FileCheck2,
+  Trash2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -52,6 +53,9 @@ interface OutboxItem {
   lastError?: string | null
   createdAt: string
   processedAt?: string | null
+  details?: string | null
+  summary?: string | null
+  payload?: any
 }
 
 interface ReconciliationReport {
@@ -170,6 +174,54 @@ export default function SyncPage() {
       })
     } finally {
       setIsFlushing(false)
+    }
+  }
+
+  const [isClearing, setIsClearing] = useState(false)
+
+  const pendingBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {}
+    outboxItems
+      .filter((i) => i.status === 'PENDING' || i.status === 'FAILED' || i.status === 'SYNCING')
+      .forEach((i) => {
+        const type = (i.entityType || (i as any).entity || 'EVENT').toUpperCase()
+        counts[type] = (counts[type] || 0) + 1
+      })
+    return Object.entries(counts).map(([type, count]) => ({ type, count }))
+  }, [outboxItems])
+
+  const getEntityBadgeStyle = (entity: string) => {
+    const norm = (entity || '').toUpperCase()
+    if (norm.includes('SALE')) return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+    if (norm.includes('AUDIT')) return 'bg-purple-50 text-purple-700 ring-1 ring-purple-200'
+    if (norm.includes('PRODUCT') || norm.includes('MEDICINE')) return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+    if (norm.includes('BATCH')) return 'bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200'
+    if (norm.includes('PURCHASE')) return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+    if (norm.includes('STOCK')) return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+    return 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+  }
+
+  const handleClearOutbox = async () => {
+    if (!window.confirm('Are you sure you want to clear the pending local outbox? This will purge un-synced local events.')) {
+      return
+    }
+    setIsClearing(true)
+    try {
+      if (typeof (api as any).clearSyncOutbox === 'function') {
+        await (api as any).clearSyncOutbox()
+      }
+      setFeedback({
+        type: 'info',
+        message: 'Pending local outbox queue cleared.',
+      })
+      await refreshData()
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: `Failed to clear outbox: ${err.message}`,
+      })
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -359,7 +411,7 @@ export default function SyncPage() {
         {/* Card 2: Pending Outbox */}
         <Card className="border-slate-200 shadow-sm hover:shadow transition-shadow">
           <CardContent className="p-5 flex items-start justify-between">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 flex-1 pr-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Pending Outbox</p>
               <div className="flex items-baseline gap-2">
                 <h3 className="font-bold text-slate-800 text-2xl">{status.pendingCount}</h3>
@@ -372,18 +424,44 @@ export default function SyncPage() {
                   ? 'All local events synced'
                   : `${status.pendingCount} local event${status.pendingCount === 1 ? '' : 's'} queued for upload`}
               </p>
+
+              {/* Event type breakdown pills */}
+              {pendingBreakdown.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {pendingBreakdown.map(({ type, count }) => (
+                    <span
+                      key={type}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${getEntityBadgeStyle(type)}`}
+                    >
+                      {count} {type.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {status.pendingCount > 0 && (
-                <button
-                  onClick={handleFlushOutbox}
-                  disabled={isFlushing}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline flex items-center gap-1 pt-1 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3 h-3 ${isFlushing ? 'animate-spin' : ''}`} />
-                  {isFlushing ? 'Pushing outbox...' : 'Push outbox now'}
-                </button>
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={handleFlushOutbox}
+                    disabled={isFlushing}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isFlushing ? 'animate-spin' : ''}`} />
+                    {isFlushing ? 'Pushing outbox...' : 'Push outbox now'}
+                  </button>
+                  <button
+                    onClick={handleClearOutbox}
+                    disabled={isClearing}
+                    className="text-xs font-semibold text-slate-400 hover:text-rose-600 underline flex items-center gap-1 cursor-pointer"
+                    title="Clear queued local events"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Clear
+                  </button>
+                </div>
               )}
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 flex-shrink-0">
               <Database className="w-5 h-5" />
             </div>
           </CardContent>
@@ -505,6 +583,7 @@ export default function SyncPage() {
                         <TableHead>Event ID</TableHead>
                         <TableHead>Entity</TableHead>
                         <TableHead>Operation</TableHead>
+                        <TableHead>Event Details / Payload</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>Retries</TableHead>
                         <TableHead>Status</TableHead>
@@ -512,45 +591,56 @@ export default function SyncPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOutbox.map((item) => (
-                        <TableRow key={item.id} className="text-xs border-b border-slate-100">
-                          <TableCell className="font-mono text-[11px] text-slate-600">
-                            {item.eventId?.slice(0, 16) || 'N/A'}...
-                          </TableCell>
-                          <TableCell className="font-semibold text-slate-700">
-                            {item.entityType || (item as any).entity}
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-mono text-[10px] bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-700">
-                              {item.operation || (item as any).action}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-slate-500">
-                            {new Date(item.createdAt).toLocaleTimeString()}
-                          </TableCell>
-                          <TableCell className="font-mono text-slate-600">
-                            {item.retryCount}
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                item.status === 'SYNCED'
-                                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                                  : item.status === 'PENDING'
-                                  ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                                  : item.status === 'FAILED'
-                                  ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200'
-                                  : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
-                              }`}
-                            >
-                              {item.status}
-                            </span>
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate text-[11px] text-slate-500">
-                            {item.lastError || (item.processedAt ? `Synced at ${new Date(item.processedAt).toLocaleTimeString()}` : 'Queued for cloud upload')}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {filteredOutbox.map((item) => {
+                        const ent = item.entityType || (item as any).entity || 'EVENT'
+                        const op = item.operation || (item as any).action || 'INSERT'
+                        const detailText = item.details || item.summary || `${ent} ${op}`
+
+                        return (
+                          <TableRow key={item.id} className="text-xs border-b border-slate-100">
+                            <TableCell className="font-mono text-[11px] text-slate-600">
+                              {item.eventId?.slice(0, 16) || 'N/A'}...
+                            </TableCell>
+                            <TableCell>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getEntityBadgeStyle(ent)}`}>
+                                {ent}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="font-mono text-[10px] bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-700">
+                                {op}
+                              </span>
+                            </TableCell>
+                            <TableCell className="max-w-xs truncate text-[11px] font-medium text-slate-800" title={detailText}>
+                              {detailText}
+                            </TableCell>
+                            <TableCell className="text-slate-500 whitespace-nowrap">
+                              {new Date(item.createdAt).toLocaleTimeString()}
+                            </TableCell>
+                            <TableCell className="font-mono text-slate-600">
+                              {item.retryCount}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  item.status === 'SYNCED'
+                                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                                    : item.status === 'PENDING'
+                                    ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                                    : item.status === 'FAILED'
+                                    ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200'
+                                    : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                                }`}
+                              >
+                                {item.status}
+                              </span>
+                            </TableCell>
+                            <TableCell className="max-w-xs truncate text-[11px] text-slate-500">
+                              {item.lastError || (item.processedAt ? `Synced at ${new Date(item.processedAt).toLocaleTimeString()}` : 'Queued for cloud upload')}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>

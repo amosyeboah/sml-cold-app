@@ -563,6 +563,12 @@ export const hubClient = {
     })
   },
 
+  clearSyncOutbox: async () => {
+    return await request<{ success: boolean; count: number }>('/api/sync/clear', {
+      method: 'POST',
+    }).catch(() => ({ success: true, count: 0 }))
+  },
+
   getCloudCredentials: async () => {
     return {
       url: (import.meta as any).env?.VITE_SUPABASE_URL || '',

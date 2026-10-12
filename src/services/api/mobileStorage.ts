@@ -3672,17 +3672,43 @@ export const mobileApi = {
   },
 
   getSyncOutbox: async () => {
-    return getQueue().map((q) => ({
-      id: q.id,
-      eventId: q.id,
-      entityType: q.entity,
-      entityId: q.payload?.id || q.id,
-      operation: q.action,
-      retryCount: q.retryCount,
-      status: q.status,
-      lastError: q.error,
-      createdAt: q.createdAt,
-    }))
+    return getQueue().map((q) => {
+      let details = ''
+      if (q.entity === 'SALE') {
+        const inv = q.payload?.saleNumber || q.payload?.invoice_number || String(q.payload?.id || '').slice(0, 8)
+        const amt = Number(q.payload?.total ?? q.payload?.total_amount ?? 0).toFixed(2)
+        details = `Invoice ${inv} • GH₵${amt} (${q.payload?.paymentMethod || 'CASH'})`
+      } else if (q.entity === 'AUDIT_LOG') {
+        details = `${q.payload?.action || 'ACTIVITY'}: ${q.payload?.details || 'System log'}`
+      } else if (q.entity === 'PRODUCT') {
+        details = `Product: ${q.payload?.name || q.payload?.sku || q.payload?.id} (GH₵${Number(q.payload?.price || 0).toFixed(2)})`
+      } else if (q.entity === 'BATCH') {
+        details = `Batch: ${q.payload?.batchNumber || 'N/A'} • Qty: ${q.payload?.quantity ?? 0}`
+      } else if (q.entity === 'PURCHASE') {
+        details = `Purchase: ${q.payload?.poNumber || 'PO'} • GH₵${Number(q.payload?.total || 0).toFixed(2)}`
+      } else {
+        details = `${q.entity} ${q.action}`
+      }
+
+      return {
+        id: q.id,
+        eventId: q.id,
+        entityType: q.entity,
+        entityId: q.payload?.id || q.id,
+        operation: q.action,
+        retryCount: q.retryCount,
+        status: q.status,
+        lastError: q.error,
+        createdAt: q.createdAt,
+        payload: q.payload,
+        details,
+      }
+    })
+  },
+
+  clearSyncOutbox: async () => {
+    saveQueue([])
+    return { success: true, count: 0 }
   },
 
   getSyncSessions: async () => {

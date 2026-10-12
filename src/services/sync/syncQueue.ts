@@ -59,11 +59,6 @@ function publishSyncState(listener: SyncListener): void {
     return
   }
 
-  if (isCloudHosting()) {
-    listener({ isSyncing: false, pendingCount: 0, lastSyncTime: null })
-    return
-  }
-
   // Mobile / Tablet / Web mode: use local authoritative sync state directly
   if (!(window as any).electron?.ipcRenderer) {
     listener({
@@ -171,16 +166,17 @@ export function addSyncHistoryLog(log: Omit<SyncSessionLog, 'id'>): void {
 
 // ─── Flush / Process Sync Queue ───────────────────────────────────────────────
 
+export function clearSyncQueue(): void {
+  saveQueue([])
+  notifyListeners()
+}
+
 export async function flushSyncQueue(): Promise<{
   success: boolean
   syncedCount: number
   failedCount: number
   message: string
 }> {
-  if (typeof window !== 'undefined' && isCloudHosting()) {
-    return { success: true, syncedCount: 0, failedCount: 0, message: 'Owner portal is read-only; sync is managed by the local hub.' }
-  }
-
   if (isCurrentlySyncing) {
     return {
       success: false,
@@ -525,16 +521,6 @@ export async function reconcileAllSalesWithCloud(): Promise<{
   const client = getSupabaseClient()
   if (!client) {
     return { success: false, pushedCount: 0, cloudTotal: 0, message: 'Supabase client is not configured.' }
-  }
-
-  if (typeof window !== 'undefined' && isCloudHosting()) {
-    const { count, error } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
-    return {
-      success: !error,
-      pushedCount: 0,
-      cloudTotal: count || 0,
-      message: error ? error.message : 'Owner portal refreshed from the live cloud mirror.',
-    }
   }
 
   const result = await flushSyncQueue()

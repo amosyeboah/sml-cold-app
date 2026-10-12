@@ -319,11 +319,19 @@ export async function getReportsData(startDate: string, endDate: string) {
 
     let saleCogs = 0
     for (const item of sale.items) {
-      const med = item.batch?.medicine
-      const medId = med?.id || 'unknown'
+      const med = item.batch?.medicine || allMedicines.find(m => m.id === item.batch?.medicineId)
+      const medId = med?.id || item.batch?.medicineId || 'unknown'
       const qty = item.quantity || 0
       const price = item.price || med?.price || 0
-      const unitCost = med?.cost || 0
+      const unitCost = [
+        (item as any).cost,
+        (item as any).unitCost,
+        (item as any).unit_cost,
+        med?.cost,
+        (item.batch as any)?.costPrice,
+        (item.batch as any)?.cost,
+        (item.batch as any)?.cost_price
+      ].map(Number).find(c => !isNaN(c) && c > 0) || 0
 
       const itemCogs = qty * unitCost
       saleCogs += itemCogs
@@ -342,9 +350,17 @@ export async function getReportsData(startDate: string, endDate: string) {
   let prevTotalCogs = 0
   for (const sale of prevSales) {
     for (const item of sale.items) {
-      const med = item.batch?.medicine
+      const med = item.batch?.medicine || allMedicines.find(m => m.id === item.batch?.medicineId)
       const qty = item.quantity || 0
-      const unitCost = med?.cost || 0
+      const unitCost = [
+        (item as any).cost,
+        (item as any).unitCost,
+        (item as any).unit_cost,
+        med?.cost,
+        (item.batch as any)?.costPrice,
+        (item.batch as any)?.cost,
+        (item.batch as any)?.cost_price
+      ].map(Number).find(c => !isNaN(c) && c > 0) || 0
       prevTotalCogs += qty * unitCost
     }
   }

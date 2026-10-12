@@ -577,7 +577,9 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
           // 2. Push authoritative local products up to Cloud
           if (allDbMeds.length > 0) {
             const cloudMeds = allDbMeds.map((m: any) => {
-              const totalQty = (m.batches || []).reduce((acc: number, b: any) => acc + (Number(b.quantity) || 0), 0)
+              const totalQty = (m.batches && m.batches.length > 0)
+                ? m.batches.reduce((acc: number, b: any) => acc + (Number(b.quantity) || 0), 0)
+                : (Number(m.stockQuantity) || 0)
               return {
                 id: m.id,
                 store_id: 'sml_accra_main',
@@ -588,6 +590,7 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
                 price: Number(m.price) || 0,
                 cost: Number(m.cost) || 0,
                 stock_quantity: totalQty,
+                current_stock: totalQty,
                 min_stock_level: Number(m.minStockLevel) || 10,
                 updated_at: new Date().toISOString()
               }
@@ -621,6 +624,7 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
               batch_number: b.batchNumber,
               expiry_date: b.expiryDate instanceof Date ? b.expiryDate.toISOString() : new Date(b.expiryDate).toISOString(),
               quantity: Number(b.quantity) || 0,
+              quantity_current: Number(b.quantity) || 0,
               updated_at: new Date().toISOString()
             }))
             await client.from('cloud_batches').upsert(cloudBatches)

@@ -1062,6 +1062,8 @@ export default function POS() {
     mutationFn: (data: any) => window.api.createSale(data),
     onSuccess: async (sale) => {
       queryClient.invalidateQueries({ queryKey: ['batches'] })
+      queryClient.invalidateQueries({ queryKey: ['medicines'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       const storeName = storedSettings['biz.name'] || 'SOFIYEM LEGACY LIMITED'
       const tagline = storedSettings['biz.tagline'] || 'Quality Frozen Foods & Cold Storage'
@@ -1472,6 +1474,7 @@ export default function POS() {
           name: c.medicine.name,
           quantity: a.quantity,
           price: c.medicine.price,
+          cost: Number(c.medicine.cost) || 0,
         }))
       }
       return [{
@@ -1480,6 +1483,7 @@ export default function POS() {
         name: c.medicine.name,
         quantity: c.quantity,
         price: c.medicine.price,
+        cost: Number(c.medicine.cost) || 0,
       }]
     })
 

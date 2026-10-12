@@ -214,23 +214,38 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         payments = [{ method: 'CASH', amount: totalAmt }]
       }
 
-      const finalItems = relatedItems.map((item: any) => ({
-        id: item.id,
-        batchId: item.batch_id || item.product_id,
-        medicineId: item.product_id || item.batch_id,
-        quantity: Number(item.quantity) || 1,
-        price: Number(item.unit_price ?? item.price ?? 0),
-        cost: Number(item.unit_cost ?? item.cost ?? 0),
-        name: item.product_name || item.name || 'Cold Store Item',
-        product_name: item.product_name || item.name || 'Cold Store Item',
-        medicine: {
-          id: item.product_id,
-          name: item.product_name || item.name || 'Cold Store Item',
-          sku: item.sku,
-          price: Number(item.unit_price ?? item.price ?? 0),
-          cost: Number(item.unit_cost ?? item.cost ?? 0),
-        },
-      }))
+      const localMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+
+      const finalItems = relatedItems.map((item: any) => {
+        const med = localMeds.find(
+          (m: any) =>
+            m.id === (item.product_id || item.batch_id) ||
+            (item.product_name && m.name && m.name.toLowerCase() === item.product_name.toLowerCase())
+        )
+        const unitCost = [item.unit_cost, item.cost, med?.cost]
+          .map(Number)
+          .find((c) => !isNaN(c) && c > 0) || 0
+
+        return {
+          id: item.id,
+          batchId: item.batch_id || item.product_id,
+          medicineId: item.product_id || item.batch_id || med?.id,
+          quantity: Number(item.quantity) || 1,
+          price: Number(item.unit_price ?? item.price ?? med?.price ?? 0),
+          cost: unitCost,
+          unitCost,
+          unit_cost: unitCost,
+          name: item.product_name || item.name || med?.name || 'Cold Store Item',
+          product_name: item.product_name || item.name || med?.name || 'Cold Store Item',
+          medicine: med || {
+            id: item.product_id,
+            name: item.product_name || item.name || 'Cold Store Item',
+            sku: item.sku,
+            price: Number(item.unit_price ?? item.price ?? 0),
+            cost: unitCost,
+          },
+        }
+      })
 
       return {
         id: s.id,
@@ -500,13 +515,22 @@ export async function fetchCloudBatchesIfAvailable(): Promise<any[]> {
       (b) => !deletedBatchIds.has(b.id) && !deletedMedIds.has(b.product_id)
     )
 
-    const mappedBatches = validCloudBatches.map((b) => ({
-      id: b.id,
-      medicineId: b.product_id,
-      batchNumber: b.batch_number,
-      expiryDate: b.expiry_date,
-      quantity: Number(b.quantity ?? b.quantity_current ?? b.quantity_received) || 0,
-    }))
+    const mappedBatches = validCloudBatches.map((b) => {
+      let qty = Number(b.quantity ?? 0)
+      if (b.quantity_current !== null && b.quantity_current !== undefined) {
+        const cur = Number(b.quantity_current)
+        if (!isNaN(cur) && cur >= 0) {
+          qty = cur
+        }
+      }
+      return {
+        id: b.id,
+        medicineId: b.product_id,
+        batchNumber: b.batch_number,
+        expiryDate: b.expiry_date,
+        quantity: qty,
+      }
+    })
 
     // Cloud batches are authoritative when populated.
     // Include any pending offline-created batches from the queue.
@@ -1797,8 +1821,8 @@ export const mobileApi = {
         store_id: 'sml_accra_main',
         batch_number: batchToSave.batchNumber,
         expiry_date: batchToSave.expiryDate,
+        quantity: Number(batchToSave.quantity) || 0,
         quantity_current: Number(batchToSave.quantity) || 0,
-        quantity_received: Number(batchToSave.quantity) || 0,
         updated_at: new Date().toISOString()
       }).then(() => {}).catch(() => {})
     }
@@ -1841,8 +1865,8 @@ export const mobileApi = {
           store_id: 'sml_accra_main',
           batch_number: batches[idx].batchNumber,
           expiry_date: batches[idx].expiryDate,
+          quantity: Number(batches[idx].quantity) || 0,
           quantity_current: Number(batches[idx].quantity) || 0,
-          quantity_received: Number(batches[idx].quantity) || 0,
           updated_at: new Date().toISOString()
         }).then(() => {}).catch(() => {})
       }
@@ -2106,15 +2130,50 @@ export const mobileApi = {
     const saleId = generateId()
     let computedTotal = 0
 
-    // Deduct inventory batches
+    const updatedBatchIds = new Set<string>()
+    const updatedMedIds = new Set<string>()
+
+    // Deduct inventory batches and product stockQuantity
     data.items.forEach(item => {
       computedTotal += item.price * item.quantity
-      const bIdx = batches.findIndex(b => b.id === item.batchId)
+      let remainingToDeduct = item.quantity
+
+      // 1. Deduct directly from designated batch if batchId provided and exists
+      let bIdx = batches.findIndex(b => b.id === item.batchId)
+      let resolvedMedId = (item as any).medicineId
+
       if (bIdx !== -1) {
-        batches[bIdx].quantity = Math.max(0, batches[bIdx].quantity - item.quantity)
+        const deduct = Math.min(Number(batches[bIdx].quantity) || 0, remainingToDeduct)
+        batches[bIdx].quantity = Math.max(0, (Number(batches[bIdx].quantity) || 0) - deduct)
+        remainingToDeduct -= deduct
+        resolvedMedId = batches[bIdx].medicineId || resolvedMedId
+        updatedBatchIds.add(batches[bIdx].id)
+      }
+
+      // 2. If batch was not provided or remaining quantity needed, allocate FEFO from available batches
+      if (remainingToDeduct > 0 && resolvedMedId) {
+        const prodBatches = batches
+          .filter(b => (b.medicineId === resolvedMedId || b.product_id === resolvedMedId) && (Number(b.quantity) || 0) > 0)
+          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+        for (const pb of prodBatches) {
+          if (remainingToDeduct <= 0) break
+          const deduct = Math.min(Number(pb.quantity) || 0, remainingToDeduct)
+          pb.quantity = Math.max(0, (Number(pb.quantity) || 0) - deduct)
+          remainingToDeduct -= deduct
+          updatedBatchIds.add(pb.id)
+        }
+      }
+
+      // 3. Deduct from medicine catalog master stockQuantity
+      const mIdx = medicines.findIndex(m => m.id === resolvedMedId || ((item as any).name && m.name && m.name.toLowerCase() === (item as any).name.toLowerCase()))
+      if (mIdx !== -1) {
+        medicines[mIdx].stockQuantity = Math.max(0, (Number(medicines[mIdx].stockQuantity) || 0) - item.quantity)
+        updatedMedIds.add(medicines[mIdx].id)
       }
     })
     setItem(STORAGE_KEYS.BATCHES, batches)
+    setItem(STORAGE_KEYS.MEDICINES, medicines)
 
     const finalTotal = data.total !== undefined ? data.total : computedTotal
 
@@ -2163,23 +2222,36 @@ export const mobileApi = {
       userRole: userRole,
       items: data.items.map(item => {
         const batch = batches.find(b => b.id === item.batchId)
-        const med = medicines.find(m => m.id === (batch?.medicineId || item.medicineId)) || item.medicine
-        const resolvedName = item.name || med?.name || 'Cold Store Item'
+        const med = medicines.find(m => m.id === (batch?.medicineId || (item as any).medicineId) || ((item as any).name && m.name && m.name.toLowerCase() === (item as any).name.toLowerCase())) || (item as any).medicine
+        const resolvedName = (item as any).name || med?.name || 'Cold Store Item'
+        const unitCost = [
+          (item as any).cost,
+          (item as any).unitCost,
+          (item as any).unit_cost,
+          (batch as any)?.costPrice,
+          (batch as any)?.cost,
+          (batch as any)?.cost_price,
+          batch?.medicine?.cost,
+          med?.cost
+        ].map(Number).find(c => !isNaN(c) && c > 0) || 0
+
         return {
           id: generateId(),
           saleId,
           batchId: item.batchId,
-          medicineId: med?.id || batch?.medicineId || item.medicineId || item.batchId,
+          medicineId: med?.id || batch?.medicineId || (item as any).medicineId || item.batchId,
           name: resolvedName,
           product_name: resolvedName,
           quantity: item.quantity,
           price: item.price,
-          cost: med?.cost || 0,
+          cost: unitCost,
+          unitCost: unitCost,
+          unit_cost: unitCost,
           medicine: med || {
             id: item.batchId,
             name: resolvedName,
             price: item.price,
-            cost: 0
+            cost: unitCost
           }
         }
       })
@@ -2232,13 +2304,27 @@ export const mobileApi = {
         }
       }).catch((e) => console.warn('Direct cloud sale push error:', e))
 
-      // Also push deducted batch quantities to cloud_batches
-      for (const item of data.items) {
-        const updatedBatch = batches.find(b => b.id === item.batchId)
+      // Push deducted batch quantities to cloud_batches
+      for (const bId of updatedBatchIds) {
+        const updatedBatch = batches.find(b => b.id === bId)
         if (updatedBatch) {
           client.from('cloud_batches').update({
+            quantity: Number(updatedBatch.quantity) || 0,
             quantity_current: Number(updatedBatch.quantity) || 0,
+            updated_at: new Date().toISOString()
           }).eq('id', updatedBatch.id).then(() => {}).catch(() => {})
+        }
+      }
+
+      // Push deducted product stock quantities to cloud_products
+      for (const mId of updatedMedIds) {
+        const updatedMed = medicines.find(m => m.id === mId)
+        if (updatedMed) {
+          client.from('cloud_products').update({
+            stock_quantity: Number(updatedMed.stockQuantity) || 0,
+            current_stock: Number(updatedMed.stockQuantity) || 0,
+            updated_at: new Date().toISOString()
+          }).eq('id', updatedMed.id).then(() => {}).catch(() => {})
         }
       }
     }
@@ -2678,7 +2764,16 @@ export const mobileApi = {
         const medId = med?.id || item.medicineId || item.name || 'unknown'
         const qty = Number(item.quantity) || 0
         const price = Number(item.price) || Number(med?.price) || 0
-        const unitCost = Number(item.cost ?? item.unitCost ?? item.unit_cost ?? (batch as any)?.costPrice ?? (batch as any)?.cost ?? batch?.medicine?.cost ?? med?.cost ?? 0)
+        const unitCost = [
+          item.cost,
+          item.unitCost,
+          item.unit_cost,
+          (batch as any)?.costPrice,
+          (batch as any)?.cost,
+          (batch as any)?.cost_price,
+          batch?.medicine?.cost,
+          med?.cost
+        ].map(Number).find(c => !isNaN(c) && c > 0) || 0
 
         const itemCogs = qty * unitCost
         saleCogs += itemCogs
@@ -2700,7 +2795,16 @@ export const mobileApi = {
         const batch = allBatches.find(b => b.id === item.batchId)
         const med = allMedicines.find(m => m.id === (batch?.medicineId || item.medicineId) || (item.name && m.name.toLowerCase() === item.name.toLowerCase()))
         const qty = Number(item.quantity) || 0
-        const unitCost = Number(item.cost ?? item.unitCost ?? item.unit_cost ?? (batch as any)?.costPrice ?? (batch as any)?.cost ?? batch?.medicine?.cost ?? med?.cost ?? 0)
+        const unitCost = [
+          item.cost,
+          item.unitCost,
+          item.unit_cost,
+          (batch as any)?.costPrice,
+          (batch as any)?.cost,
+          (batch as any)?.cost_price,
+          batch?.medicine?.cost,
+          med?.cost
+        ].map(Number).find(c => !isNaN(c) && c > 0) || 0
         prevTotalCogs += qty * unitCost
       }
     }
@@ -2718,18 +2822,21 @@ export const mobileApi = {
     const prevGrossProfit = prevProfitEarned
 
     // 4. Current Inventory Stock Valuation and Profits Expected
+    const productHasBatches = new Set<string>()
     const stockByProduct = new Map<string, number>()
     for (const batch of allBatches) {
-      const qty = Number(batch.quantity) || 0
-      if (qty > 0 && batch.medicineId) {
-        stockByProduct.set(batch.medicineId, (stockByProduct.get(batch.medicineId) || 0) + qty)
+      const medId = batch.medicineId || (batch as any).product_id || (batch as any).medicine_id
+      if (medId) {
+        productHasBatches.add(medId)
+        const qty = Number(batch.quantity) || 0
+        stockByProduct.set(medId, (stockByProduct.get(medId) || 0) + qty)
       }
     }
 
     let inventoryCost = 0
     let expectedInventoryRevenue = 0
     for (const med of allMedicines) {
-      const stock = stockByProduct.get(med.id) !== undefined ? stockByProduct.get(med.id)! : (Number(med.stockQuantity) || 0)
+      const stock = productHasBatches.has(med.id) ? (stockByProduct.get(med.id) || 0) : (Number(med.stockQuantity) || 0)
       const cost = Number(med.cost) || 0
       const price = Number(med.price) || 0
       inventoryCost += stock * cost
@@ -2742,7 +2849,7 @@ export const mobileApi = {
       const salesData = productSalesMap.get(med.id) || { qty: 0, revenue: 0, cogs: 0 }
       const itemProfitEarned = salesData.revenue - salesData.cogs
       const marginPercent = salesData.revenue > 0 ? (itemProfitEarned / salesData.revenue) * 100 : 0
-      const currentStock = stockByProduct.get(med.id) !== undefined ? stockByProduct.get(med.id)! : (Number(med.stockQuantity) || 0)
+      const currentStock = productHasBatches.has(med.id) ? (stockByProduct.get(med.id) || 0) : (Number(med.stockQuantity) || 0)
       const unitCost = Number(med.cost) || 0
       const unitPrice = Number(med.price) || 0
       const stockCost = currentStock * unitCost

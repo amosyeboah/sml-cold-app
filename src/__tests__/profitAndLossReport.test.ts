@@ -211,4 +211,76 @@ describe('Profit and Loss Report Calculations', () => {
     expect(typeof res.success).toBe('boolean')
     expect(res.attempted).toBeGreaterThanOrEqual(0)
   })
+
+  it('calculates COGS, profit earned, and updated expected profit after Beef Chuck sale accurately', async () => {
+    const medicines = [
+      {
+        id: '5a846dbf-77ae-49c9-b28f-235c7ff4a521',
+        name: 'Beef Chuck (1kg)',
+        categoryName: 'Beef & Mutton',
+        price: 130,
+        cost: 90,
+        stockQuantity: 125,
+      },
+    ]
+    const batches = [
+      {
+        id: 'b-bfc-1',
+        medicineId: '5a846dbf-77ae-49c9-b28f-235c7ff4a521',
+        batchNumber: 'BFC-001',
+        quantity: 75,
+        expiryDate: '2028-01-01',
+      },
+      {
+        id: 'b-bfc-2',
+        medicineId: '5a846dbf-77ae-49c9-b28f-235c7ff4a521',
+        batchNumber: 'BFC-002',
+        quantity: 50,
+        expiryDate: '2027-01-01',
+      },
+    ]
+
+    storageMap.set('sml_coldstore_medicines', JSON.stringify(medicines))
+    storageMap.set('sml_coldstore_batches', JSON.stringify(batches))
+    storageMap.set('sml_coldstore_sales', JSON.stringify([]))
+    storageMap.set('sml_coldstore_purchases', JSON.stringify([]))
+
+    // Check pre-sale reports
+    const preReport = await mobileApi.getReportsData('2026-01-01', '2026-12-31')
+    const preBreakdown = preReport.profitBreakdown?.find(p => p.id === '5a846dbf-77ae-49c9-b28f-235c7ff4a521')
+    expect(preBreakdown?.currentStock).toBe(125)
+    expect(preBreakdown?.expectedProfit).toBe(5000) // 125 * (130 - 90)
+
+    // Execute POS sale of 5 Beef Chuck (even if cost was 0 or unpopulated in cart item)
+    await mobileApi.createSale({
+      paymentMethod: 'CASH',
+      total: 650,
+      items: [
+        {
+          batchId: 'b-bfc-2',
+          medicineId: '5a846dbf-77ae-49c9-b28f-235c7ff4a521',
+          name: 'Beef Chuck (1kg)',
+          quantity: 5,
+          price: 130,
+        } as any,
+      ],
+    })
+
+    // Check post-sale reports
+    const postReport = await mobileApi.getReportsData('2026-01-01', '2026-12-31')
+    const beefChuck = postReport.profitBreakdown?.find(p => p.id === '5a846dbf-77ae-49c9-b28f-235c7ff4a521')
+
+    expect(beefChuck).toBeDefined()
+    expect(beefChuck?.quantitySold).toBe(5)
+    expect(beefChuck?.revenue).toBe(650)
+    // COGS must be 5 * 90 = 450 (NOT 0.00)
+    expect(beefChuck?.cogs).toBe(450)
+    // Profit must be 650 - 450 = 200 (NOT 650.00)
+    expect(beefChuck?.profitEarned).toBe(200)
+    expect(beefChuck?.marginPercent).toBeCloseTo(30.77, 1) // ~30.8%
+    // Remaining stock must be 120 (NOT 125)
+    expect(beefChuck?.currentStock).toBe(120)
+    // Expected profit must be 120 * 40 = 4,800.00 (NOT remaining unchanged at 5,000.00)
+    expect(beefChuck?.expectedProfit).toBe(4800)
+  })
 })

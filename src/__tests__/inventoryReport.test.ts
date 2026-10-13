@@ -31,7 +31,7 @@ describe('Inventory Report System', () => {
       {
         id: 'med-fish-1',
         name: 'Whole Tilapia (20kg Box)',
-        sku: 'SML-FSH-001',
+        sku: 'SOFIYEM-FSH-001',
         categoryName: 'Fish & Seafood',
         price: 250,
         cost: 180,
@@ -41,7 +41,7 @@ describe('Inventory Report System', () => {
       {
         id: 'med-poultry-1',
         name: 'Frozen Chicken Drumsticks (10kg)',
-        sku: 'SML-PTR-001',
+        sku: 'SOFIYEM-PTR-001',
         categoryName: 'Poultry',
         price: 180,
         cost: 130,
@@ -51,7 +51,7 @@ describe('Inventory Report System', () => {
       {
         id: 'med-beef-1',
         name: 'Boneless Beef Chuck (15kg Box)',
-        sku: 'SML-BEF-001',
+        sku: 'SOFIYEM-BEF-001',
         categoryName: 'Beef & Mutton',
         price: 320,
         cost: 240,

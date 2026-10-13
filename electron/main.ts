@@ -856,7 +856,7 @@ ipcMain.handle('backup:export', async () => {
   
   const { filePath } = await dialog.showSaveDialog({
     title: 'Export Database Backup',
-    defaultPath: `sml-coldstore-backup-${new Date().toISOString().split('T')[0]}.db`,
+    defaultPath: `sofiyem-coldstore-backup-${new Date().toISOString().split('T')[0]}.db`,
     filters: [{ name: 'SQLite DB', extensions: ['db'] }],
   })
 
@@ -1860,7 +1860,7 @@ ipcMain.handle('reports:exportExcel', async (_, startDate: string, endDate: stri
 
   const { filePath } = await dialog.showSaveDialog({
     title: 'Export Report',
-    defaultPath: `sml-coldstore-report-${startDate}-to-${endDate}.xlsx`,
+    defaultPath: `sofiyem-coldstore-report-${startDate}-to-${endDate}.xlsx`,
     filters: [{ name: 'Excel', extensions: ['xlsx'] }],
   })
 

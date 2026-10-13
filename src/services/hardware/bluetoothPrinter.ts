@@ -262,7 +262,7 @@ class BluetoothPrinterService {
       return {
         success: false,
         error:
-          'Web Bluetooth is not supported in this browser or environment. On Android, please use the SML Tablet App or open Google Chrome with Bluetooth enabled.',
+          'Web Bluetooth is not supported in this browser or environment. On Android, please use the Sofiyem Tablet App or open Google Chrome with Bluetooth enabled.',
       }
     }
 
@@ -524,7 +524,7 @@ class BluetoothPrinterService {
     const currentName = this.getStatus().deviceName || 'BT Printer'
     const testHtml = `
       <div style="font-family:monospace;width:100%;">
-        <h2 style="text-align:center;">SML COLD STORE</h2>
+        <h2 style="text-align:center;">SOFIYEM COLD STORE</h2>
         <p style="text-align:center;">*** BLUETOOTH TEST PRINT ***</p>
         <hr/>
         <p>Device: ${currentName}</p>

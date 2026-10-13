@@ -90,7 +90,7 @@ export default function Backup() {
         const data = parsed.data || parsed
 
         if (!data || typeof data !== 'object') {
-          throw new Error('The selected file does not contain a valid SML Cold Store backup.')
+          throw new Error('The selected file does not contain a valid Sofiyem Cold Store backup.')
         }
 
         const medCount = Array.isArray(data.medicines) ? data.medicines.length : 0

@@ -3,7 +3,7 @@ import { isCloudHosting } from './hubClient'
 
 
 /**
- * Unified API Client for SML Legacy Cold Store App.
+ * Unified API Client for Sofiyem Cold Store App.
  *
  * Architecture:
  * 1. Physical Store Tablet / Web / Vercel:

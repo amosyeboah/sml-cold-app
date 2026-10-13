@@ -116,12 +116,12 @@ describe('Sales History Calculation Verification', () => {
     }
 
     const html = buildSaleReceiptHtml(sale, {
-      storeName: 'SML Legacy Test Store',
+      storeName: 'Sofiyem Legacy Test Store',
       currencySymbol: '₵',
       isDuplicate: true,
     })
 
-    expect(html).toContain('SML LEGACY TEST STORE')
+    expect(html).toContain('SOFIYEM LEGACY TEST STORE')
     expect(html).toContain('INV-AB12CD34')
     expect(html).toContain('Kofi Mensah')
     expect(html).toContain('[ DUPLICATE RECEIPT ]')

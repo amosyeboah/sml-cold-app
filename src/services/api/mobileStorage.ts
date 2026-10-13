@@ -74,23 +74,23 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 
 // Simple local storage keys for offline mobile app
 const STORAGE_KEYS = {
-  USERS: 'sml_coldstore_users',
-  CATEGORIES: 'sml_coldstore_categories',
-  SUPPLIERS: 'sml_coldstore_suppliers',
-  CUSTOMERS: 'sml_coldstore_customers',
-  MEDICINES: 'sml_coldstore_medicines',
-  BATCHES: 'sml_coldstore_batches',
-  PURCHASES: 'sml_coldstore_purchases',
-  SALES: 'sml_coldstore_sales',
-  SETTINGS: 'sml_coldstore_settings',
-  PRESCRIPTIONS: 'sml_coldstore_prescriptions',
-  AUDIT_LOGS: 'sml_coldstore_audit_logs',
-  DELETED_MEDICINE_IDS: 'sml_coldstore_deleted_medicine_ids',
-  DELETED_BATCH_IDS: 'sml_coldstore_deleted_batch_ids',
-  DELETED_CATEGORY_IDS: 'sml_coldstore_deleted_category_ids',
-  DELETED_CUSTOMER_IDS: 'sml_coldstore_deleted_customer_ids',
-  DELETED_SUPPLIER_IDS: 'sml_coldstore_deleted_supplier_ids',
-  SEEDED: 'sml_coldstore_initialized_flag'
+  USERS: 'sofiyem_coldstore_users',
+  CATEGORIES: 'sofiyem_coldstore_categories',
+  SUPPLIERS: 'sofiyem_coldstore_suppliers',
+  CUSTOMERS: 'sofiyem_coldstore_customers',
+  MEDICINES: 'sofiyem_coldstore_medicines',
+  BATCHES: 'sofiyem_coldstore_batches',
+  PURCHASES: 'sofiyem_coldstore_purchases',
+  SALES: 'sofiyem_coldstore_sales',
+  SETTINGS: 'sofiyem_coldstore_settings',
+  PRESCRIPTIONS: 'sofiyem_coldstore_prescriptions',
+  AUDIT_LOGS: 'sofiyem_coldstore_audit_logs',
+  DELETED_MEDICINE_IDS: 'sofiyem_coldstore_deleted_medicine_ids',
+  DELETED_BATCH_IDS: 'sofiyem_coldstore_deleted_batch_ids',
+  DELETED_CATEGORY_IDS: 'sofiyem_coldstore_deleted_category_ids',
+  DELETED_CUSTOMER_IDS: 'sofiyem_coldstore_deleted_customer_ids',
+  DELETED_SUPPLIER_IDS: 'sofiyem_coldstore_deleted_supplier_ids',
+  SEEDED: 'sofiyem_coldstore_initialized_flag'
 }
 
 export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
@@ -146,7 +146,14 @@ export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
 function getItem<T>(key: string, defaultValue: T): T {
   if (typeof localStorage === 'undefined') return defaultValue
   try {
-    const data = localStorage.getItem(key)
+    let data = localStorage.getItem(key)
+    if (!data && key.startsWith('sofiyem_coldstore_')) {
+      const legacyKey = key.replace('sofiyem_coldstore_', 'sml_coldstore_')
+      data = localStorage.getItem(legacyKey)
+      if (data) {
+        localStorage.setItem(key, data)
+      }
+    }
     return data ? JSON.parse(data) : defaultValue
   } catch {
     return defaultValue
@@ -3247,10 +3254,10 @@ export const mobileApi = {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `sml_report_${startDate}_to_${endDate}.csv`
+      a.download = `sofiyem_report_${startDate}_to_${endDate}.csv`
       a.click()
       URL.revokeObjectURL(url)
-      return { success: true, path: `sml_report_${startDate}_to_${endDate}.csv` }
+      return { success: true, path: `sofiyem_report_${startDate}_to_${endDate}.csv` }
     } catch {
       return { success: true, path: 'Downloads' }
     }
@@ -3260,7 +3267,7 @@ export const mobileApi = {
   exportBackup: async () => {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const fileName = `sml_coldstore_backup_${timestamp}.json`
+      const fileName = `sofiyem_coldstore_backup_${timestamp}.json`
 
       const backupData = {
         version: '1.0.0',
@@ -3289,7 +3296,7 @@ export const mobileApi = {
           const file = new File([jsonString], fileName, { type: 'application/json' })
           if ((navigator as any).canShare({ files: [file] })) {
             await navigator.share({
-              title: 'SML Cold Store Database Backup',
+              title: 'Sofiyem Cold Store Database Backup',
               text: `Snapshot exported on ${new Date().toLocaleString()}`,
               files: [file],
             })
@@ -3868,6 +3875,24 @@ export const mobileApi = {
         STORAGE_KEYS.DELETED_CATEGORY_IDS,
         STORAGE_KEYS.DELETED_CUSTOMER_IDS,
         STORAGE_KEYS.DELETED_SUPPLIER_IDS,
+        STORAGE_KEYS.SEEDED,
+        'sml_coldstore_users',
+        'sml_coldstore_categories',
+        'sml_coldstore_suppliers',
+        'sml_coldstore_customers',
+        'sml_coldstore_medicines',
+        'sml_coldstore_batches',
+        'sml_coldstore_purchases',
+        'sml_coldstore_sales',
+        'sml_coldstore_settings',
+        'sml_coldstore_prescriptions',
+        'sml_coldstore_audit_logs',
+        'sml_coldstore_deleted_medicine_ids',
+        'sml_coldstore_deleted_batch_ids',
+        'sml_coldstore_deleted_category_ids',
+        'sml_coldstore_deleted_customer_ids',
+        'sml_coldstore_deleted_supplier_ids',
+        'sml_coldstore_initialized_flag',
         'sml_coldstore_sync_queue',
         'sml_coldstore_sync_history',
         'sml_coldstore_last_synced_at',

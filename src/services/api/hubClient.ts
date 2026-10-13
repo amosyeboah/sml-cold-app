@@ -367,7 +367,7 @@ export const hubClient = {
       ])
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const fileName = `sml_hub_backup_${timestamp}.json`
+      const fileName = `sofiyem_hub_backup_${timestamp}.json`
       const backupData = {
         version: '1.0.0',
         exportedAt: new Date().toISOString(),
@@ -391,7 +391,7 @@ export const hubClient = {
           const file = new File([jsonString], fileName, { type: 'application/json' })
           if ((navigator as any).canShare({ files: [file] })) {
             await navigator.share({
-              title: 'SML Cold Store Backup',
+              title: 'Sofiyem Cold Store Backup',
               text: `Hub Database snapshot (${fileName})`,
               files: [file],
             })

@@ -22,18 +22,18 @@ export async function startHubServer(
 
   try {
     const address = await server.listen({ port, host })
-    console.log(`🚀 [SML Local Depot Hub] Running at ${address}`)
-    console.log(`📡 [SML Local Depot Hub] Authoritative SQLite Database active`)
+    console.log(`🚀 [Sofiyem Local Depot Hub] Running at ${address}`)
+    console.log(`📡 [Sofiyem Local Depot Hub] Authoritative SQLite Database active`)
     // Start background sync worker (non-blocking)
     try {
       startPeriodicSyncWorker()
-      console.log(`🔄 [SML Local Depot Hub] Background Sync Worker started`)
+      console.log(`🔄 [Sofiyem Local Depot Hub] Background Sync Worker started`)
     } catch (syncErr) {
       console.warn('⚠️ Could not start background sync worker:', syncErr)
     }
     return { server, port, host, address }
   } catch (err) {
-    console.error('❌ Failed to start SML Local Depot Hub:', err)
+    console.error('❌ Failed to start Sofiyem Local Depot Hub:', err)
     activeServer = null
     throw err
   }

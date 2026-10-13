@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">SML Cold Store v2</string>
-    <string name="title_activity_main">SML Cold Store v2</string>
+    <string name="app_name">Sofiyem Cold Store v2</string>
+    <string name="title_activity_main">Sofiyem Cold Store v2</string>
     <string name="package_name">com.smllegacy.coldstore.v2</string>
     <string name="custom_url_scheme">com.smllegacy.coldstore.v2</string>
 </resources>

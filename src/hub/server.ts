@@ -37,7 +37,7 @@ export function buildServer(options: { logger?: boolean } = {}): FastifyInstance
   fastify.get('/api/health', async () => {
     return {
       status: 'ok',
-      service: 'SML Local Depot Hub',
+      service: 'Sofiyem Local Depot Hub',
       version: '1.0.0',
       timestamp: new Date().toISOString(),
     }

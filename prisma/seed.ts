@@ -125,7 +125,7 @@ async function main() {
     data: {
       name: 'Whole Chicken (Frozen)',
       genericName: 'Broiler Chicken',
-      sku: 'SML-PTR-001',
+      sku: 'SOFIYEM-PTR-001',
       categoryId: poultry.id,
       price: 85.00,
       cost: 58.00,
@@ -140,7 +140,7 @@ async function main() {
     data: {
       name: 'Chicken Legs (5kg Pack)',
       genericName: 'Chicken Drumsticks',
-      sku: 'SML-PTR-002',
+      sku: 'SOFIYEM-PTR-002',
       categoryId: poultry.id,
       price: 120.00,
       cost: 82.00,
@@ -155,7 +155,7 @@ async function main() {
     data: {
       name: 'Chicken Breast (Boneless)',
       genericName: 'Breast Fillet',
-      sku: 'SML-PTR-003',
+      sku: 'SOFIYEM-PTR-003',
       categoryId: poultry.id,
       price: 145.00,
       cost: 98.00,
@@ -170,7 +170,7 @@ async function main() {
     data: {
       name: 'Turkey (Whole Frozen)',
       genericName: 'Turkey Bird',
-      sku: 'SML-PTR-004',
+      sku: 'SOFIYEM-PTR-004',
       categoryId: poultry.id,
       price: 320.00,
       cost: 220.00,
@@ -186,7 +186,7 @@ async function main() {
     data: {
       name: 'Tilapia Fish (Fresh Frozen)',
       genericName: 'Whole Cleaned (20kg Carton)',
-      sku: 'SML-FSH-001',
+      sku: 'SOFIYEM-FSH-001',
       categoryId: fish.id,
       price: 95.00,
       cost: 62.00,
@@ -204,7 +204,7 @@ async function main() {
     data: {
       name: 'Mackerel (Frozen, 1kg)',
       genericName: 'Dutch Mackerel (20kg Box)',
-      sku: 'SML-FSH-002',
+      sku: 'SOFIYEM-FSH-002',
       categoryId: fish.id,
       price: 55.00,
       cost: 36.00,
@@ -219,7 +219,7 @@ async function main() {
     data: {
       name: 'Tiger Prawns (500g)',
       genericName: 'Jumbo Head-on (10kg Carton)',
-      sku: 'SML-FSH-003',
+      sku: 'SOFIYEM-FSH-003',
       categoryId: fish.id,
       price: 180.00,
       cost: 125.00,
@@ -234,7 +234,7 @@ async function main() {
     data: {
       name: 'Squid Rings (Frozen)',
       genericName: 'Calamari Rings (5kg Box)',
-      sku: 'SML-FSH-004',
+      sku: 'SOFIYEM-FSH-004',
       categoryId: fish.id,
       price: 140.00,
       cost: 95.00,
@@ -250,7 +250,7 @@ async function main() {
     data: {
       name: 'Beef Chuck (1kg)',
       genericName: 'Bone-in Chuck (25kg Box)',
-      sku: 'SML-BEF-001',
+      sku: 'SOFIYEM-BEF-001',
       categoryId: beef.id,
       price: 130.00,
       cost: 90.00,
@@ -265,7 +265,7 @@ async function main() {
     data: {
       name: 'Minced Beef (500g)',
       genericName: '80/20 Lean Blend (10kg Pack)',
-      sku: 'SML-BEF-002',
+      sku: 'SOFIYEM-BEF-002',
       categoryId: beef.id,
       price: 70.00,
       cost: 48.00,
@@ -280,7 +280,7 @@ async function main() {
     data: {
       name: 'Mutton Leg (Frozen)',
       genericName: 'New Zealand Bone-in Leg',
-      sku: 'SML-MTN-001',
+      sku: 'SOFIYEM-MTN-001',
       categoryId: beef.id,
       price: 200.00,
       cost: 140.00,
@@ -295,7 +295,7 @@ async function main() {
     data: {
       name: 'Oxtail (Frozen, 1kg)',
       genericName: 'Center Cut (10kg Box)',
-      sku: 'SML-BEF-003',
+      sku: 'SOFIYEM-BEF-003',
       categoryId: beef.id,
       price: 155.00,
       cost: 105.00,
@@ -314,7 +314,7 @@ async function main() {
     data: {
       name: 'Pork Ribs (Frozen)',
       genericName: 'Spare Ribs (15kg Box)',
-      sku: 'SML-PRK-001',
+      sku: 'SOFIYEM-PRK-001',
       categoryId: pork.id,
       price: 110.00,
       cost: 75.00,
@@ -329,7 +329,7 @@ async function main() {
     data: {
       name: 'Pork Belly (1kg)',
       genericName: 'Skin-on Pork Belly (10kg Box)',
-      sku: 'SML-PRK-002',
+      sku: 'SOFIYEM-PRK-002',
       categoryId: pork.id,
       price: 100.00,
       cost: 68.00,
@@ -345,7 +345,7 @@ async function main() {
     data: {
       name: 'Beef Sausages (500g)',
       genericName: 'Premium Beef Links (10kg Pack)',
-      sku: 'SML-PRC-001',
+      sku: 'SOFIYEM-PRC-001',
       categoryId: processed.id,
       price: 65.00,
       cost: 42.00,
@@ -360,7 +360,7 @@ async function main() {
     data: {
       name: 'Chicken Hot Dogs (300g)',
       genericName: 'Classic Chicken Franks (10kg Pack)',
-      sku: 'SML-PRC-002',
+      sku: 'SOFIYEM-PRC-002',
       categoryId: processed.id,
       price: 45.00,
       cost: 28.00,
@@ -375,7 +375,7 @@ async function main() {
     data: {
       name: 'Smoked Bacon Strips',
       genericName: 'Cured Smoked Strips (5kg Pack)',
-      sku: 'SML-PRC-003',
+      sku: 'SOFIYEM-PRC-003',
       categoryId: processed.id,
       price: 90.00,
       cost: 60.00,
@@ -391,7 +391,7 @@ async function main() {
     data: {
       name: 'Mixed Vegetables (1kg)',
       genericName: 'Carrot, Pea & Corn Blend',
-      sku: 'SML-VEG-001',
+      sku: 'SOFIYEM-VEG-001',
       categoryId: frozen.id,
       price: 30.00,
       cost: 18.00,
@@ -406,7 +406,7 @@ async function main() {
     data: {
       name: 'Green Beans (Frozen)',
       genericName: 'Cut Green Beans (10kg Carton)',
-      sku: 'SML-VEG-002',
+      sku: 'SOFIYEM-VEG-002',
       categoryId: frozen.id,
       price: 25.00,
       cost: 14.00,
@@ -422,7 +422,7 @@ async function main() {
     data: {
       name: 'Unsalted Butter (250g)',
       genericName: 'Dairy Butter',
-      sku: 'SML-DRY-001',
+      sku: 'SOFIYEM-DRY-001',
       categoryId: dairy.id,
       price: 40.00,
       cost: 26.00,
@@ -437,7 +437,7 @@ async function main() {
     data: {
       name: 'Crate of Eggs (30 pcs)',
       genericName: 'Chicken Eggs',
-      sku: 'SML-DRY-002',
+      sku: 'SOFIYEM-DRY-002',
       categoryId: dairy.id,
       price: 55.00,
       cost: 38.00,

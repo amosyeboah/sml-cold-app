@@ -567,7 +567,7 @@ export default function AuditTrail() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `sml_coldstore_audit_trail_${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `sofiyem_coldstore_audit_trail_${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -596,7 +596,7 @@ export default function AuditTrail() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `sml_staff_sales_audit_${selectedStaff}_${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `sofiyem_staff_sales_audit_${selectedStaff}_${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

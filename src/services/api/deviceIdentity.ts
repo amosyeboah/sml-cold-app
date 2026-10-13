@@ -1,5 +1,5 @@
 /**
- * Persistent Device Identity Manager for SML Legacy Cold Store POS & Tablets.
+ * Persistent Device Identity Manager for Sofiyem Cold Store POS & Tablets.
  * Ensures each device (Desktop, Tablet, Browser) maintains an immutable, unique deviceId.
  */
 

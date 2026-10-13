@@ -324,7 +324,7 @@ export default function Users() {
                           </div>
                           <div>
                             <div className="font-semibold text-slate-800">{u.username}</div>
-                            <div className="text-xs text-slate-500">SML Staff Account</div>
+                            <div className="text-xs text-slate-500">Sofiyem Staff Account</div>
                           </div>
                         </div>
                       </TableCell>

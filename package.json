@@ -105,7 +105,7 @@
   },
   "build": {
     "appId": "com.smllegacy.coldstore",
-    "productName": "SML Legacy Cold Store",
+    "productName": "Sofiyem Legacy Cold Store",
     "directories": {
       "output": "dist"
     },
@@ -136,7 +136,7 @@
           ]
         }
       ],
-      "artifactName": "SMLLegacyColdStore-${version}-setup.exe"
+      "artifactName": "SofiyemLegacyColdStore-${version}-setup.exe"
     }
   }
 }

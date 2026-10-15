@@ -69,6 +69,7 @@ export const api = {
 
   // Backup
   exportBackup: () => ipcRenderer.invoke('backup:export'),
+  restoreBackup: (data: any) => ipcRenderer.invoke('backup:restore', data),
   freshResetDatabase: () => ipcRenderer.invoke('database:freshReset'),
 
   // Printing & Hardware

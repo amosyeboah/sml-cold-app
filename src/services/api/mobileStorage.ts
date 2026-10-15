@@ -2,6 +2,7 @@ import { enqueueSyncItem, flushSyncQueue, getPendingQueue, getQueue, getSyncHist
 import { getSupabaseClient } from '../sync/supabaseClient'
 import { isCloudHosting } from './hubClient'
 import { bluetoothPrinter } from '../hardware/bluetoothPrinter'
+import { SETTINGS_KEY_USER_PERMISSIONS, parsePermissionsMap } from '../permissions'
 
 // Web & Mobile compatible password hashing using standard Web Crypto PBKDF2
 const passwordHashCache = new Map<string, string>()
@@ -275,6 +276,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
     // Sort by date descending
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    setItem(STORAGE_KEYS.SALES, merged)
     return merged
   } catch (err) {
     console.warn('Failed to fetch cloud sales in mobileStorage:', err)
@@ -843,6 +845,72 @@ export async function fetchCloudUsersIfAvailable(): Promise<any[]> {
   return local
 }
 
+/**
+ * Fetches user permissions directly from the dedicated Supabase cloud_user_permissions table.
+ * Converts relational rows into the cached local permissions map to guarantee zero inconsistent data.
+ */
+export async function fetchCloudUserPermissionsIfAvailable(): Promise<Record<string, string[]>> {
+  const currentSettings = getItem(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
+  const localMap = parsePermissionsMap(currentSettings[SETTINGS_KEY_USER_PERMISSIONS])
+  const client = getSupabaseClient()
+  if (!client || !isOnline()) return localMap
+
+  try {
+    const { data, error } = await client.from('cloud_user_permissions').select('*')
+    if (error) {
+      console.warn('Cloud user permissions fetch notice:', error.message)
+      return localMap
+    }
+
+    if (Array.isArray(data)) {
+      const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
+      const userById = new Map<string, any>()
+      users.forEach((u) => {
+        if (u.id) userById.set(u.id, u)
+      })
+
+      const permissionsMap: Record<string, string[]> = {}
+      for (const row of data) {
+        if (!row.user_id || !row.permission) continue
+        if (!permissionsMap[row.user_id]) {
+          permissionsMap[row.user_id] = []
+        }
+        if (!permissionsMap[row.user_id].includes(row.permission)) {
+          permissionsMap[row.user_id].push(row.permission)
+        }
+
+        // Also map to username alias if known
+        const userObj = userById.get(row.user_id)
+        if (userObj?.username) {
+          const uKey = userObj.username.toLowerCase()
+          if (!permissionsMap[uKey]) {
+            permissionsMap[uKey] = []
+          }
+          if (!permissionsMap[uKey].includes(row.permission)) {
+            permissionsMap[uKey].push(row.permission)
+          }
+        }
+      }
+
+      const updatedSettings = {
+        ...currentSettings,
+        [SETTINGS_KEY_USER_PERMISSIONS]: JSON.stringify(permissionsMap),
+      }
+      setItem(STORAGE_KEYS.SETTINGS, updatedSettings)
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('settings_updated', { detail: updatedSettings }))
+        window.dispatchEvent(new Event('storage'))
+      }
+
+      return permissionsMap
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloud user permissions:', err)
+  }
+  return localMap
+}
+
 export async function syncAllCloudDataIfAvailable(): Promise<{
   medicines: any[]
   batches: any[]
@@ -860,6 +928,7 @@ export async function syncAllCloudDataIfAvailable(): Promise<{
     fetchCloudCustomersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])),
     fetchCloudSuppliersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])),
     fetchCloudUsersIfAvailable().catch(() => getItem<any[]>(STORAGE_KEYS.USERS, [])),
+    fetchCloudUserPermissionsIfAvailable().catch(() => {}),
     fetchCloudStateMirrorsIfAvailable().catch(() => {}),
   ])
   return { medicines, batches, sales, categories, customers, suppliers, users }
@@ -2687,8 +2756,35 @@ export const mobileApi = {
     const newUsers = users.filter(u => u.id !== id)
     setItem(STORAGE_KEYS.USERS, newUsers)
 
+    // Clean up local user permissions cache for the deleted user
+    try {
+      const currentSettings = getItem(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
+      const currentPerms = parsePermissionsMap(currentSettings[SETTINGS_KEY_USER_PERMISSIONS])
+      let modified = false
+      if (currentPerms[id]) {
+        delete currentPerms[id]
+        modified = true
+      }
+      if (target?.username && currentPerms[target.username]) {
+        delete currentPerms[target.username]
+        modified = true
+      }
+      if (target?.username && currentPerms[target.username.toLowerCase()]) {
+        delete currentPerms[target.username.toLowerCase()]
+        modified = true
+      }
+      if (modified) {
+        const updated = {
+          ...currentSettings,
+          [SETTINGS_KEY_USER_PERMISSIONS]: JSON.stringify(currentPerms),
+        }
+        setItem(STORAGE_KEYS.SETTINGS, updated)
+      }
+    } catch {}
+
     const client = getSupabaseClient()
     if (client && isOnline()) {
+      Promise.resolve(client.from('cloud_user_permissions').delete().eq('user_id', id)).catch(() => {})
       Promise.resolve(client.from('cloud_users').delete().eq('id', id)).catch((e) => console.warn('Cloud user delete failed:', e))
     }
     pushCloudStateMirror('STATE_USERS', 'AUTH', 'users', newUsers).catch(() => {})
@@ -2718,25 +2814,31 @@ export const mobileApi = {
     const allCustomers = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, [])
     const allSuppliers = getItem<any[]>(STORAGE_KEYS.SUPPLIERS, [])
 
-    const parseDate = (d: any) => new Date(d)
+    const parseDate = (d: any) => {
+      if (!d) return new Date(NaN)
+      return new Date(d)
+    }
+    const getSaleDate = (s: any) => parseDate(s.date || s.created_at || s.createdAt || s.sold_at || s.timestamp)
+    const getPurchaseDate = (p: any) => parseDate(p.date || p.created_at || p.createdAt)
+
     const sales = allSales.filter(s => {
-      const d = parseDate(s.date)
-      return d >= start && d <= end
-    }).sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime())
+      const d = getSaleDate(s)
+      return !isNaN(d.getTime()) && d >= start && d <= end
+    }).sort((a, b) => getSaleDate(b).getTime() - getSaleDate(a).getTime())
 
     const purchases = allPurchases.filter(p => {
-      const d = parseDate(p.date)
-      return d >= start && d <= end
-    }).sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime())
+      const d = getPurchaseDate(p)
+      return !isNaN(d.getTime()) && d >= start && d <= end
+    }).sort((a, b) => getPurchaseDate(b).getTime() - getPurchaseDate(a).getTime())
 
     const prevSales = allSales.filter(s => {
-      const d = parseDate(s.date)
-      return d >= prevStart && d <= prevEnd
+      const d = getSaleDate(s)
+      return !isNaN(d.getTime()) && d >= prevStart && d <= prevEnd
     })
 
     const prevPurchases = allPurchases.filter(p => {
-      const d = parseDate(p.date)
-      return d >= prevStart && d <= prevEnd
+      const d = getPurchaseDate(p)
+      return !isNaN(d.getTime()) && d >= prevStart && d <= prevEnd
     })
 
     const totalSales = sales.reduce((acc, s) => acc + (s.total || 0), 0)
@@ -2760,7 +2862,7 @@ export const mobileApi = {
     const productSalesMap = new Map<string, { qty: number; revenue: number; cogs: number }>()
 
     for (const sale of sales) {
-      const key = formatDayLabel(parseDate(sale.date))
+      const key = formatDayLabel(getSaleDate(sale))
       salesByDay.set(key, (salesByDay.get(key) || 0) + (sale.total || 0))
       transactionsByDay.set(key, (transactionsByDay.get(key) || 0) + 1)
 
@@ -2995,7 +3097,7 @@ export const mobileApi = {
         customer: allCustomers.find(c => c.id === sale.customerId)?.name || sale.customerName || 'Walk-in Customer',
         amount: sale.total || 0,
         payment: paymentLabel,
-        time: formatTime(parseDate(sale.date)),
+        time: formatTime(getSaleDate(sale)),
       }
     })
 
@@ -3269,6 +3371,32 @@ export const mobileApi = {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const fileName = `sofiyem_coldstore_backup_${timestamp}.json`
 
+      // Ensure all sales are fetched and synchronized into local cache before snapshot
+      let allSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
+      try {
+        const cloudSales = await fetchCloudSalesIfAvailable()
+        if (Array.isArray(cloudSales) && cloudSales.length > 0) {
+          allSales = cloudSales
+          setItem(STORAGE_KEYS.SALES, allSales)
+        }
+      } catch {}
+
+      let allMedicines = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
+      try {
+        const cloudProds = await fetchCloudProductsIfAvailable()
+        if (Array.isArray(cloudProds) && cloudProds.length > 0) {
+          allMedicines = cloudProds
+        }
+      } catch {}
+
+      let allBatches = getItem<any[]>(STORAGE_KEYS.BATCHES, [])
+      try {
+        const cloudBatches = await fetchCloudBatchesIfAvailable()
+        if (Array.isArray(cloudBatches) && cloudBatches.length > 0) {
+          allBatches = cloudBatches
+        }
+      } catch {}
+
       const backupData = {
         version: '1.0.0',
         exportedAt: new Date().toISOString(),
@@ -3278,10 +3406,10 @@ export const mobileApi = {
           categories: getItem(STORAGE_KEYS.CATEGORIES, []),
           suppliers: getItem(STORAGE_KEYS.SUPPLIERS, []),
           customers: getItem(STORAGE_KEYS.CUSTOMERS, []),
-          medicines: getItem(STORAGE_KEYS.MEDICINES, []),
-          batches: getItem(STORAGE_KEYS.BATCHES, []),
+          medicines: allMedicines,
+          batches: allBatches,
           purchases: getItem(STORAGE_KEYS.PURCHASES, []),
-          sales: getItem(STORAGE_KEYS.SALES, []),
+          sales: allSales,
           settings: getItem(STORAGE_KEYS.SETTINGS, {}),
           prescriptions: getItem(STORAGE_KEYS.PRESCRIPTIONS, []),
           auditLogs: getItem(STORAGE_KEYS.AUDIT_LOGS, []),
@@ -3374,14 +3502,95 @@ export const mobileApi = {
       }
 
       let restoredCount = 0
+      let restoredSalesCount = 0
+
+      if (Array.isArray(data.categories)) { setItem(STORAGE_KEYS.CATEGORIES, data.categories); restoredCount += data.categories.length }
+      if (Array.isArray(data.suppliers)) { setItem(STORAGE_KEYS.SUPPLIERS, data.suppliers); restoredCount += data.suppliers.length }
+      if (Array.isArray(data.customers)) { setItem(STORAGE_KEYS.CUSTOMERS, data.customers); restoredCount += data.customers.length }
       if (Array.isArray(data.medicines)) { setItem(STORAGE_KEYS.MEDICINES, data.medicines); restoredCount += data.medicines.length }
       if (Array.isArray(data.batches)) { setItem(STORAGE_KEYS.BATCHES, data.batches); restoredCount += data.batches.length }
-      if (Array.isArray(data.categories)) { setItem(STORAGE_KEYS.CATEGORIES, data.categories); restoredCount += data.categories.length }
-      if (Array.isArray(data.customers)) { setItem(STORAGE_KEYS.CUSTOMERS, data.customers); restoredCount += data.customers.length }
-      if (Array.isArray(data.suppliers)) { setItem(STORAGE_KEYS.SUPPLIERS, data.suppliers); restoredCount += data.suppliers.length }
-      if (Array.isArray(data.sales)) { setItem(STORAGE_KEYS.SALES, data.sales); restoredCount += data.sales.length }
       if (Array.isArray(data.purchases)) { setItem(STORAGE_KEYS.PURCHASES, data.purchases); restoredCount += data.purchases.length }
       if (Array.isArray(data.users)) { setItem(STORAGE_KEYS.USERS, data.users); restoredCount += data.users.length }
+
+      if (Array.isArray(data.sales)) {
+        const existingBatches = getItem<any[]>(STORAGE_KEYS.BATCHES, data.batches || [])
+        const existingMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, data.medicines || [])
+        const existingCusts = getItem<any[]>(STORAGE_KEYS.CUSTOMERS, data.customers || [])
+
+        const normalizedSales = data.sales.map((s: any) => {
+          const rawDate = s.date || s.created_at || s.createdAt || s.sold_at || s.timestamp
+          const validDate = rawDate ? new Date(rawDate) : new Date()
+          const isoDate = isNaN(validDate.getTime()) ? new Date().toISOString() : validDate.toISOString()
+          const totalAmt = Number(s.total ?? s.total_amount ?? 0)
+          const pm = (s.paymentMethod || s.payment_method || 'CASH').toUpperCase()
+          const custId = s.customerId || s.customer_id || s.customer?.id || null
+          const customerObj = existingCusts.find((c: any) => c.id === custId)
+          const custName = s.customerName || s.customer_name || s.customer?.name || customerObj?.name || 'Walk-in Customer'
+
+          const rawItems = s.items || s.saleItems || []
+          const items = Array.isArray(rawItems) ? rawItems.map((item: any) => {
+            const batchId = item.batchId || item.batch_id || item.medicineId || item.product_id
+            const batch = existingBatches.find((b: any) => b.id === batchId)
+            const medId = item.medicineId || item.medicine_id || item.product_id || item.productId || batch?.medicineId
+            const med = existingMeds.find((m: any) => m.id === medId || (item.name && m.name && m.name.toLowerCase() === item.name.toLowerCase())) || item.medicine || batch?.medicine
+            const resolvedName = item.name || item.product_name || item.productName || med?.name || batch?.medicine?.name || 'Cold Store Item'
+            const unitPrice = Number(item.price ?? item.unit_price ?? item.medicine?.price ?? 0)
+            const unitCost = [
+              item.cost,
+              item.unitCost,
+              item.unit_cost,
+              batch?.costPrice,
+              batch?.cost,
+              med?.cost,
+            ].map(Number).find(c => !isNaN(c) && c > 0) || 0
+
+            return {
+              id: item.id || generateId(),
+              saleId: s.id,
+              batchId,
+              medicineId: medId,
+              name: resolvedName,
+              product_name: resolvedName,
+              quantity: Number(item.quantity) || 1,
+              price: unitPrice,
+              cost: unitCost,
+              unitCost,
+              unit_cost: unitCost,
+              medicine: med || {
+                id: medId,
+                name: resolvedName,
+                price: unitPrice,
+                cost: unitCost,
+              }
+            }
+          }) : []
+
+          const payments = Array.isArray(s.payments) && s.payments.length > 0
+            ? s.payments
+            : [{ id: generateId(), saleId: s.id, method: pm, amount: totalAmt }]
+
+          return {
+            id: s.id || generateId(),
+            saleNumber: s.saleNumber || s.invoice_number || s.sale_number || `INV-${String(s.id || '').slice(0, 8).toUpperCase()}`,
+            customerId: custId,
+            customerName: custName,
+            paymentMethod: pm,
+            payments,
+            total: totalAmt,
+            date: isoDate,
+            cashier: s.cashier || s.cashier_name || s.username || 'cashier',
+            userRole: s.userRole || s.user_role || 'CASHIER',
+            items,
+          }
+        })
+
+        setItem(STORAGE_KEYS.SALES, normalizedSales)
+        restoredSalesCount = normalizedSales.length
+        restoredCount += normalizedSales.length
+
+        pushLocalStorageToCloudIfAvailable().catch(() => {})
+      }
+
       if (data.settings && typeof data.settings === 'object') {
         const mergedSettings = { ...DEFAULT_STORE_SETTINGS, ...data.settings }
         setItem(STORAGE_KEYS.SETTINGS, mergedSettings)
@@ -3397,17 +3606,28 @@ export const mobileApi = {
         id: `aud_restore_${Date.now()}`,
         action: 'BACKUP_RESTORE',
         category: 'SYSTEM',
-        details: `Database restored from backup snapshot (${restoredCount} items restored).`,
+        details: `Database restored from backup snapshot (${restoredSalesCount} sales, ${restoredCount} records restored).`,
         timestamp: new Date().toISOString(),
         user: 'admin',
         severity: 'WARN',
       }
       setItem(STORAGE_KEYS.AUDIT_LOGS, [restoreLog, ...existingLogs])
 
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('storage'))
+      }
+
       return {
         success: true,
         restoredCount,
-        message: `Successfully restored ${restoredCount} database items from backup.`
+        restoredSalesCount,
+        counts: {
+          sales: restoredSalesCount,
+          medicines: Array.isArray(data.medicines) ? data.medicines.length : 0,
+          batches: Array.isArray(data.batches) ? data.batches.length : 0,
+          purchases: Array.isArray(data.purchases) ? data.purchases.length : 0,
+        },
+        message: `Successfully restored ${restoredSalesCount} sales and ${restoredCount} database items from backup.`
       }
     } catch (err: any) {
       console.error('Restore backup error:', err)
@@ -3537,6 +3757,7 @@ export const mobileApi = {
     })
 
     // Sync business identity to sml_stores table in Supabase
+    const client = getSupabaseClient()
     if (client && isOnline()) {
       const storeUpdates: Record<string, any> = {}
       if (updated['biz.name'] || updated['storeName']) {
@@ -3560,6 +3781,47 @@ export const mobileApi = {
           .eq('id', 'sml_accra_main')
           .then(() => {})
           .catch((err) => console.warn('Could not update sml_stores:', err))
+      }
+
+      // Sync dedicated relational cloud_user_permissions table in Supabase
+      if (updates[SETTINGS_KEY_USER_PERMISSIONS] !== undefined) {
+        try {
+          const rawMap = parsePermissionsMap(updates[SETTINGS_KEY_USER_PERMISSIONS])
+          const users = getItem<any[]>(STORAGE_KEYS.USERS, [])
+
+          for (const user of users) {
+            const userId = user.id
+            if (!userId) continue
+
+            const explicitPerms =
+              rawMap[userId] ||
+              (user.username ? rawMap[user.username] : null) ||
+              (user.username ? rawMap[user.username.toLowerCase()] : null)
+
+            if (Array.isArray(explicitPerms)) {
+              // Delete existing permission rows for this user first
+              await client.from('cloud_user_permissions').delete().eq('user_id', userId).catch(() => {})
+              if (explicitPerms.length > 0) {
+                const rows = explicitPerms.map((p: string) => ({
+                  store_id: 'sml_accra_main',
+                  user_id: userId,
+                  permission: p,
+                  granted_by: 'admin',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }))
+                await client.from('cloud_user_permissions').upsert(rows, { onConflict: 'user_id,permission' }).catch((e) => {
+                  console.warn('Could not upsert cloud_user_permissions:', e)
+                })
+              }
+            } else {
+              // User was reset to role defaults - clean up all custom permission rows
+              await client.from('cloud_user_permissions').delete().eq('user_id', userId).catch(() => {})
+            }
+          }
+        } catch (permSyncErr) {
+          console.warn('Failed to sync relational cloud_user_permissions:', permSyncErr)
+        }
       }
     }
 

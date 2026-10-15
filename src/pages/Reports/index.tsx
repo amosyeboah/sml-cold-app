@@ -79,7 +79,7 @@ const reportTypes = [
   { id: 'customer', label: 'Customer Report', icon: Users },
 ]
 
-const shortcuts = ['Today', 'This Week', 'This Month', 'This Year', 'Custom Range']
+const shortcuts = ['Today', 'This Week', 'This Month', 'This Year', 'All Time', 'Custom Range']
 
 const MED_COLORS = [
   'from-blue-400 to-blue-600',
@@ -107,6 +107,11 @@ function getShortcutRange(shortcut: string): { start: string; end: string } {
     case 'This Year':
       return {
         start: format(startOfYear(today), 'yyyy-MM-dd'),
+        end: format(endOfYear(today), 'yyyy-MM-dd'),
+      }
+    case 'All Time':
+      return {
+        start: '2020-01-01',
         end: format(endOfYear(today), 'yyyy-MM-dd'),
       }
     default:
@@ -889,7 +894,7 @@ export default function Reports() {
             <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col items-center gap-1.5">
               <span className="text-[9px] font-bold uppercase text-slate-300">Time</span>
               {shortcuts.map((shortcut) => {
-                const label = shortcut === 'Today' ? '1D' : shortcut === 'This Week' ? '1W' : shortcut === 'This Month' ? '1M' : shortcut === 'This Year' ? '1Y' : 'CR'
+                const label = shortcut === 'Today' ? '1D' : shortcut === 'This Week' ? '1W' : shortcut === 'This Month' ? '1M' : shortcut === 'This Year' ? '1Y' : shortcut === 'All Time' ? 'ALL' : 'CR'
                 return (
                   <button
                     key={shortcut}

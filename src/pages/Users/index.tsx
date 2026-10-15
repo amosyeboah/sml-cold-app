@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { PlusCircle, Search, Edit2, Trash2, ChevronLeft, ChevronRight, Shield, UserCheck, ShoppingCart, KeyRound } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -24,6 +25,7 @@ type UserFormData = z.infer<typeof userSchema>
 const ITEMS_PER_PAGE = 15
 
 export default function Users() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchTerm, setSearchTerm] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -227,12 +229,20 @@ export default function Users() {
                 />
               </div>
               <Button
+                variant="outline"
+                onClick={() => navigate('/settings?tab=permissions')}
+                className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer shadow-xs"
+                title="Configure user permissions in Settings"
+              >
+                <Shield className="w-4 h-4 text-blue-600" /> Manage Permissions
+              </Button>
+              <Button
                 onClick={() => {
                   reset()
                   setEditingUser(null)
                   setIsOpen(true)
                 }}
-                className="gap-2 text-white"
+                className="gap-2 text-white cursor-pointer"
                 style={{ backgroundColor: '#2563eb' }}
               >
                 <PlusCircle className="w-4 h-4" /> Add Staff Member

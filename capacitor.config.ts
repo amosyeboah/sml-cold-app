@@ -7,6 +7,11 @@ const config: CapacitorConfig = {
   bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
+  },
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'disable'
+    }
   }
 };
 

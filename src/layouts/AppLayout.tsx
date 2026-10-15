@@ -11,7 +11,7 @@ export default function AppLayout() {
   const hiddenTopBar = pathname === '/pos' || pathname === '/reports'
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-full w-full bg-slate-50 overflow-hidden">
       <Sidebar />
       <div
         className="flex flex-col flex-1 overflow-hidden transition-[margin] duration-300 ease-in-out"

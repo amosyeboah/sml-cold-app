@@ -295,7 +295,7 @@ export default function SyncPage() {
   })
 
   return (
-    <div className="h-full overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans bg-slate-50">
+    <div className="h-full overflow-y-auto overflow-x-hidden max-w-full p-3 sm:p-5 space-y-4 font-sans bg-slate-50">
       {/* ── Top Header Banner ── */}
       <div
         className="relative overflow-hidden rounded-2xl border border-blue-200 p-3 sm:p-3.5 md:py-3 md:px-4 text-white shadow-xs"
@@ -364,7 +364,7 @@ export default function SyncPage() {
           </div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-xs uppercase font-bold tracking-wider opacity-60 hover:opacity-100"
+            className="text-xs uppercase font-bold tracking-wider opacity-60 hover:opacity-100 cursor-pointer"
           >
             Dismiss
           </button>
@@ -375,12 +375,12 @@ export default function SyncPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Cloud Connection State */}
         <Card className="border-slate-200 shadow-sm hover:shadow transition-shadow">
-          <CardContent className="p-5 flex items-start justify-between">
-            <div className="space-y-1.5">
+          <CardContent className="p-5 flex items-start justify-between gap-3">
+            <div className="space-y-1.5 min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Sync Engine State</p>
               <div className="flex items-center gap-2">
                 <span
-                  className={`h-3 w-3 rounded-full ${
+                  className={`h-3 w-3 rounded-full shrink-0 ${
                     status.state === 'ONLINE'
                       ? 'bg-emerald-500 animate-pulse'
                       : status.state === 'SYNCING'
@@ -392,14 +392,14 @@ export default function SyncPage() {
                 />
                 <h3 className="font-bold text-slate-800 text-base sm:text-lg">{status.state}</h3>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 break-words line-clamp-2">
                 {status.online
                   ? `${status.latencyMs}ms cloud latency`
                   : status.lastError || 'Hub running local-only'}
               </p>
             </div>
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                 status.online ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
               }`}
             >
@@ -410,8 +410,8 @@ export default function SyncPage() {
 
         {/* Card 2: Pending Outbox */}
         <Card className="border-slate-200 shadow-sm hover:shadow transition-shadow">
-          <CardContent className="p-5 flex items-start justify-between">
-            <div className="space-y-1.5 flex-1 pr-2">
+          <CardContent className="p-5 flex items-start justify-between gap-3">
+            <div className="space-y-1.5 flex-1 min-w-0 pr-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Pending Outbox</p>
               <div className="flex items-baseline gap-2">
                 <h3 className="font-bold text-slate-800 text-2xl">{status.pendingCount}</h3>
@@ -440,7 +440,7 @@ export default function SyncPage() {
               )}
 
               {status.pendingCount > 0 && (
-                <div className="flex items-center gap-3 pt-1">
+                <div className="flex items-center gap-3 pt-1 flex-wrap">
                   <button
                     onClick={handleFlushOutbox}
                     disabled={isFlushing}
@@ -461,7 +461,7 @@ export default function SyncPage() {
                 </div>
               )}
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 flex-shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
               <Database className="w-5 h-5" />
             </div>
           </CardContent>
@@ -469,8 +469,8 @@ export default function SyncPage() {
 
         {/* Card 3: Dead Letter Queue */}
         <Card className="border-slate-200 shadow-sm hover:shadow transition-shadow">
-          <CardContent className="p-5 flex items-start justify-between">
-            <div className="space-y-1.5">
+          <CardContent className="p-5 flex items-start justify-between gap-3">
+            <div className="space-y-1.5 min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Dead-Letter Events</p>
               <div className="flex items-baseline gap-2">
                 <h3 className={`font-bold text-2xl ${status.deadLetterCount > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
@@ -481,16 +481,16 @@ export default function SyncPage() {
                 <button
                   onClick={handleRetryDeadLetter}
                   disabled={isRetryingDeadLetter}
-                  className="text-xs font-semibold text-rose-600 hover:text-rose-700 underline flex items-center gap-1"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-700 underline flex items-center gap-1 cursor-pointer"
                 >
-                  <RotateCcw className="w-3 h-3" /> Re-queue all
+                  <RotateCcw className={`w-3 h-3 ${isRetryingDeadLetter ? 'animate-spin' : ''}`} /> Re-queue all
                 </button>
               ) : (
                 <p className="text-xs text-slate-500">0 unrecoverable events</p>
               )}
             </div>
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                 status.deadLetterCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400'
               }`}
             >
@@ -501,17 +501,17 @@ export default function SyncPage() {
 
         {/* Card 4: Last Sync & Inbound Cursor */}
         <Card className="border-slate-200 shadow-sm hover:shadow transition-shadow">
-          <CardContent className="p-5 flex items-start justify-between">
-            <div className="space-y-1.5">
+          <CardContent className="p-5 flex items-start justify-between gap-3">
+            <div className="space-y-1.5 min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Last Synced / Cursor</p>
-              <h3 className="font-bold text-slate-800 text-sm">
+              <h3 className="font-bold text-slate-800 text-sm truncate">
                 {status.lastSyncTime ? formatTimestamp(status.lastSyncTime) : 'Never Synced'}
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 truncate">
                 Inbound Cursor: <span className="font-mono font-semibold text-slate-700">#{status.inboundCursor}</span>
               </p>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
               <Clock className="w-5 h-5" />
             </div>
           </CardContent>
@@ -520,49 +520,74 @@ export default function SyncPage() {
 
       {/* ── Main Tabbed Content ──────────────────────────────────────── */}
       <Tabs defaultValue="outbox" className="space-y-4">
-        <TabsList className="bg-slate-100 p-1 border border-slate-200">
-          <TabsTrigger value="outbox" className="text-xs font-semibold gap-2">
-            <Database className="w-3.5 h-3.5" />
-            Transactional Outbox ({outboxItems.length})
-          </TabsTrigger>
-          <TabsTrigger value="reconcile" className="text-xs font-semibold gap-2">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Reconciliation &amp; Audit
-          </TabsTrigger>
-          <TabsTrigger value="sessions" className="text-xs font-semibold gap-2">
-            <Clock className="w-3.5 h-3.5" />
-            Sync Session Logs ({sessions.length})
-          </TabsTrigger>
-        </TabsList>
+        {/* Responsive Tabs Header: allows smooth scrolling or wrapping without forcing layout blowout */}
+        <div className="w-full overflow-x-auto pb-1 scrollbar-none">
+          <TabsList className="w-full sm:w-auto h-auto flex flex-wrap sm:flex-nowrap gap-1.5 bg-slate-100 p-1 border border-slate-200 justify-start rounded-xl">
+            <TabsTrigger
+              value="outbox"
+              className="text-xs font-semibold gap-2 py-2 px-3 flex-1 sm:flex-initial justify-center sm:justify-start data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg whitespace-nowrap"
+            >
+              <Database className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+              <span>Transactional Outbox</span>
+              <span className="ml-1 rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-mono text-slate-700">
+                {outboxItems.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="reconcile"
+              className="text-xs font-semibold gap-2 py-2 px-3 flex-1 sm:flex-initial justify-center sm:justify-start data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg whitespace-nowrap"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-cyan-600" />
+              <span>Reconciliation &amp; Audit</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="sessions"
+              className="text-xs font-semibold gap-2 py-2 px-3 flex-1 sm:flex-initial justify-center sm:justify-start data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg whitespace-nowrap"
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+              <span>Sync Session Logs</span>
+              <span className="ml-1 rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-mono text-slate-700">
+                {sessions.length}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ── TAB 1: Outbox Queue ────────────────────────────────────── */}
         <TabsContent value="outbox">
           <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <div>
+            <CardHeader className="pb-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="space-y-1 min-w-0">
                 <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <Database className="w-4 h-4 text-amber-500" />
-                  Local Transactional Outbox ({isDesktop ? 'Atomically Committed in SQLite' : 'Committed in Tablet Storage'})
+                  <Database className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>Local Transactional Outbox ({isDesktop ? 'Atomically Committed in SQLite' : 'Committed in Tablet Storage'})</span>
                 </CardTitle>
-                <CardDescription className="text-xs text-slate-500 mt-1">
+                <CardDescription className="text-xs text-slate-500">
                   {isDesktop
                     ? 'Events are committed inside the local SQLite business transaction and sent to Supabase with idempotent keys.'
                     : 'Events are saved in tablet offline storage and flushed to Supabase when connected.'}
                 </CardDescription>
               </div>
 
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs">
-                {['ALL', 'PENDING', 'SYNCED', 'FAILED', 'DEAD_LETTER'].map((f) => (
+              {/* Status filter buttons with Dead Letter positioned cleanly */}
+              <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs self-start lg:self-auto max-w-full overflow-x-auto shrink-0">
+                {[
+                  { key: 'ALL', label: 'ALL' },
+                  { key: 'PENDING', label: 'PENDING' },
+                  { key: 'SYNCED', label: 'SYNCED' },
+                  { key: 'FAILED', label: 'FAILED' },
+                  { key: 'DEAD_LETTER', label: 'DEAD LETTER' },
+                ].map(({ key, label }) => (
                   <button
-                    key={f}
-                    onClick={() => setOutboxFilter(f)}
-                    className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
-                      outboxFilter === f
-                        ? 'bg-white text-slate-800 shadow-sm'
+                    key={key}
+                    onClick={() => setOutboxFilter(key)}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-all whitespace-nowrap text-xs cursor-pointer ${
+                      outboxFilter === key
+                        ? 'bg-white text-slate-800 shadow-xs'
                         : 'text-slate-500 hover:text-slate-700'
                     }`}
                   >
-                    {f}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -572,12 +597,12 @@ export default function SyncPage() {
               {filteredOutbox.length === 0 ? (
                 <div className="p-12 text-center text-slate-400">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-slate-700">No events matching filter &ldquo;{outboxFilter}&rdquo;</p>
+                  <p className="text-sm font-semibold text-slate-700">No events matching filter &ldquo;{outboxFilter.replace(/_/g, ' ')}&rdquo;</p>
                   <p className="text-xs text-slate-400 mt-1">Local outbox transactions will appear here automatically.</p>
                 </div>
               ) : (
-                <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
-                  <Table>
+                <div className="w-full overflow-x-auto max-h-96 overflow-y-auto rounded-lg border border-slate-200">
+                  <Table className="w-full min-w-[720px]">
                     <TableHeader>
                       <TableRow className="bg-slate-50 text-xs">
                         <TableHead>Event ID</TableHead>
@@ -632,7 +657,7 @@ export default function SyncPage() {
                                     : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
                                 }`}
                               >
-                                {item.status}
+                                {item.status.replace(/_/g, ' ')}
                               </span>
                             </TableCell>
                             <TableCell className="max-w-xs truncate text-[11px] text-slate-500">
@@ -652,11 +677,11 @@ export default function SyncPage() {
         {/* ── TAB 2: Reconciliation & Audit ─────────────────────────── */}
         <TabsContent value="reconcile">
           <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-cyan-600" />
-                  Diagnostic Reconciliation: {storageName} vs. Supabase Cloud
+                  <ShieldCheck className="w-4 h-4 text-cyan-600 shrink-0" />
+                  <span>Diagnostic Reconciliation: {storageName} vs. Supabase Cloud</span>
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-500 mt-1">
                   Non-destructive audit comparing transactional counts, revenue, and stock movements. No data is silently modified.
@@ -667,7 +692,7 @@ export default function SyncPage() {
                 onClick={handleRunReconciliation}
                 disabled={isReconciling}
                 size="sm"
-                className="gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs"
+                className="gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shrink-0 self-start sm:self-auto cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
                 {isReconciling ? 'Running Diagnostic...' : 'Re-Run Diagnostic'}
@@ -685,7 +710,7 @@ export default function SyncPage() {
                 <>
                   {/* Status Banner */}
                   <div
-                    className={`p-4 rounded-xl border flex items-center justify-between ${
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                       reconciliation.status === 'IN_SYNC'
                         ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                         : reconciliation.status === 'DISCREPANCY_DETECTED'
@@ -715,7 +740,7 @@ export default function SyncPage() {
 
                     <Badge
                       variant="outline"
-                      className={`font-mono text-xs ${
+                      className={`font-mono text-xs self-start sm:self-auto shrink-0 ${
                         reconciliation.status === 'IN_SYNC'
                           ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                           : 'border-amber-300 bg-amber-100 text-amber-800'
@@ -801,8 +826,8 @@ export default function SyncPage() {
                       <h5 className="font-bold text-xs uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
                         <AlertTriangle className="w-4 h-4 text-rose-600" /> Detailed Discrepancies
                       </h5>
-                      <div className="border border-slate-200 rounded-lg overflow-hidden">
-                        <Table>
+                      <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+                        <Table className="w-full min-w-[560px]">
                           <TableHeader>
                             <TableRow className="bg-slate-50 text-xs">
                               <TableHead>Metric</TableHead>
@@ -852,8 +877,8 @@ export default function SyncPage() {
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-600" />
-                Historical Sync Sessions
+                <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>Historical Sync Sessions</span>
               </CardTitle>
               <CardDescription className="text-xs text-slate-500">
                 Detailed telemetry for every cloud upload and download session, including network latency and event outcomes.
@@ -867,8 +892,8 @@ export default function SyncPage() {
                   <p className="text-xs text-slate-400 mt-1">Sessions are logged automatically whenever the background worker or manual sync executes.</p>
                 </div>
               ) : (
-                <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
-                  <Table>
+                <div className="w-full overflow-x-auto max-h-96 overflow-y-auto rounded-lg border border-slate-200">
+                  <Table className="w-full min-w-[700px]">
                     <TableHeader>
                       <TableRow className="bg-slate-50 text-xs">
                         <TableHead>Session ID</TableHead>

@@ -10,7 +10,8 @@ import {
   subscribeToCloudCategories,
   subscribeToCloudCustomers,
   subscribeToCloudSuppliers,
-  subscribeToCloudUsers
+  subscribeToCloudUsers,
+  subscribeToCloudUserPermissions
 } from '@/services/sync/supabaseClient'
 import { queryClient } from '@/lib/queryClient'
 import {
@@ -22,7 +23,8 @@ import {
   fetchCloudCategoriesIfAvailable,
   fetchCloudCustomersIfAvailable,
   fetchCloudSuppliersIfAvailable,
-  fetchCloudUsersIfAvailable
+  fetchCloudUsersIfAvailable,
+  fetchCloudUserPermissionsIfAvailable
 } from '@/services/api/mobileStorage'
 
 export default function App() {
@@ -109,7 +111,14 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     })
 
-    // 10. Background sync interval to ensure Android tablets & Web stay in lockstep with Cloud admin controls
+    // 10. Real-time subscription to cloud_user_permissions table
+    const unsubscribePermissions = subscribeToCloudUserPermissions(async (payload) => {
+      console.log('📡 [Supabase Realtime] Cloud user permissions update:', payload.eventType)
+      await fetchCloudUserPermissionsIfAvailable().catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    })
+
+    // 11. Background sync interval to ensure Android tablets & Web stay in lockstep with Cloud admin controls
     const pollInterval = setInterval(() => {
       fetchCloudStateMirrorsIfAvailable().then(() => {
         queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -121,9 +130,32 @@ export default function App() {
     }
     window.addEventListener('settings_updated', onSettingsUpdated)
 
+    // 12. Prevent mobile WebView document scrolling on input focus (anchors fixed SPA layout)
+    const handleWindowScroll = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0)
+      }
+    }
+    window.addEventListener('scroll', handleWindowScroll, { passive: true })
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+          window.scrollTo(0, 0)
+        }
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }, 120)
+      }
+    }
+    document.addEventListener('focusin', handleFocusIn)
+
     return () => {
       clearInterval(pollInterval)
       window.removeEventListener('settings_updated', onSettingsUpdated)
+      window.removeEventListener('scroll', handleWindowScroll)
+      document.removeEventListener('focusin', handleFocusIn)
       unsubscribeSales()
       unsubscribeProducts()
       unsubscribeBatches()
@@ -132,6 +164,7 @@ export default function App() {
       unsubscribeCustomers()
       unsubscribeSuppliers()
       unsubscribeUsers()
+      unsubscribePermissions()
     }
   }, [])
 

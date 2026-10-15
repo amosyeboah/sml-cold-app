@@ -122,6 +122,15 @@ export function getApi() {
       },
 
       restoreBackup: async (content: string | object) => {
+        if (typeof electronApi.restoreBackup === 'function') {
+          try {
+            const res = await electronApi.restoreBackup(content)
+            await mobileApi.restoreBackup(content).catch(() => {})
+            return res
+          } catch (e) {
+            console.warn('Electron restoreBackup error, falling back to mobile snapshot:', e)
+          }
+        }
         return await mobileApi.restoreBackup(content)
       },
 

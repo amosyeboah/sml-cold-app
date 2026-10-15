@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Building2,
@@ -36,6 +37,7 @@ import {
   Radio,
   Volume2,
   CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -44,6 +46,7 @@ import { Label } from '@/components/ui/label'
 import { bluetoothPrinter, BluetoothPrinterStatus, PaperWidth, NativeBluetoothDevice } from '@/services/hardware/bluetoothPrinter'
 import { barcodeScanner, BarcodeScannerConfig, BarcodeScanEvent, ScannerConnectionType, LatencyTolerance } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
+import { UserPermissionsTab } from './UserPermissionsTab'
 
 // ── Default settings values ──────────────────────────────────────────────────
 const DEFAULTS: Record<string, string> = {
@@ -92,7 +95,7 @@ const DEFAULTS: Record<string, string> = {
   'hw.drawerPulseMs': '200',
 }
 
-type Tab = 'business' | 'pos' | 'receipt' | 'hardware'
+type Tab = 'business' | 'pos' | 'receipt' | 'hardware' | 'permissions'
 
 function Toggle({
   checked,
@@ -147,13 +150,24 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export default function Settings() {
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<Tab>('business')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as Tab | null
+  const [activeTab, setActiveTab] = useState<Tab>(
+    tabParam && ['business', 'pos', 'receipt', 'hardware', 'permissions'].includes(tabParam)
+      ? tabParam
+      : 'business'
+  )
   const [form, setForm] = useState<Record<string, string>>(DEFAULTS)
   const [saved, setSaved] = useState(false)
 
+  const handleTabClick = (t: Tab) => {
+    setActiveTab(t)
+    setSearchParams({ tab: t })
+  }
+
   const { data: stored = {}, isLoading } = useQuery<Record<string, string>>({
     queryKey: ['settings'],
-    queryFn: () => window.api.getSettings(),
+    queryFn: () => (typeof window !== 'undefined' && window.api?.getSettings ? window.api.getSettings() : api.getSettings()),
   })
 
   const { data: installedPrinters = [] } = useQuery<any[]>({
@@ -326,6 +340,7 @@ export default function Settings() {
     { key: 'pos', label: 'POS Checkout', icon: ShoppingBag },
     { key: 'receipt', label: 'Receipt & Invoice', icon: Receipt },
     { key: 'hardware', label: 'Hardware Devices', icon: Cpu },
+    { key: 'permissions', label: 'User Permissions', icon: ShieldCheck },
   ]
 
 
@@ -346,40 +361,42 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Save button in header */}
-          <Button
-            id="settings-save-btn"
-            onClick={handleSave}
-            disabled={saveMutation.isPending}
-            className="flex-shrink-0 gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm"
-          >
-            {saved ? (
-              <>
-                <CheckCircle className="h-4 w-4" />
-                Saved!
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Save Changes
-              </>
-            )}
-          </Button>
+          {/* Save button in header (for standard form tabs) */}
+          {activeTab !== 'permissions' && (
+            <Button
+              id="settings-save-btn"
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="flex-shrink-0 gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm cursor-pointer"
+            >
+              {saved ? (
+                <>
+                  <CheckCircle className="h-4 w-4" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          )}
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1">
+        <div className="flex gap-1 overflow-x-auto scrollbar-none max-w-full pb-0.5">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               id={`settings-tab-${tab.key}`}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 rounded-t-lg px-4 py-2.5 text-xs font-semibold transition-all border-b-2 ${activeTab === tab.key
+              onClick={() => handleTabClick(tab.key)}
+              className={`flex items-center gap-2 rounded-t-lg px-4 py-2.5 text-xs font-semibold transition-all border-b-2 whitespace-nowrap cursor-pointer ${activeTab === tab.key
                 ? 'border-blue-600 text-blue-600 bg-blue-50/60'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <tab.icon className="h-3.5 w-3.5" />
+              <tab.icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
             </button>
           ))}
@@ -392,7 +409,7 @@ export default function Settings() {
           <div className="h-7 w-7 animate-spin rounded-full border-[3px] border-blue-500 border-t-transparent" />
         </div>
       ) : (
-        <div className="p-6 max-w-3xl space-y-6">
+        <div className={`p-4 sm:p-6 space-y-6 ${activeTab === 'permissions' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {/* ────────────────────────────────────────────────────────── */}
           {/* TAB: Business Info                                        */}
           {/* ────────────────────────────────────────────────────────── */}
@@ -1451,27 +1468,36 @@ export default function Settings() {
             </>
           )}
 
+          {/* ────────────────────────────────────────────────────────── */}
+          {/* TAB: User Permissions                                     */}
+          {/* ────────────────────────────────────────────────────────── */}
+          {activeTab === 'permissions' && (
+            <UserPermissionsTab storedSettings={stored} />
+          )}
+
           {/* ── Floating Save Bar ────────────────────────────────────── */}
-          <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs text-gray-400">
-              {saved ? (
-                <span className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                  <CheckCircle className="h-3.5 w-3.5" /> All changes saved successfully
-                </span>
-              ) : (
-                'Changes are saved to the local database.'
-              )}
-            </p>
-            <Button
-              id="settings-save-bottom-btn"
-              onClick={handleSave}
-              disabled={saveMutation.isPending}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {saveMutation.isPending ? 'Saving…' : 'Save Changes'}
-            </Button>
-          </div>
+          {activeTab !== 'permissions' && (
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs text-gray-400">
+                {saved ? (
+                  <span className="flex items-center gap-1.5 text-emerald-600 font-medium">
+                    <CheckCircle className="h-3.5 w-3.5" /> All changes saved successfully
+                  </span>
+                ) : (
+                  'Changes are saved to the local database.'
+                )}
+              </p>
+              <Button
+                id="settings-save-bottom-btn"
+                onClick={handleSave}
+                disabled={saveMutation.isPending}
+                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm cursor-pointer"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saveMutation.isPending ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

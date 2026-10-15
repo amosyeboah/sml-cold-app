@@ -852,26 +852,539 @@ ipcMain.handle('purchases:update', async (_, id: string, data: { supplierId: str
 
 // ─── Backup ───────────────────────────────────────────────────────────────────
 ipcMain.handle('backup:export', async () => {
-  const dbPath = resolveDatabasePath()
-  
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const defaultFileName = `sofiyem_coldstore_backup_${timestamp}.json`
+
   const { filePath } = await dialog.showSaveDialog({
     title: 'Export Database Backup',
-    defaultPath: `sofiyem-coldstore-backup-${new Date().toISOString().split('T')[0]}.db`,
-    filters: [{ name: 'SQLite DB', extensions: ['db'] }],
+    defaultPath: defaultFileName,
+    filters: [
+      { name: 'JSON Backup Snapshot (*.json)', extensions: ['json'] },
+      { name: 'SQLite DB (*.db)', extensions: ['db'] },
+    ],
   })
 
-  if (filePath) {
+  if (!filePath) {
+    return { success: false, message: 'Export cancelled' }
+  }
+
+  // If user explicitly chose .db:
+  if (filePath.endsWith('.db')) {
+    const dbPath = resolveDatabasePath()
     fs.copyFileSync(dbPath, filePath)
     await recordAudit({
       action: 'BACKUP_EXPORT',
       category: 'SYSTEM',
-      details: `Database backup snapshot exported to ${path.basename(filePath)}`,
+      details: `Database backup SQLite snapshot exported to ${path.basename(filePath)}`,
       severity: 'INFO',
       metadata: { destination: filePath },
     })
     return { success: true, path: filePath }
   }
-  return { success: false }
+
+  // Export full JSON snapshot containing all tables and relations
+  const [
+    users,
+    categories,
+    suppliers,
+    customers,
+    medicines,
+    batches,
+    purchases,
+    sales,
+    settingsList,
+    auditLogs,
+  ] = await Promise.all([
+    prisma.user.findMany(),
+    prisma.category.findMany(),
+    prisma.supplier.findMany(),
+    prisma.customer.findMany(),
+    prisma.medicine.findMany({ include: { category: true } }),
+    prisma.batch.findMany({ include: { medicine: true } }),
+    prisma.purchase.findMany({ include: { items: true, supplier: true } }),
+    prisma.sale.findMany({
+      include: {
+        items: {
+          include: {
+            batch: {
+              include: { medicine: true },
+            },
+          },
+        },
+        payments: true,
+        customer: true,
+        prescription: true,
+      },
+      orderBy: { date: 'desc' },
+    }),
+    prisma.setting.findMany(),
+    prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 }),
+  ])
+
+  const settingsObj: Record<string, string> = {}
+  for (const s of settingsList) {
+    settingsObj[s.key] = s.value
+  }
+
+  const backupData = {
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    system: 'SOFIYEM Legacy Cold Store',
+    data: {
+      users,
+      categories,
+      suppliers,
+      customers,
+      medicines,
+      batches,
+      purchases,
+      sales,
+      settings: settingsObj,
+      auditLogs,
+    },
+  }
+
+  fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2), 'utf-8')
+
+  await recordAudit({
+    action: 'BACKUP_EXPORT',
+    category: 'SYSTEM',
+    details: `Full JSON database backup exported (${sales.length} sales, ${medicines.length} products, ${batches.length} batches)`,
+    severity: 'INFO',
+    metadata: {
+      destination: filePath,
+      salesCount: sales.length,
+      productCount: medicines.length,
+      batchCount: batches.length,
+    },
+  })
+
+  return {
+    success: true,
+    path: filePath,
+    counts: {
+      medicines: medicines.length,
+      batches: batches.length,
+      sales: sales.length,
+      purchases: purchases.length,
+      customers: customers.length,
+      suppliers: suppliers.length,
+    },
+  }
+})
+
+ipcMain.handle('backup:restore', async (_, jsonContent: string | object) => {
+  try {
+    const parsed = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent
+    const data = parsed.data || parsed
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid backup file format.')
+    }
+
+    let restoredCount = 0
+
+    // 1. Categories
+    if (Array.isArray(data.categories)) {
+      for (const cat of data.categories) {
+        if (!cat.id || !cat.name) continue
+        await prisma.category.upsert({
+          where: { id: cat.id },
+          create: { id: cat.id, name: cat.name },
+          update: { name: cat.name },
+        }).catch(async () => {
+          const existing = await prisma.category.findUnique({ where: { name: cat.name } })
+          if (!existing) {
+            await prisma.category.create({ data: { id: cat.id, name: cat.name } }).catch(() => {})
+          }
+        })
+        restoredCount++
+      }
+    }
+
+    // 2. Suppliers
+    if (Array.isArray(data.suppliers)) {
+      for (const sup of data.suppliers) {
+        if (!sup.id || !sup.name) continue
+        await prisma.supplier.upsert({
+          where: { id: sup.id },
+          create: {
+            id: sup.id,
+            name: sup.name,
+            contact: sup.contact || sup.phone || null,
+            email: sup.email || null,
+            address: sup.address || null,
+          },
+          update: {
+            name: sup.name,
+            contact: sup.contact || sup.phone || null,
+            email: sup.email || null,
+            address: sup.address || null,
+          },
+        }).catch(() => {})
+        restoredCount++
+      }
+    }
+
+    // 3. Customers
+    if (Array.isArray(data.customers)) {
+      for (const cust of data.customers) {
+        if (!cust.id || !cust.name) continue
+        await prisma.customer.upsert({
+          where: { id: cust.id },
+          create: {
+            id: cust.id,
+            name: cust.name,
+            phone: cust.phone || null,
+          },
+          update: {
+            name: cust.name,
+            phone: cust.phone || null,
+          },
+        }).catch(() => {})
+        restoredCount++
+      }
+    }
+
+    // 4. Users (preserve existing admin)
+    if (Array.isArray(data.users)) {
+      for (const u of data.users) {
+        if (!u.id || !u.username) continue
+        const existing = await prisma.user.findUnique({ where: { username: u.username } })
+        if (!existing) {
+          await prisma.user.create({
+            data: {
+              id: u.id,
+              username: u.username,
+              password: u.password || 'admin1234',
+              pin: u.pin || '1111',
+              role: u.role || 'CASHIER',
+            },
+          }).catch(() => {})
+        }
+      }
+    }
+
+    // 5. Medicines (Products)
+    let defaultCat = await prisma.category.findFirst()
+    if (!defaultCat) {
+      defaultCat = await prisma.category.create({
+        data: { id: 'cat_general_default', name: 'General' },
+      })
+    }
+
+    if (Array.isArray(data.medicines)) {
+      for (const med of data.medicines) {
+        if (!med.id || !med.name) continue
+        let catId = med.categoryId || defaultCat.id
+        if (med.categoryName && !med.categoryId) {
+          let foundCat = await prisma.category.findUnique({ where: { name: med.categoryName } })
+          if (!foundCat) {
+            foundCat = await prisma.category.create({
+              data: { id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name: med.categoryName },
+            }).catch(() => defaultCat)
+          }
+          catId = foundCat?.id || defaultCat.id
+        }
+
+        const sku = med.sku || `SKU-${med.id.slice(0, 8).toUpperCase()}`
+        await prisma.medicine.upsert({
+          where: { id: med.id },
+          create: {
+            id: med.id,
+            name: med.name,
+            genericName: med.genericName || null,
+            sku,
+            categoryId: catId,
+            price: Number(med.price) || 0,
+            cost: Number(med.cost) || 0,
+            minStockLevel: Number(med.minStockLevel) || 10,
+          },
+          update: {
+            name: med.name,
+            genericName: med.genericName || null,
+            price: Number(med.price) || 0,
+            cost: Number(med.cost) || 0,
+            minStockLevel: Number(med.minStockLevel) || 10,
+          },
+        }).catch(async () => {
+          await prisma.medicine.update({
+            where: { sku },
+            data: {
+              name: med.name,
+              price: Number(med.price) || 0,
+              cost: Number(med.cost) || 0,
+            },
+          }).catch(() => {})
+        })
+        restoredCount++
+      }
+    }
+
+    // 6. Batches
+    if (Array.isArray(data.batches)) {
+      for (const b of data.batches) {
+        if (!b.id) continue
+        const medId = b.medicineId || b.product_id
+        if (!medId) continue
+
+        const medExists = await prisma.medicine.findUnique({ where: { id: medId } })
+        if (!medExists) continue
+
+        const expiry = b.expiryDate ? new Date(b.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+        await prisma.batch.upsert({
+          where: { id: b.id },
+          create: {
+            id: b.id,
+            medicineId: medId,
+            batchNumber: b.batchNumber || b.batch_number || `BATCH-${b.id.slice(0, 6).toUpperCase()}`,
+            expiryDate: isNaN(expiry.getTime()) ? new Date() : expiry,
+            quantity: Math.max(0, Number(b.quantity) || 0),
+          },
+          update: {
+            quantity: Math.max(0, Number(b.quantity) || 0),
+            expiryDate: isNaN(expiry.getTime()) ? new Date() : expiry,
+          },
+        }).catch(() => {})
+        restoredCount++
+      }
+    }
+
+    // 7. Purchases
+    if (Array.isArray(data.purchases)) {
+      for (const p of data.purchases) {
+        if (!p.id) continue
+        let supId = p.supplierId
+        if (!supId) {
+          const firstSup = await prisma.supplier.findFirst()
+          supId = firstSup?.id
+        }
+        if (!supId) continue
+
+        const pDate = p.date ? new Date(p.date) : new Date()
+        await prisma.purchase.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            supplierId: supId,
+            date: isNaN(pDate.getTime()) ? new Date() : pDate,
+            total: Number(p.total) || 0,
+            status: p.status || 'COMPLETED',
+          },
+          update: {
+            total: Number(p.total) || 0,
+            status: p.status || 'COMPLETED',
+          },
+        }).catch(() => {})
+
+        if (Array.isArray(p.items)) {
+          for (const pItem of p.items) {
+            if (!pItem.id) continue
+            const medId = pItem.medicineId || pItem.product_id
+            if (!medId) continue
+            await prisma.purchaseItem.upsert({
+              where: { id: pItem.id },
+              create: {
+                id: pItem.id,
+                purchaseId: p.id,
+                medicineId: medId,
+                quantity: Number(pItem.quantity) || 1,
+                cost: Number(pItem.cost) || 0,
+              },
+              update: {
+                quantity: Number(pItem.quantity) || 1,
+                cost: Number(pItem.cost) || 0,
+              },
+            }).catch(() => {})
+          }
+        }
+      }
+    }
+
+    // 8. Sales (and SaleItems, SalePayments)
+    let restoredSalesCount = 0
+    if (Array.isArray(data.sales)) {
+      for (const s of data.sales) {
+        if (!s.id) continue
+        const rawDate = s.date || s.created_at || s.createdAt || s.sold_at
+        const saleDate = rawDate ? new Date(rawDate) : new Date()
+        const validDate = isNaN(saleDate.getTime()) ? new Date() : saleDate
+        const total = Number(s.total ?? s.total_amount ?? 0)
+        const pm = s.paymentMethod || s.payment_method || 'CASH'
+
+        let custId = s.customerId || s.customer_id
+        if (custId) {
+          const custExists = await prisma.customer.findUnique({ where: { id: custId } })
+          if (!custExists) {
+            const custName = s.customerName || s.customer_name || 'Walk-in Customer'
+            await prisma.customer.create({
+              data: { id: custId, name: custName },
+            }).catch(() => { custId = null })
+          }
+        }
+
+        await prisma.sale.upsert({
+          where: { id: s.id },
+          create: {
+            id: s.id,
+            customerId: custId || null,
+            date: validDate,
+            total,
+            paymentMethod: pm,
+          },
+          update: {
+            customerId: custId || null,
+            date: validDate,
+            total,
+            paymentMethod: pm,
+          },
+        }).catch(() => {})
+
+        // Sale Payments
+        const payments = Array.isArray(s.payments) && s.payments.length > 0
+          ? s.payments
+          : [{ id: `sp_${s.id}_0`, saleId: s.id, method: pm, amount: total }]
+
+        for (const p of payments) {
+          const pId = p.id || `sp_${s.id}_${Math.random().toString(36).slice(2, 7)}`
+          await prisma.salePayment.upsert({
+            where: { id: pId },
+            create: {
+              id: pId,
+              saleId: s.id,
+              method: p.method || pm,
+              amount: Number(p.amount) || total,
+            },
+            update: {
+              method: p.method || pm,
+              amount: Number(p.amount) || total,
+            },
+          }).catch(() => {})
+        }
+
+        // Sale Items
+        const items = s.items || s.saleItems || []
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            const itemId = item.id || `si_${s.id}_${Math.random().toString(36).slice(2, 7)}`
+            let batchId = item.batchId || item.batch_id
+
+            if (batchId) {
+              const batchExists = await prisma.batch.findUnique({ where: { id: batchId } })
+              if (!batchExists) {
+                const medId = item.medicineId || item.product_id
+                if (medId) {
+                  const mExists = await prisma.medicine.findUnique({ where: { id: medId } })
+                  if (mExists) {
+                    await prisma.batch.create({
+                      data: {
+                        id: batchId,
+                        medicineId: medId,
+                        batchNumber: `RESTORED-${batchId.slice(0, 6)}`,
+                        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                        quantity: 0,
+                      },
+                    }).catch(() => { batchId = null })
+                  } else {
+                    batchId = null
+                  }
+                } else {
+                  batchId = null
+                }
+              }
+            }
+
+            if (!batchId) {
+              let fallbackBatch = await prisma.batch.findFirst()
+              if (!fallbackBatch) {
+                let anyMed = await prisma.medicine.findFirst()
+                if (!anyMed) {
+                  anyMed = await prisma.medicine.create({
+                    data: {
+                      id: 'med_restored_default',
+                      name: item.name || 'Cold Store Item',
+                      sku: 'SKU-RESTORED-DEFAULT',
+                      categoryId: defaultCat.id,
+                      price: Number(item.price) || 0,
+                      cost: 0,
+                    },
+                  })
+                }
+                fallbackBatch = await prisma.batch.create({
+                  data: {
+                    id: 'batch_restored_default',
+                    medicineId: anyMed.id,
+                    batchNumber: 'DEFAULT-BATCH',
+                    expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                    quantity: 0,
+                  },
+                })
+              }
+              batchId = fallbackBatch.id
+            }
+
+            await prisma.saleItem.upsert({
+              where: { id: itemId },
+              create: {
+                id: itemId,
+                saleId: s.id,
+                batchId,
+                quantity: Number(item.quantity) || 1,
+                price: Number(item.price ?? item.unit_price ?? 0),
+              },
+              update: {
+                batchId,
+                quantity: Number(item.quantity) || 1,
+                price: Number(item.price ?? item.unit_price ?? 0),
+              },
+            }).catch(() => {})
+          }
+        }
+
+        restoredCount++
+        restoredSalesCount++
+      }
+    }
+
+    // 9. Settings
+    if (data.settings && typeof data.settings === 'object') {
+      for (const [key, val] of Object.entries(data.settings)) {
+        await prisma.setting.upsert({
+          where: { key },
+          create: { key, value: String(val) },
+          update: { value: String(val) },
+        }).catch(() => {})
+      }
+    }
+
+    // 10. Audit log entry
+    await recordAudit({
+      action: 'BACKUP_RESTORE',
+      category: 'SYSTEM',
+      details: `Database backup restored successfully (${restoredSalesCount} sales, ${restoredCount} total records restored).`,
+      severity: 'WARNING',
+      metadata: {
+        restoredSalesCount,
+        totalRestored: restoredCount,
+      },
+    })
+
+    return {
+      success: true,
+      restoredCount,
+      restoredSalesCount,
+      counts: {
+        sales: restoredSalesCount,
+        medicines: Array.isArray(data.medicines) ? data.medicines.length : 0,
+        batches: Array.isArray(data.batches) ? data.batches.length : 0,
+        purchases: Array.isArray(data.purchases) ? data.purchases.length : 0,
+      },
+      message: `Successfully restored ${restoredSalesCount} sales and ${restoredCount} records from backup.`,
+    }
+  } catch (err: any) {
+    console.error('Electron backup:restore error:', err)
+    return { success: false, message: err.message || 'Failed to restore database backup' }
+  }
 })
 
 ipcMain.handle('database:freshReset', async () => {
@@ -2094,7 +2607,7 @@ function getCloudCredentials() {
     }
   }
 
-  // Production defaults for SML Legacy Limited Cloud PostgreSQL
+  // Production defaults for SOFIYEM Legacy Limited Cloud PostgreSQL
   if (!url) url = 'https://porlaindujqtgrtiuzjz.supabase.co'
   if (!anonKey) anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvcmxhaW5kdWpxdGdydGl1emp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODYyMDIsImV4cCI6MjEwNjQ2MjIwMn0.apA4OxPtd500-6hgxg7Eoha9PCFU6DKcZqYNzTreCpk'
 

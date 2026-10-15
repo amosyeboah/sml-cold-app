@@ -307,6 +307,21 @@ CREATE TABLE IF NOT EXISTS cloud_users (
 );
 CREATE INDEX IF NOT EXISTS idx_cloud_users_username ON cloud_users(username);
 
+-- 18. CLOUD USER PERMISSIONS (Dedicated Relational Table)
+CREATE TABLE IF NOT EXISTS cloud_user_permissions (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    store_id TEXT NOT NULL DEFAULT 'sml_accra_main' REFERENCES sml_stores(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES cloud_users(id) ON DELETE CASCADE,
+    permission TEXT NOT NULL,
+    granted_by TEXT DEFAULT 'admin',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_cloud_user_permission UNIQUE (user_id, permission)
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_user_permissions_user_id ON cloud_user_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_user_permissions_store_id ON cloud_user_permissions(store_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_user_permissions_perm ON cloud_user_permissions(permission);
+
 -- ==============================================================================
 -- ROW LEVEL SECURITY (RLS) & ACCESS POLICIES
 -- ==============================================================================
@@ -327,6 +342,11 @@ ALTER TABLE cloud_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_user_permissions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public access to cloud_user_permissions" ON cloud_user_permissions;
+CREATE POLICY "Allow public access to cloud_user_permissions" ON cloud_user_permissions FOR ALL USING (true);
+GRANT ALL ON TABLE cloud_user_permissions TO anon, authenticated, service_role;
 
 DROP POLICY IF EXISTS "Allow public read for portal" ON sml_stores;
 DROP POLICY IF EXISTS "Allow POS and Portal access devices" ON cloud_devices;
@@ -383,7 +403,7 @@ DO $$
 DECLARE
     table_name TEXT;
 BEGIN
-    FOREACH table_name IN ARRAY ARRAY['cloud_sales', 'cloud_products', 'cloud_stock_movements', 'cloud_audit_logs', 'cloud_sync_events']
+    FOREACH table_name IN ARRAY ARRAY['cloud_sales', 'cloud_products', 'cloud_stock_movements', 'cloud_audit_logs', 'cloud_sync_events', 'cloud_user_permissions']
     LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_publication_tables

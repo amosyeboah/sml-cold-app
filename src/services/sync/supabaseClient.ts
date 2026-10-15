@@ -447,4 +447,34 @@ export function subscribeToCloudUsers(onUpdate: (payload: any) => void): () => v
   }
 }
 
+/**
+ * Realtime subscription to cloud_user_permissions table.
+ */
+export function subscribeToCloudUserPermissions(onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient()
+  if (!client) return () => {}
+
+  try {
+    const channel = client
+      .channel('cloud_user_permissions_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cloud_user_permissions' },
+        (payload) => onUpdate(payload)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('📡 [Supabase Realtime] Connected to cloud_user_permissions stream')
+        }
+      })
+
+    return () => {
+      client.removeChannel(channel)
+    }
+  } catch (err) {
+    console.warn('📡 [Supabase Realtime] User permissions subscription error:', err)
+    return () => {}
+  }
+}
+
 

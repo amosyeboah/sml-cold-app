@@ -10,6 +10,8 @@ import { format, startOfDay, startOfWeek, startOfMonth } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '@/services/api'
 
+import { usePermissions } from '@/hooks/usePermissions'
+
 const ITEMS_PER_PAGE = 15
 
 function getPaymentMethodColor(method: string) {
@@ -230,7 +232,7 @@ export default function SalesHistory() {
   const [selectedSale, setSelectedSale] = useState<any>(null)
   const queryClient = useQueryClient()
 
-  const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
+  const apiClient = api
 
   const { data: sales = [], isLoading } = useQuery<any[]>({
     queryKey: ['sales'],
@@ -248,7 +250,8 @@ export default function SalesHistory() {
     refetchInterval: 5000
   })
 
-  const enableRefund = storedSettings['pos.enableRefund'] !== 'false'
+  const { hasPermission } = usePermissions()
+  const enableRefund = storedSettings['pos.enableRefund'] !== 'false' && hasPermission('pos.refund')
 
   useEffect(() => {
     const handleSettingsUpdated = () => {
@@ -367,7 +370,9 @@ export default function SalesHistory() {
     const rawDate = s.date || s.created_at || s.createdAt
     const saleDate = rawDate ? new Date(rawDate) : new Date()
     const today = new Date()
-    if (dateFilter === 'TODAY') {
+    if (dateFilter === 'ALL') {
+      matchesDate = true
+    } else if (dateFilter === 'TODAY') {
       matchesDate = saleDate >= startOfDay(today)
     } else if (dateFilter === 'WEEK') {
       matchesDate = saleDate >= startOfWeek(today, { weekStartsOn: 1 })
@@ -487,6 +492,14 @@ export default function SalesHistory() {
                     Custom Date
                   </Button>
                 )}
+                <Button
+                  variant={dateFilter === 'ALL' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => { setDateFilter('ALL'); setCurrentPage(1); }}
+                  className={`h-7 px-2 text-xs ${dateFilter === 'ALL' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600'}`}
+                >
+                  All Time
+                </Button>
                 <Button
                   variant={dateFilter === 'TODAY' ? 'default' : 'ghost'}
                   size="sm"
@@ -634,7 +647,16 @@ export default function SalesHistory() {
                   {paginatedSales.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={7} className="py-8 text-center text-slate-500">
-                        No transactions found matching the search.
+                        {sales.length > 0 ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <p>No transactions found for the selected period ({sales.length} total recorded transaction{sales.length === 1 ? '' : 's'} available).</p>
+                            <Button size="sm" variant="outline" className="h-7 text-xs bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100" onClick={() => { setDateFilter('ALL'); setCurrentPage(1); }}>
+                              Switch to All Time
+                            </Button>
+                          </div>
+                        ) : (
+                          'No transactions found.'
+                        )}
                       </TableCell>
                     </TableRow>
                   )}

@@ -36,7 +36,7 @@ export default function Backup() {
   const [restoreSummary, setRestoreSummary] = useState<string>('')
   const [restoreErrorMsg, setRestoreErrorMsg] = useState<string>('')
 
-  const apiClient = typeof window !== 'undefined' && (window as any).api ? (window as any).api : api
+  const apiClient = api
 
   const exportBackupMutation = useMutation({
     mutationFn: async () => {
@@ -123,7 +123,19 @@ export default function Backup() {
         const res = await apiClient.restoreBackup(restoreData)
         if (res && res.success) {
           setRestoreStatus('success')
-          toast.success('Database backup imported and restored successfully!')
+          toast.success(res?.message || 'Database backup imported and restored successfully!')
+          queryClient.invalidateQueries({ queryKey: ['sales'] })
+          queryClient.invalidateQueries({ queryKey: ['reports'] })
+          queryClient.invalidateQueries({ queryKey: ['reports-data'] })
+          queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+          queryClient.invalidateQueries({ queryKey: ['medicines'] })
+          queryClient.invalidateQueries({ queryKey: ['batches'] })
+          queryClient.invalidateQueries({ queryKey: ['purchases'] })
+          queryClient.invalidateQueries({ queryKey: ['customers'] })
+          queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+          queryClient.invalidateQueries({ queryKey: ['categories'] })
+          queryClient.invalidateQueries({ queryKey: ['settings'] })
+          queryClient.invalidateQueries({ queryKey: ['audit-logs'] })
           queryClient.invalidateQueries()
         } else {
           setRestoreStatus('error')

@@ -38,6 +38,7 @@ import { cn } from '@/utils'
 import { bluetoothPrinter, BluetoothPrinterStatus } from '@/services/hardware/bluetoothPrinter'
 import { barcodeScanner } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
+import { usePermissions } from '@/hooks/usePermissions'
 import { useAuthStore } from '@/store/authStore'
 
 export interface SplitPaymentEntry {
@@ -960,7 +961,8 @@ export default function POS() {
     refetchInterval: 5000
   })
 
-  const enableDiscount = storedSettings['pos.enableDiscount'] === 'true'
+  const { hasPermission } = usePermissions()
+  const enableDiscount = storedSettings['pos.enableDiscount'] === 'true' && hasPermission('pos.discount')
   const enableTax = storedSettings['pos.enableTax'] === 'true'
   const taxRate = enableTax ? (Number(storedSettings['pos.taxRate']) || 0) : 0
   const currencySymbol = storedSettings['biz.currencySymbol'] || '₵'

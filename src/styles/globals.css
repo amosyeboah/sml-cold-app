@@ -41,11 +41,17 @@
     @apply border-border;
   }
   html,
-  body {
+  body,
+  #root {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     overscroll-behavior-y: none;
     -webkit-tap-highlight-color: transparent;
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
 }
 

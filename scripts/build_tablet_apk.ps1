@@ -1,4 +1,4 @@
-# Tablet APK Build & Package Script for SML Legacy Cold Store
+# Tablet APK Build & Package Script for Sofiyem Cold Store
 param (
     [string]$BuildType = "debug"
 )
@@ -6,7 +6,7 @@ param (
 $ErrorActionPreference = "Stop"
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host " SML Legacy Cold Store - Tablet APK Builder" -ForegroundColor Cyan
+Write-Host " Sofiyem Cold Store - Tablet APK Builder" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 1. Detect Java Home (Compatible with Android Gradle: Java 21)
@@ -114,8 +114,11 @@ if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 }
 
-$targetApk = Join-Path $targetDir "sml-cold-store-tablet-v2.apk"
+$targetApk = Join-Path $targetDir "sofiyem-cold-store-tablet-v2.apk"
 Copy-Item -Path $apkSource -Destination $targetApk -Force
+# Also maintain legacy name for compatibility with existing deployment shortcuts
+$legacyApk = Join-Path $targetDir "sml-cold-store-tablet-v2.apk"
+Copy-Item -Path $apkSource -Destination $legacyApk -Force
 
 $fileInfo = Get-Item $targetApk
 $sizeMB = [math]::Round($fileInfo.Length / 1MB, 2)

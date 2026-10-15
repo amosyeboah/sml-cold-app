@@ -24,27 +24,28 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
+import { usePermissions } from '@/hooks/usePermissions'
 import { cn } from '@/utils'
 import { useEffect, useState } from 'react'
 
-const navItems: { to: string; label: string; icon: any; allowedRoles: string[] }[] = [
+const navItems: { to: string; label: string; icon: any; allowedRoles: string[]; permission?: string }[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
-  { to: '/pos', label: 'POS', icon: CreditCard, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
-  { to: '/sales-history', label: 'Sales History', icon: FileText, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
-  { to: '/products', label: 'Products', icon: Package, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/inventory', label: 'Inventory', icon: Layers, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/categories', label: 'Categories', icon: Tags, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/purchases', label: 'Purchases', icon: ShoppingBag, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/suppliers', label: 'Suppliers', icon: Truck, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/customers', label: 'Customers', icon: Users, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'] },
-  { to: '/reports', label: 'Reports', icon: BarChart3, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/audit', label: 'Audit Trail', icon: ShieldCheck, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/sync', label: 'Offline Sync', icon: Cloud, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/expiry', label: 'Expiry', icon: Clock, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/batches', label: 'Batch Tracking', icon: Layers, allowedRoles: ['ADMIN', 'MANAGER'] },
-  { to: '/backup', label: 'Backup', icon: Database, allowedRoles: ['ADMIN'] },
-  { to: '/users', label: 'Users', icon: FileText, allowedRoles: ['ADMIN'] },
-  { to: '/settings', label: 'Settings', icon: Settings, allowedRoles: ['ADMIN'] },
+  { to: '/pos', label: 'POS', icon: CreditCard, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'], permission: 'pos.access' },
+  { to: '/sales-history', label: 'Sales History', icon: FileText, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'], permission: 'sales_history.view' },
+  { to: '/products', label: 'Products', icon: Package, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'products.view' },
+  { to: '/inventory', label: 'Inventory', icon: Layers, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'products.view' },
+  { to: '/categories', label: 'Categories', icon: Tags, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'products.view' },
+  { to: '/purchases', label: 'Purchases', icon: ShoppingBag, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'purchases.view' },
+  { to: '/suppliers', label: 'Suppliers', icon: Truck, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'suppliers.manage' },
+  { to: '/customers', label: 'Customers', icon: Users, allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER'], permission: 'customers.view' },
+  { to: '/reports', label: 'Reports', icon: BarChart3, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'reports.view' },
+  { to: '/audit', label: 'Audit Trail', icon: ShieldCheck, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'audit.view' },
+  { to: '/sync', label: 'Offline Sync', icon: Cloud, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'sync.access' },
+  { to: '/expiry', label: 'Expiry', icon: Clock, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'batches.view' },
+  { to: '/batches', label: 'Batch Tracking', icon: Layers, allowedRoles: ['ADMIN', 'MANAGER'], permission: 'batches.view' },
+  { to: '/backup', label: 'Backup', icon: Database, allowedRoles: ['ADMIN'], permission: 'backup.manage' },
+  { to: '/users', label: 'Users', icon: FileText, allowedRoles: ['ADMIN'], permission: 'users.manage' },
+  { to: '/settings', label: 'Settings', icon: Settings, allowedRoles: ['ADMIN'], permission: 'settings.edit' },
 ]
 
 function useClock() {
@@ -60,6 +61,7 @@ export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const { sidebarCollapsed, toggleSidebar } = useUIStore()
+  const { hasPermission, isAdmin } = usePermissions()
   const navigate = useNavigate()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const now = useClock()
@@ -70,7 +72,11 @@ export default function Sidebar() {
   }
 
   const role = user?.role || 'CASHIER'
-  const visibleNavItems = navItems.filter((item) => item.allowedRoles.includes(role))
+  const visibleNavItems = navItems.filter((item) => {
+    if (isAdmin) return true
+    if (item.permission && hasPermission(item.permission)) return true
+    return item.allowedRoles.includes(role)
+  })
 
   const roleLabel =
     role === 'ADMIN'
@@ -96,7 +102,7 @@ export default function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-white/5 transition-all duration-300 ease-in-out',
+        'fixed left-0 top-0 bottom-0 z-40 flex h-full flex-col border-r border-white/5 transition-all duration-300 ease-in-out',
         sidebarCollapsed ? 'w-[58px]' : 'w-[185px]'
       )}
       style={{ background: 'linear-gradient(180deg, #0d1117 0%, #111827 100%)' }}

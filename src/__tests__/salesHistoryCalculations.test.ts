@@ -128,6 +128,8 @@ describe('Sales History Calculation Verification', () => {
     expect(html).toContain('Frozen Tilapia')
     expect(html).toContain('Mackerel 1kg')
     expect(html).toContain('₵125.50')
+    expect(html).toContain('software developed by PayLite | www.mypaylite.com | 0207131415')
+    expect(html).toContain('font-size:11px;white-space:nowrap;">GRAND TOTAL:')
   })
 
   it('buildSaleReceiptHtml includes split payment breakdown when transaction has multiple payments', () => {

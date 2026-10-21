@@ -15,7 +15,16 @@ import {
   CheckCheck,
   Ban,
   User,
+  ShoppingCart,
+  Receipt,
+  Package,
+  Truck,
+  BarChart3,
+  Sliders,
+  CheckSquare,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { useAuthStore } from '@/store/authStore'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +32,9 @@ import {
   ALL_PERMISSIONS,
   PERMISSION_CATEGORIES,
   DEFAULT_ROLE_PERMISSIONS,
+  CATEGORY_CONFIG,
+  ADMIN_ONLY_PERMISSIONS,
+  canUserAlterPermissions,
   parsePermissionsMap,
   SETTINGS_KEY_USER_PERMISSIONS,
   PermissionDefinition,
@@ -36,6 +48,11 @@ interface UserPermissionsTabProps {
 export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) {
   const queryClient = useQueryClient()
   const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
+
+  // Currently logged-in user session
+  const loggedInUser = useAuthStore((s) => s.user)
+  const loggedInRole = (loggedInUser?.role || 'CASHIER').toUpperCase()
+  const isCurrentAdmin = loggedInRole === 'ADMIN'
 
   // Fetch staff users
   const { data: users = [], isLoading: isLoadingUsers } = useQuery<any[]>({
@@ -80,6 +97,13 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
   const activeUserKey = activeUser?.id || activeUser?.username || ''
   const isSelectedAdmin = (activeUser?.role || '').toUpperCase() === 'ADMIN'
 
+  // Check if active user is the currently logged-in actor
+  const isSelf = Boolean(
+    loggedInUser &&
+    ((activeUser?.id && loggedInUser.id && String(activeUser.id) === String(loggedInUser.id)) ||
+     (activeUser?.username && loggedInUser.username && activeUser.username.toLowerCase() === loggedInUser.username.toLowerCase()))
+  )
+
   // Current active permissions for the selected user
   const currentUserPermissions = useMemo<string[]>(() => {
     if (!activeUser) return []
@@ -118,6 +142,13 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     return DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.CASHIER
   }, [activeUser, activeUserKey, isSelectedAdmin, permissionsDraft, storedSettings])
 
+  // Privilege Guard: Check if the logged-in user can alter permissions for activeUser
+  const alterationCheck = useMemo(() => {
+    return canUserAlterPermissions(loggedInUser, activeUser, currentUserPermissions)
+  }, [loggedInUser, activeUser, currentUserPermissions])
+
+  const isAlterationBlocked = !alterationCheck.allowed
+
   // Check if active user has custom override
   const isCustomized = useMemo(() => {
     if (!activeUser || isSelectedAdmin) return false
@@ -134,9 +165,36 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     return hasDraft || hasStored
   }, [activeUser, activeUserKey, isSelectedAdmin, permissionsDraft, storedSettings])
 
+  // Helper for category icon
+  const getCategoryIcon = (catId: string, className = 'w-3.5 h-3.5') => {
+    switch (catId) {
+      case 'pos':
+        return <ShoppingCart className={className} />
+      case 'sales':
+        return <Receipt className={className} />
+      case 'inventory':
+        return <Package className={className} />
+      case 'purchases':
+        return <Truck className={className} />
+      case 'customers':
+        return <Users className={className} />
+      case 'reports':
+        return <BarChart3 className={className} />
+      case 'system':
+      default:
+        return <ShieldCheck className={className} />
+    }
+  }
+
   // Mutation to persist user permissions to settings
   const saveMutation = useMutation({
     mutationFn: async (updatedMap: Record<string, string[]>) => {
+      if (isAlterationBlocked) {
+        throw new Error(
+          alterationCheck.reason ||
+          'Cashiers and Managers cannot alter their own permissions to become Admin.'
+        )
+      }
       const payload = {
         [SETTINGS_KEY_USER_PERMISSIONS]: JSON.stringify(updatedMap),
       }
@@ -144,16 +202,13 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      setFeedback({
-        type: 'success',
-        message: `Permissions successfully saved for ${activeUser?.username || 'user'}!`,
-      })
-      setTimeout(() => setFeedback(null), 4000)
     },
     onError: (err: any) => {
+      const msg = err?.message || 'Failed to save user permissions. Please try again.'
+      toast.error(msg)
       setFeedback({
         type: 'error',
-        message: err?.message || 'Failed to save user permissions. Please try again.',
+        message: msg,
       })
     },
   })
@@ -162,11 +217,50 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
   const handleTogglePermission = (permId: string) => {
     if (!activeUser || isSelectedAdmin) return
 
+    // Privilege Escalation Prevention
+    if (isAlterationBlocked) {
+      toast.error(
+        alterationCheck.reason ||
+        'Access Denied: Cashiers and Managers cannot alter their own permissions to become Admin.'
+      )
+      return
+    }
+
+    const willGrant = !currentUserPermissions.includes(permId)
+
+    // Non-admins cannot grant admin-only privileges
+    if (!isCurrentAdmin && willGrant && ADMIN_ONLY_PERMISSIONS.includes(permId)) {
+      toast.error('Privilege Protection: Only an Administrator can grant administrative permissions.')
+      return
+    }
+
     const currentSet = new Set(currentUserPermissions)
+    const targetPerm = ALL_PERMISSIONS.find((p) => p.id === permId)
+    const permName = targetPerm?.name || permId
+    const userName = activeUser.username || 'user'
+
     if (currentSet.has(permId)) {
       currentSet.delete(permId)
+      toast(`Revoked "${permName}" from ${userName}.`, {
+        id: `perm-${permId}`,
+        icon: '🔒',
+        duration: 3500,
+      })
+      setFeedback({
+        type: 'success',
+        message: `Revoked permission "${permName}" from ${userName}.`,
+      })
     } else {
       currentSet.add(permId)
+      toast.success(`Granted "${permName}" to ${userName}!`, {
+        id: `perm-${permId}`,
+        icon: '✅',
+        duration: 3500,
+      })
+      setFeedback({
+        type: 'success',
+        message: `Granted permission "${permName}" to ${userName} successfully.`,
+      })
     }
 
     const updatedList = Array.from(currentSet)
@@ -182,6 +276,16 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
   // Quick action: Grant all
   const handleGrantAll = () => {
     if (!activeUser || isSelectedAdmin) return
+
+    if (isAlterationBlocked) {
+      toast.error(alterationCheck.reason || 'Cashiers and Managers cannot alter their own permissions.')
+      return
+    }
+    if (!isCurrentAdmin) {
+      toast.error('Only an Administrator has authority to grant master access.')
+      return
+    }
+
     const allIds = ALL_PERMISSIONS.map((p) => p.id)
     const updatedMap = {
       ...permissionsDraft,
@@ -189,22 +293,54 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     }
     setPermissionsDraft(updatedMap)
     saveMutation.mutate(updatedMap)
+
+    const userName = activeUser.username || 'user'
+    toast.success(`Granted all ${allIds.length} permissions to ${userName}!`, {
+      icon: '✨',
+      duration: 4000,
+    })
+    setFeedback({
+      type: 'success',
+      message: `Granted all permissions to ${userName} successfully.`,
+    })
   }
 
   // Quick action: Revoke all
   const handleRevokeAll = () => {
     if (!activeUser || isSelectedAdmin) return
+
+    if (isAlterationBlocked) {
+      toast.error(alterationCheck.reason || 'Cashiers and Managers cannot alter their own permissions.')
+      return
+    }
+
     const updatedMap = {
       ...permissionsDraft,
       [activeUserKey]: [],
     }
     setPermissionsDraft(updatedMap)
     saveMutation.mutate(updatedMap)
+
+    const userName = activeUser.username || 'user'
+    toast(`Revoked all optional permissions from ${userName}.`, {
+      icon: '🚫',
+      duration: 4000,
+    })
+    setFeedback({
+      type: 'success',
+      message: `Revoked all optional permissions from ${userName}.`,
+    })
   }
 
   // Quick action: Reset to role default
   const handleResetToDefault = () => {
     if (!activeUser || isSelectedAdmin) return
+
+    if (isAlterationBlocked) {
+      toast.error(alterationCheck.reason || 'Cashiers and Managers cannot alter their own permissions.')
+      return
+    }
+
     const updatedMap = { ...permissionsDraft }
     delete updatedMap[activeUserKey]
     if (activeUser.id) delete updatedMap[String(activeUser.id)]
@@ -214,14 +350,35 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     }
     setPermissionsDraft(updatedMap)
     saveMutation.mutate(updatedMap)
+
+    const userName = activeUser.username || 'user'
+    toast.success(`Reset permissions to standard ${activeUser.role} baseline for ${userName}.`, {
+      icon: '🔄',
+      duration: 4000,
+    })
+    setFeedback({
+      type: 'success',
+      message: `Permissions reset to standard ${activeUser.role} defaults for ${userName}.`,
+    })
   }
 
   // Quick action: Grant all in specific category
   const handleGrantCategory = (category: string) => {
     if (!activeUser || isSelectedAdmin) return
-    const categoryPermIds = ALL_PERMISSIONS.filter((p) => p.category === category).map((p) => p.id)
+
+    if (isAlterationBlocked) {
+      toast.error(alterationCheck.reason || 'Cashiers and Managers cannot alter their own permissions.')
+      return
+    }
+
+    const catConfig = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
+    const categoryPerms = ALL_PERMISSIONS.filter((p) => p.category === category)
+    const assignablePerms = isCurrentAdmin
+      ? categoryPerms
+      : categoryPerms.filter((p) => !ADMIN_ONLY_PERMISSIONS.includes(p.id))
+
     const currentSet = new Set(currentUserPermissions)
-    categoryPermIds.forEach((id) => currentSet.add(id))
+    assignablePerms.forEach((p) => currentSet.add(p.id))
 
     const updatedMap = {
       ...permissionsDraft,
@@ -229,11 +386,29 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     }
     setPermissionsDraft(updatedMap)
     saveMutation.mutate(updatedMap)
+
+    const userName = activeUser.username || 'user'
+    const catName = catConfig?.name || category
+    toast.success(`Granted all ${catName} permissions to ${userName}!`, {
+      icon: '✅',
+      duration: 3500,
+    })
+    setFeedback({
+      type: 'success',
+      message: `Granted all ${catName} permissions to ${userName}.`,
+    })
   }
 
   // Quick action: Revoke all in specific category
   const handleRevokeCategory = (category: string) => {
     if (!activeUser || isSelectedAdmin) return
+
+    if (isAlterationBlocked) {
+      toast.error(alterationCheck.reason || 'Cashiers and Managers cannot alter their own permissions.')
+      return
+    }
+
+    const catConfig = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
     const categoryPermIds = new Set(ALL_PERMISSIONS.filter((p) => p.category === category).map((p) => p.id))
     const updatedList = currentUserPermissions.filter((id) => !categoryPermIds.has(id))
 
@@ -243,6 +418,17 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
     }
     setPermissionsDraft(updatedMap)
     saveMutation.mutate(updatedMap)
+
+    const userName = activeUser.username || 'user'
+    const catName = catConfig?.name || category
+    toast(`Revoked all ${catName} permissions from ${userName}.`, {
+      icon: '🔒',
+      duration: 3500,
+    })
+    setFeedback({
+      type: 'success',
+      message: `Revoked all ${catName} permissions from ${userName}.`,
+    })
   }
 
   // Filtered permissions list based on search and selected category tab
@@ -300,26 +486,26 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
 
   return (
     <div className="space-y-4">
-      {/* ── Feedback Notification ───────────────────────────────────────── */}
+      {/* ── Feedback Notification Banner ─────────────────────────────────── */}
       {feedback && (
         <div
-          className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between gap-3 border shadow-xs transition-all ${
+          className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between gap-3 border shadow-xs transition-all animate-in fade-in duration-200 ${
             feedback.type === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
               : 'bg-rose-50 text-rose-800 border-rose-200'
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {feedback.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
-            <span>{feedback.message}</span>
+            <span className="leading-snug">{feedback.message}</span>
           </div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-[10px] uppercase tracking-wider opacity-60 hover:opacity-100 cursor-pointer"
+            className="text-[10px] uppercase tracking-wider opacity-60 hover:opacity-100 cursor-pointer font-bold"
           >
             Dismiss
           </button>
@@ -358,13 +544,20 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
               {isLoadingUsers ? (
                 <div className="p-8 text-center text-xs text-slate-400">Loading staff accounts...</div>
               ) : filteredUsers.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400">No staff accounts match &ldquo;{userSearchTerm}&rdquo;</div>
+                <div className="p-8 text-center text-xs text-slate-400">
+                  No staff accounts match &ldquo;{userSearchTerm}&rdquo;
+                </div>
               ) : (
                 filteredUsers.map((u) => {
                   const isSelected = activeUser?.id === u.id || activeUser?.username === u.username
                   const isAdminUser = (u.role || '').toUpperCase() === 'ADMIN'
                   const userKey = u.id || u.username
                   const hasCustom = !isAdminUser && Boolean(permissionsDraft[userKey])
+                  const isItemSelf = Boolean(
+                    loggedInUser &&
+                    ((u.id && loggedInUser.id && String(u.id) === String(loggedInUser.id)) ||
+                     (u.username && loggedInUser.username && u.username.toLowerCase() === loggedInUser.username.toLowerCase()))
+                  )
 
                   // Count granted permissions for preview
                   const grantedCount = isAdminUser
@@ -397,10 +590,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                         </div>
 
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-xs text-slate-800 truncate block">
                               {u.username}
                             </span>
+                            {isItemSelf && (
+                              <span className="rounded-full bg-blue-100 text-blue-800 text-[9px] px-1.5 py-0.2 font-bold ring-1 ring-blue-300">
+                                You
+                              </span>
+                            )}
                             {hasCustom && (
                               <span className="rounded-full bg-cyan-100 text-cyan-800 text-[9px] px-1.5 py-0.1 font-bold">
                                 Custom
@@ -439,19 +637,19 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
               <li className="flex items-start gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-purple-500 mt-1 shrink-0" />
                 <span>
-                  <strong>ADMIN:</strong> Master administrative access to all data, settings, backups, and user management.
+                  <strong>ADMIN:</strong> Master administrative authority over all store functions, settings, and data.
                 </span>
               </li>
               <li className="flex items-start gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500 mt-1 shrink-0" />
                 <span>
-                  <strong>MANAGER:</strong> Operational authority over stock, purchases, pricing, and reports.
+                  <strong>MANAGER:</strong> Operational authority over stock, inventory, purchases, and business reports.
                 </span>
               </li>
               <li className="flex items-start gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0" />
                 <span>
-                  <strong>CASHIER:</strong> Checkout register and basic sales history. Privileged operations require admin authorization.
+                  <strong>CASHIER:</strong> Checkout register and sales history. Privileged operations require admin authorization.
                 </span>
               </li>
             </ul>
@@ -478,10 +676,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                       {activeUser.username?.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <CardTitle className="text-base font-bold text-slate-800">
                           {activeUser.username}
                         </CardTitle>
+                        {isSelf && (
+                          <span className="text-[10px] font-bold bg-blue-50 text-blue-700 ring-1 ring-blue-300 px-2 py-0.5 rounded-full">
+                            Logged-In Account
+                          </span>
+                        )}
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getRoleBadgeStyle(
                             activeUser.role
@@ -510,9 +713,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                         size="sm"
                         variant="outline"
                         onClick={handleGrantAll}
-                        disabled={saveMutation.isPending}
-                        className="h-7 text-xs px-2.5 gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 cursor-pointer"
-                        title="Grant all permissions to this user"
+                        disabled={saveMutation.isPending || isAlterationBlocked}
+                        className={`h-7 text-xs px-2.5 gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 cursor-pointer ${
+                          isAlterationBlocked ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title={
+                          isAlterationBlocked
+                            ? alterationCheck.reason
+                            : 'Grant all permissions to this user'
+                        }
                       >
                         <CheckCheck className="w-3 h-3 text-emerald-600" /> Grant All
                       </Button>
@@ -520,9 +729,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                         size="sm"
                         variant="outline"
                         onClick={handleRevokeAll}
-                        disabled={saveMutation.isPending}
-                        className="h-7 text-xs px-2.5 gap-1 text-rose-700 border-rose-200 hover:bg-rose-50 cursor-pointer"
-                        title="Revoke all optional permissions"
+                        disabled={saveMutation.isPending || isAlterationBlocked}
+                        className={`h-7 text-xs px-2.5 gap-1 text-rose-700 border-rose-200 hover:bg-rose-50 cursor-pointer ${
+                          isAlterationBlocked ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title={
+                          isAlterationBlocked
+                            ? alterationCheck.reason
+                            : 'Revoke all optional permissions'
+                        }
                       >
                         <Ban className="w-3 h-3 text-rose-600" /> Revoke All
                       </Button>
@@ -530,9 +745,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                         size="sm"
                         variant="outline"
                         onClick={handleResetToDefault}
-                        disabled={saveMutation.isPending}
-                        className="h-7 text-xs px-2.5 gap-1 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer"
-                        title="Reset permissions to standard role default"
+                        disabled={saveMutation.isPending || isAlterationBlocked}
+                        className={`h-7 text-xs px-2.5 gap-1 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer ${
+                          isAlterationBlocked ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title={
+                          isAlterationBlocked
+                            ? alterationCheck.reason
+                            : 'Reset permissions to standard role default'
+                        }
                       >
                         <RotateCcw className="w-3 h-3 text-slate-500" /> Reset to Role
                       </Button>
@@ -540,15 +761,36 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                   )}
                 </div>
 
-                {/* Search & Category Filter Tabs */}
+                {/* ── Security Privilege Escalation Warning Banner ────────── */}
+                {isAlterationBlocked && (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50/90 p-3 text-xs flex items-start gap-3 text-amber-900 shadow-xs animate-in fade-in">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-amber-950 flex items-center gap-1.5">
+                        Privilege Protection Active
+                        {isSelf && (
+                          <span className="bg-amber-200 text-amber-900 text-[9px] px-1.5 py-0.2 rounded-full font-bold">
+                            Self-Alteration Prohibited
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-amber-800 text-[11px] leading-relaxed">
+                        {alterationCheck.reason ||
+                          'Cashiers and Managers cannot alter their own permissions or escalate privileges to become Admin.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Search & Category Filter Tabs (With Distinct Color Themes) ── */}
                 <div className="pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   {/* Category Pills */}
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       onClick={() => setSelectedCategory('all')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         selectedCategory === 'all'
-                          ? 'bg-blue-600 text-white shadow-xs'
+                          ? 'bg-slate-900 text-white shadow-xs'
                           : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -556,17 +798,36 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                     </button>
                     {PERMISSION_CATEGORIES.map((cat) => {
                       const count = ALL_PERMISSIONS.filter((p) => p.category === cat.id).length
+                      const config = CATEGORY_CONFIG[cat.id]
+                      const isCatSelected = selectedCategory === cat.id
+
                       return (
                         <button
                           key={cat.id}
                           onClick={() => setSelectedCategory(cat.id)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                            selectedCategory === cat.id
-                              ? 'bg-blue-600 text-white shadow-xs'
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                            isCatSelected
+                              ? config.tabActive
                               : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                           }`}
                         >
-                          {cat.name.split('&')[0]} ({count})
+                          {!isCatSelected && (
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: config.accentColor }}
+                            />
+                          )}
+                          {getCategoryIcon(cat.id, 'w-3 h-3 shrink-0')}
+                          <span>{config.shortName}</span>
+                          <span
+                            className={`text-[10px] px-1 py-0.1 rounded font-bold ${
+                              isCatSelected
+                                ? 'bg-white/20 text-white'
+                                : `${config.badgeBg} ${config.badgeText}`
+                            }`}
+                          >
+                            {count}
+                          </span>
                         </button>
                       )
                     })}
@@ -579,13 +840,13 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                       value={permSearchTerm}
                       onChange={(e) => setPermSearchTerm(e.target.value)}
                       placeholder="Search privilege..."
-                      className="pl-8 h-7 text-xs bg-white border-slate-200"
+                      className="pl-8 h-8 text-xs bg-white border-slate-200"
                     />
                   </div>
                 </div>
               </CardHeader>
 
-              {/* Permissions List Grouped by Category */}
+              {/* Permissions List Grouped by Category with Rich Color Distinction */}
               <CardContent className="p-4 space-y-6">
                 {isSelectedAdmin ? (
                   <div className="p-8 text-center bg-purple-50/60 rounded-xl border border-purple-200 space-y-2">
@@ -600,63 +861,131 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                     const categoryPerms = getFilteredPermissionsForCategory(category.id)
                     if (categoryPerms.length === 0) return null
 
+                    const config = CATEGORY_CONFIG[category.id]
+                    const enabledCount = categoryPerms.filter((p) =>
+                      currentUserPermissions.includes(p.id)
+                    ).length
                     const allGrantedInCategory = categoryPerms.every((p) =>
                       currentUserPermissions.includes(p.id)
                     )
 
                     return (
-                      <div key={category.id} className="space-y-2.5">
-                        {/* Category Header */}
-                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-                          <div>
-                            <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                              <span>{category.name}</span>
-                              <span className="text-[10px] font-normal text-slate-400">
-                                ({categoryPerms.filter((p) => currentUserPermissions.includes(p.id)).length}/
-                                {categoryPerms.length} enabled)
-                              </span>
-                            </h4>
-                            <p className="text-[11px] text-slate-500">{category.description}</p>
+                      <div
+                        key={category.id}
+                        className="space-y-3 p-3.5 rounded-2xl border transition-all"
+                        style={{
+                          borderColor: config.accentColor + '30',
+                          backgroundColor: config.accentColor + '04',
+                        }}
+                      >
+                        {/* ── Category Header with Distinct Visual Accent ── */}
+                        <div
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b"
+                          style={{ borderColor: config.accentColor + '22' }}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-2xs"
+                              style={{
+                                backgroundColor: config.accentColor + '18',
+                                color: config.accentColor,
+                              }}
+                            >
+                              {getCategoryIcon(category.id, 'w-4 h-4')}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4
+                                  className="font-bold text-xs uppercase tracking-wider"
+                                  style={{ color: config.accentColor }}
+                                >
+                                  {category.name}
+                                </h4>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${config.badgeBg} ${config.badgeText} ${config.badgeBorder}`}
+                                >
+                                  {enabledCount}/{categoryPerms.length} enabled
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {category.description}
+                              </p>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-1 text-[11px]">
-                            {allGrantedInCategory ? (
-                              <button
-                                onClick={() => handleRevokeCategory(category.id)}
-                                className="text-rose-600 hover:text-rose-700 font-semibold underline cursor-pointer"
-                              >
-                                Revoke Category
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleGrantCategory(category.id)}
-                                className="text-blue-600 hover:text-blue-700 font-semibold underline cursor-pointer"
-                              >
-                                Grant Category
-                              </button>
-                            )}
-                          </div>
+                          {/* Quick Grant/Revoke in Category */}
+                          {!isAlterationBlocked && (
+                            <div className="flex items-center gap-1.5 text-[11px] self-end sm:self-auto shrink-0">
+                              {allGrantedInCategory ? (
+                                <button
+                                  onClick={() => handleRevokeCategory(category.id)}
+                                  className="text-rose-600 hover:text-rose-700 font-semibold underline cursor-pointer"
+                                  title={`Revoke all ${config.shortName} permissions`}
+                                >
+                                  Revoke Category
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleGrantCategory(category.id)}
+                                  className="font-semibold underline cursor-pointer"
+                                  style={{ color: config.accentColor }}
+                                  title={`Grant all ${config.shortName} permissions`}
+                                >
+                                  Grant Category
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Category Items Grid */}
+                        {/* ── Category Items Grid with Category-Colored Accents ── */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                           {categoryPerms.map((perm) => {
                             const isGranted = currentUserPermissions.includes(perm.id)
+                            const isAdminOnly = ADMIN_ONLY_PERMISSIONS.includes(perm.id)
 
                             return (
                               <div
                                 key={perm.id}
-                                onClick={() => handleTogglePermission(perm.id)}
-                                className={`p-3 rounded-xl border transition-all flex items-start justify-between gap-3 cursor-pointer ${
+                                onClick={() => {
+                                  if (isAlterationBlocked) {
+                                    toast.error(
+                                      alterationCheck.reason ||
+                                      'Cashiers and Managers cannot alter their own permissions to become Admin.'
+                                    )
+                                    return
+                                  }
+                                  handleTogglePermission(perm.id)
+                                }}
+                                className={`p-3 rounded-xl border transition-all flex items-start justify-between gap-3 ${
+                                  isAlterationBlocked
+                                    ? 'cursor-not-allowed opacity-65 bg-white border-slate-200'
+                                    : 'cursor-pointer'
+                                } ${
                                   isGranted
-                                    ? 'bg-blue-50/40 border-blue-200 hover:border-blue-300'
+                                    ? `${config.lightBg} shadow-xs`
                                     : 'bg-white border-slate-200 hover:border-slate-300 opacity-80 hover:opacity-100'
                                 }`}
+                                style={{
+                                  borderColor: isGranted ? config.accentColor + '55' : undefined,
+                                }}
                               >
                                 <div className="space-y-1 min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-bold text-xs text-slate-800">{perm.name}</span>
+                                    <span
+                                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase tracking-wider border ${config.badgeBg} ${config.badgeText} ${config.badgeBorder}`}
+                                    >
+                                      {config.shortName}
+                                    </span>
+                                    <span className="font-bold text-xs text-slate-800">
+                                      {perm.name}
+                                    </span>
                                     {getRiskBadge(perm.riskLevel)}
+                                    {isAdminOnly && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.2 rounded">
+                                        <Lock className="w-2.5 h-2.5" /> Admin Only
+                                      </span>
+                                    )}
                                   </div>
                                   <p className="text-[11px] text-slate-500 leading-snug">
                                     {perm.description}
@@ -666,12 +995,15 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
                                   </span>
                                 </div>
 
-                                {/* Custom Toggle Button */}
+                                {/* Custom Toggle Button Styled with Category Color */}
                                 <div className="shrink-0 pt-0.5">
                                   <div
-                                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
-                                      isGranted ? 'bg-blue-600' : 'bg-slate-200'
-                                    }`}
+                                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                                      isAlterationBlocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                                    } ${!isGranted ? 'bg-slate-200' : ''}`}
+                                    style={{
+                                      backgroundColor: isGranted ? config.accentColor : undefined,
+                                    }}
                                   >
                                     <span
                                       className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -694,7 +1026,9 @@ export function UserPermissionsTab({ storedSettings }: UserPermissionsTabProps) 
             <div className="p-12 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl">
               <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-700">No staff account selected</p>
-              <p className="text-xs text-slate-400 mt-1">Select a user from the list on the left to configure permissions.</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Select a user from the list on the left to configure permissions.
+              </p>
             </div>
           )}
         </div>

@@ -11,6 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import toast from 'react-hot-toast'
+import { useAuthStore } from '@/store/authStore'
+import { canUserChangeRole } from '@/services/permissions'
 import { api } from '@/services/api'
 
 const userSchema = z.object({
@@ -34,6 +37,15 @@ export default function Users() {
   const [userToDelete, setUserToDelete] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
 
+  const loggedInUser = useAuthStore((s) => s.user)
+  const isCurrentAdmin = (loggedInUser?.role || '').toUpperCase() === 'ADMIN'
+
+  const isEditingSelf = Boolean(
+    loggedInUser && editingUser &&
+    ((editingUser.id && loggedInUser.id && String(editingUser.id) === String(loggedInUser.id)) ||
+     (editingUser.username && loggedInUser.username && editingUser.username.toLowerCase() === loggedInUser.username.toLowerCase()))
+  )
+
   const apiClient = typeof window !== 'undefined' && window.api ? window.api : api
 
   const { data: users = [], isLoading } = useQuery<any[]>({
@@ -43,17 +55,25 @@ export default function Users() {
 
   const createUserMutation = useMutation({
     mutationFn: (data: UserFormData) => apiClient.createUser(data),
-    onSuccess: () => {
+    onSuccess: (newUser: any) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success(`Staff member "${newUser?.username || 'user'}" created successfully!`)
       closeModal()
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to create staff member')
     },
   })
 
   const updateUserMutation = useMutation({
     mutationFn: (data: UserFormData) => apiClient.updateUser(data.id!, data),
-    onSuccess: () => {
+    onSuccess: (updated: any) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success(`Staff member "${updated?.username || 'user'}" updated successfully!`)
       closeModal()
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to update staff member')
     },
   })
 
@@ -61,8 +81,12 @@ export default function Users() {
     mutationFn: (id: string) => apiClient.deleteUser(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('Staff member deleted successfully.')
       setIsDeleteDialogOpen(false)
       setUserToDelete(null)
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to delete staff member')
     },
   })
 
@@ -71,6 +95,12 @@ export default function Users() {
   })
 
   const onSubmit = (data: UserFormData) => {
+    const roleCheck = canUserChangeRole(loggedInUser, editingUser, data.role)
+    if (!roleCheck.allowed) {
+      toast.error(roleCheck.reason || 'Cashiers and Managers cannot assign the Admin role.')
+      return
+    }
+
     const payload = { ...data }
     if (editingUser) {
       if (!payload.passwordHash) delete payload.passwordHash
@@ -78,7 +108,7 @@ export default function Users() {
       updateUserMutation.mutate(payload)
     } else {
       if (!payload.passwordHash) {
-        alert('Password is required for new users')
+        toast.error('Password is required for new users')
         return
       }
       createUserMutation.mutate(payload)
@@ -278,12 +308,27 @@ export default function Users() {
                   <Label>Authorization Role</Label>
                   <select
                     {...register('role')}
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!isCurrentAdmin && isEditingSelf}
+                    className={`h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      !isCurrentAdmin && isEditingSelf ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''
+                    }`}
                   >
                     <option value="CASHIER">Cashier (POS Checkout & Daily Shift)</option>
                     <option value="MANAGER">Store Manager (Inventory, Orders & Audits)</option>
-                    <option value="ADMIN">System Admin (Full Unrestricted Access)</option>
+                    {isCurrentAdmin ? (
+                      <option value="ADMIN">System Admin (Full Unrestricted Access)</option>
+                    ) : (
+                      <option value="ADMIN" disabled>
+                        System Admin (Requires Admin Privileges)
+                      </option>
+                    )}
                   </select>
+                  {!isCurrentAdmin && isEditingSelf && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 mt-1 flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                      Cashiers and Managers cannot alter their own role to become Admin.
+                    </p>
+                  )}
                   {errors.role && <p className="text-xs text-red-500">{errors.role.message}</p>}
                 </div>
 

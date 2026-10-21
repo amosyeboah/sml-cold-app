@@ -547,7 +547,8 @@ class BluetoothPrinterService {
         </table>
         <hr/>
         <p style="text-align:center;">Printer Connection Verified!</p>
-        <p style="text-align:center;">Software developed by Paylite<br/>www.mypaylite.com</p>
+        <p style="text-align:center;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
+        <div style="height:12px;">&nbsp;</div>
       </div>
     `
     return await this.printReceipt(testHtml)
@@ -570,7 +571,7 @@ class BluetoothPrinterService {
     const BOLD_OFF = [ESC, 0x45, 0]
     const DOUBLE_SIZE = [GS, 0x21, 0x11]
     const NORMAL_SIZE = [GS, 0x21, 0x00]
-    const FEED_3 = [ESC, 0x64, 3]
+    const FEED_5 = [ESC, 0x64, 5]
     const CUT = [GS, 0x56, 0]
 
     const encoder = new TextEncoder()
@@ -698,7 +699,7 @@ class BluetoothPrinterService {
     })
 
     append(ALIGN_CENTER)
-    append(FEED_3)
+    append(FEED_5)
     append(CUT)
 
     return new Uint8Array(buffer)

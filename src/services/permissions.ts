@@ -14,6 +14,146 @@ export interface PermissionDefinition {
   riskLevel: RiskLevel
 }
 
+export interface PermissionCategoryMeta {
+  id: PermissionDefinition['category']
+  name: string
+  shortName: string
+  description: string
+  color: string
+  badgeBg: string
+  badgeText: string
+  badgeBorder: string
+  accentColor: string
+  accentBg: string
+  cardActiveBorder: string
+  switchBg: string
+  tabActive: string
+  lightBg: string
+  iconName: 'ShoppingCart' | 'Receipt' | 'Package' | 'Truck' | 'Users' | 'BarChart3' | 'ShieldCheck'
+}
+
+export const CATEGORY_CONFIG: Record<PermissionDefinition['category'], PermissionCategoryMeta> = {
+  pos: {
+    id: 'pos',
+    name: 'Point of Sale & Register',
+    shortName: 'POS',
+    description: 'Checkout counter, line-item discounts, and cashier functions',
+    color: 'emerald',
+    badgeBg: 'bg-emerald-50',
+    badgeText: 'text-emerald-700',
+    badgeBorder: 'border-emerald-200',
+    accentColor: '#059669',
+    accentBg: 'bg-emerald-500',
+    cardActiveBorder: 'border-emerald-300',
+    switchBg: 'bg-emerald-600',
+    tabActive: 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-500',
+    lightBg: 'bg-emerald-50/40',
+    iconName: 'ShoppingCart',
+  },
+  sales: {
+    id: 'sales',
+    name: 'Sales History & Records',
+    shortName: 'Sales History',
+    description: 'Past sales ledger, refunds, voiding, and receipt reprinting',
+    color: 'indigo',
+    badgeBg: 'bg-indigo-50',
+    badgeText: 'text-indigo-700',
+    badgeBorder: 'border-indigo-200',
+    accentColor: '#4f46e5',
+    accentBg: 'bg-indigo-500',
+    cardActiveBorder: 'border-indigo-300',
+    switchBg: 'bg-indigo-600',
+    tabActive: 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500',
+    lightBg: 'bg-indigo-50/40',
+    iconName: 'Receipt',
+  },
+  inventory: {
+    id: 'inventory',
+    name: 'Products & Cold Room Inventory',
+    shortName: 'Inventory',
+    description: 'Product catalog, carton pricing, stock recounts, and batch tracking',
+    color: 'amber',
+    badgeBg: 'bg-amber-50',
+    badgeText: 'text-amber-800',
+    badgeBorder: 'border-amber-200',
+    accentColor: '#d97706',
+    accentBg: 'bg-amber-500',
+    cardActiveBorder: 'border-amber-300',
+    switchBg: 'bg-amber-600',
+    tabActive: 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-500',
+    lightBg: 'bg-amber-50/40',
+    iconName: 'Package',
+  },
+  purchases: {
+    id: 'purchases',
+    name: 'Purchases & Suppliers',
+    shortName: 'Purchases',
+    description: 'Restock purchase orders, supplier management, and receiving goods',
+    color: 'purple',
+    badgeBg: 'bg-purple-50',
+    badgeText: 'text-purple-700',
+    badgeBorder: 'border-purple-200',
+    accentColor: '#9333ea',
+    accentBg: 'bg-purple-500',
+    cardActiveBorder: 'border-purple-300',
+    switchBg: 'bg-purple-600',
+    tabActive: 'bg-purple-600 text-white shadow-sm ring-1 ring-purple-500',
+    lightBg: 'bg-purple-50/40',
+    iconName: 'Truck',
+  },
+  customers: {
+    id: 'customers',
+    name: 'Customers & Debts',
+    shortName: 'Customers',
+    description: 'Customer directory, credit tracking, and contact profiles',
+    color: 'cyan',
+    badgeBg: 'bg-cyan-50',
+    badgeText: 'text-cyan-800',
+    badgeBorder: 'border-cyan-200',
+    accentColor: '#0891b2',
+    accentBg: 'bg-cyan-500',
+    cardActiveBorder: 'border-cyan-300',
+    switchBg: 'bg-cyan-600',
+    tabActive: 'bg-cyan-600 text-white shadow-sm ring-1 ring-cyan-500',
+    lightBg: 'bg-cyan-50/40',
+    iconName: 'Users',
+  },
+  reports: {
+    id: 'reports',
+    name: 'Financial Reports & Audit',
+    shortName: 'Reports',
+    description: 'Profit & Loss, revenue summaries, and operator audit trail',
+    color: 'rose',
+    badgeBg: 'bg-rose-50',
+    badgeText: 'text-rose-700',
+    badgeBorder: 'border-rose-200',
+    accentColor: '#e11d48',
+    accentBg: 'bg-rose-500',
+    cardActiveBorder: 'border-rose-300',
+    switchBg: 'bg-rose-600',
+    tabActive: 'bg-rose-600 text-white shadow-sm ring-1 ring-rose-500',
+    lightBg: 'bg-rose-50/40',
+    iconName: 'BarChart3',
+  },
+  system: {
+    id: 'system',
+    name: 'Cloud Sync, Backup & Settings',
+    shortName: 'System & Sync',
+    description: 'Offline sync engine, database backup/restore, and system settings',
+    color: 'slate',
+    badgeBg: 'bg-slate-100',
+    badgeText: 'text-slate-700',
+    badgeBorder: 'border-slate-300',
+    accentColor: '#475569',
+    accentBg: 'bg-slate-600',
+    cardActiveBorder: 'border-slate-400',
+    switchBg: 'bg-slate-700',
+    tabActive: 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-600',
+    lightBg: 'bg-slate-100/50',
+    iconName: 'ShieldCheck',
+  },
+}
+
 export const PERMISSION_CATEGORIES: { id: PermissionDefinition['category']; name: string; description: string }[] = [
   {
     id: 'pos',
@@ -370,4 +510,112 @@ export function checkUserPermission(
 
   const userPerms = resolveUserPermissions(user, settings)
   return userPerms.includes(permissionId)
+}
+
+/**
+ * High-privilege administrative permissions restricted strictly to Store Admin / Owner.
+ * Cashiers and Managers can NEVER grant these permissions or escalate privileges.
+ */
+export const ADMIN_ONLY_PERMISSIONS: string[] = [
+  'settings.edit',
+  'users.manage',
+  'backup.manage',
+  'audit.view',
+  'sales_history.delete',
+]
+
+/**
+ * Evaluates whether an actor has authorization to alter permissions for a target user.
+ *
+ * Security rules:
+ * 1. Cashiers and Managers CANNOT alter their own permissions to become Admin or escalate privileges.
+ * 2. Cashiers and Managers CANNOT modify Administrator accounts.
+ * 3. Cashiers and Managers CANNOT grant administrative / master privileges (e.g. settings.edit, users.manage, backup.manage).
+ */
+export function canUserAlterPermissions(
+  actor: { id?: string; username?: string; role?: string } | null | undefined,
+  targetUser: { id?: string; username?: string; role?: string } | null | undefined,
+  requestedPerms?: string[]
+): { allowed: boolean; reason?: string } {
+  if (!actor) {
+    return { allowed: false, reason: 'Authentication required to configure permissions.' }
+  }
+
+  const actorRole = (actor.role || 'CASHIER').toUpperCase()
+  if (actorRole === 'ADMIN') {
+    return { allowed: true }
+  }
+
+  // Actor is CASHIER or MANAGER:
+  // 1. Strictly block self-alteration (privilege escalation prevention)
+  const isSelf = Boolean(
+    (actor.id && targetUser?.id && actor.id === targetUser.id) ||
+    (actor.username && targetUser?.username && actor.username.toLowerCase() === targetUser.username.toLowerCase())
+  )
+
+  if (isSelf) {
+    return {
+      allowed: false,
+      reason: 'Cashiers and Managers cannot alter their own permissions to become Admin.',
+    }
+  }
+
+  // 2. Block modifying an Admin account
+  const targetRole = (targetUser?.role || 'CASHIER').toUpperCase()
+  if (targetRole === 'ADMIN') {
+    return {
+      allowed: false,
+      reason: 'Only an Administrator can modify Administrator permissions.',
+    }
+  }
+
+  // 3. Block granting Admin-only permissions
+  if (requestedPerms && requestedPerms.some((p) => ADMIN_ONLY_PERMISSIONS.includes(p))) {
+    return {
+      allowed: false,
+      reason: 'Cashiers and Managers cannot grant administrative privileges or become Admin.',
+    }
+  }
+
+  return { allowed: true }
+}
+
+/**
+ * Checks whether an actor can change a staff member's role to a target role.
+ * Cashiers and Managers cannot promote anyone (or themselves) to ADMIN.
+ */
+export function canUserChangeRole(
+  actor: { id?: string; username?: string; role?: string } | null | undefined,
+  targetUser: { id?: string; username?: string; role?: string } | null | undefined,
+  newRole: string
+): { allowed: boolean; reason?: string } {
+  if (!actor) {
+    return { allowed: false, reason: 'Authentication required to assign roles.' }
+  }
+
+  const actorRole = (actor.role || 'CASHIER').toUpperCase()
+  if (actorRole === 'ADMIN') {
+    return { allowed: true }
+  }
+
+  const isSelf = Boolean(
+    (actor.id && targetUser?.id && actor.id === targetUser.id) ||
+    (actor.username && targetUser?.username && actor.username.toLowerCase() === targetUser.username.toLowerCase())
+  )
+
+  if (isSelf) {
+    return {
+      allowed: false,
+      reason: 'Cashiers and Managers cannot alter their own role to become Admin.',
+    }
+  }
+
+  if (newRole?.toUpperCase() === 'ADMIN') {
+    return {
+      allowed: false,
+      reason: 'Cashiers and Managers cannot assign the Admin role.',
+    }
+  }
+
+  return { allowed: true }
 }

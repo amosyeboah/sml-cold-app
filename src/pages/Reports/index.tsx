@@ -123,7 +123,11 @@ function getShortcutRange(shortcut: string): { start: string; end: string } {
 }
 
 function formatCurrency(value: number) {
-  return `₵${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const num = Number(value) || 0
+  if (num < 0) {
+    return `-₵${Math.abs(num).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+  return `₵${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function formatTrend(value: number) {
@@ -627,7 +631,7 @@ export default function Reports() {
     }
     const items = (data?.profitBreakdown || []).map((p) => {
       const costVal = p.stockCost || 0
-      const expProfit = p.expectedProfit || 0
+      const expProfit = p.expectedProfit ?? 0
       const retailVal = costVal + expProfit
       const status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' =
         p.currentStock === 0 ? 'OUT_OF_STOCK' : p.currentStock <= 10 ? 'LOW_STOCK' : 'IN_STOCK'
@@ -649,13 +653,15 @@ export default function Reports() {
         batches: [],
       }
     })
+    const totalRetailValue = items.reduce((s, i) => s + i.totalRetailValue, 0)
+    const totalPotentialProfit = items.reduce((s, i) => s + i.potentialProfit, 0)
     return {
       totalProducts: items.length,
       totalCartons: items.reduce((s, i) => s + i.currentStock, 0),
       totalCostValue: items.reduce((s, i) => s + i.totalCostValue, 0),
-      totalRetailValue: items.reduce((s, i) => s + i.totalRetailValue, 0),
-      totalPotentialProfit: items.reduce((s, i) => s + i.potentialProfit, 0),
-      potentialMarginPercent: 0,
+      totalRetailValue,
+      totalPotentialProfit,
+      potentialMarginPercent: totalRetailValue > 0 ? (totalPotentialProfit / totalRetailValue) * 100 : 0,
       healthyCount: items.filter((i) => i.status === 'IN_STOCK').length,
       lowStockCount: items.filter((i) => i.status === 'LOW_STOCK').length,
       outOfStockCount: items.filter((i) => i.status === 'OUT_OF_STOCK').length,

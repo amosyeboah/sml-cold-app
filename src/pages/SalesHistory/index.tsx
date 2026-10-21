@@ -160,7 +160,7 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
       return `
               <tr>
                 <td style="padding:1px 0;color:#222;">• ${label}:</td>
-                <td style="text-align:right;padding:1px 0;font-weight:bold;">${currencySymbol}${Number(p.amount).toFixed(2)}</td>
+                <td style="text-align:right;padding:1px 0;font-weight:bold;white-space:nowrap;">${currencySymbol}${Number(p.amount).toFixed(2)}</td>
               </tr>
             `
     }).join('')}
@@ -179,13 +179,13 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
       <tr>
         <td style="padding:3px 0;max-width:90px;word-break:break-word;">${name}</td>
         <td style="text-align:center;vertical-align:top;padding:3px 0;">${qty}</td>
-        <td style="text-align:right;vertical-align:top;padding:3px 0;">${currencySymbol}${subtotal.toFixed(2)}</td>
+        <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap;">${currencySymbol}${subtotal.toFixed(2)}</td>
       </tr>
     `
   }).join('')
 
   return `
-    <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:4px 0;margin:0;color:#000;font-size:11px;">
+    <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:0 0 16px 0;margin:0;color:#000;font-size:11px;">
       <h2 style="text-align:center;margin:0 0 4px 0;font-size:14px;font-weight:bold;">${storeName.toUpperCase()}</h2>
       <p style="text-align:center;margin:2px 0 0 0;font-size:10px;">Store Tel: ${phone}</p>
       <hr style="border-top:1px dashed #000;margin:8px 0;"/>
@@ -200,7 +200,7 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
           <tr style="border-bottom:1px solid #000;text-align:left;">
             <th style="padding:2px 0;">Item</th>
             <th style="text-align:center;padding:2px 0;">Qty</th>
-            <th style="text-align:right;padding:2px 0;">Total</th>
+            <th style="text-align:right;padding:2px 0;white-space:nowrap;">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -210,15 +210,16 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
       <hr style="border-top:1px dashed #000;margin:8px 0;"/>
       <table style="width:100%;font-size:10px;">
         <tr>
-          <td style="padding:4px 0;font-weight:bold;font-size:13px;">GRAND TOTAL:</td>
-          <td colspan="2" style="text-align:right;font-weight:bold;font-size:14px;">${currencySymbol}${Number(targetSale.total).toFixed(2)}</td>
+          <td style="padding:4px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
+          <td colspan="2" style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;">${currencySymbol}${Number(targetSale.total).toFixed(2)}</td>
         </tr>
       </table>
       <hr style="border-top:1px dashed #000;margin:8px 0;"/>
       <p style="text-align:center;margin:6px 0 2px 0;font-size:11px;font-weight:bold;">${footer}</p>
       <p style="text-align:center;margin:0;font-size:9px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
       <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <p style="text-align:center;margin:0;font-size:9px;color:#555;">Software developed by Paylite<br/>www.mypaylite.com | 0207131415</p>
+      <p style="text-align:center;margin:0 0 6px 0;font-size:8.5px;color:#555;line-height:1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
+      <div style="height:12px;width:100%;">&nbsp;</div>
     </div>`
 }
 

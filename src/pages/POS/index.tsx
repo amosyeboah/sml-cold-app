@@ -1073,9 +1073,9 @@ export default function POS() {
       const ownerPhone = storedSettings['biz.ownerPhone'] || '+447999007775'
       const email = storedSettings['biz.email'] || 'sorphygold@yahoo.com'
       const footer = storedSettings['receipt.footerText'] || 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.'
-      const discountLine = enableDiscount && discountAmt > 0 ? `<tr><td style="padding:2px 0;">Discount (${discountPercent}%):</td><td colspan="2" style="text-align:right;">-${currencySymbol}${discountAmt.toFixed(2)}</td></tr>` : ''
-      const taxLine = enableTax && tax > 0 ? `<tr><td style="padding:2px 0;">Tax (${taxRate}%):</td><td colspan="2" style="text-align:right;">${currencySymbol}${tax.toFixed(2)}</td></tr>` : ''
-      const subtotalLine = (enableDiscount && discountAmt > 0) || (enableTax && tax > 0) ? `<tr><td style="padding:2px 0;">Subtotal:</td><td colspan="2" style="text-align:right;">${currencySymbol}${subtotal.toFixed(2)}</td></tr>` : ''
+      const discountLine = enableDiscount && discountAmt > 0 ? `<tr><td style="padding:2px 0;">Discount (${discountPercent}%):</td><td colspan="2" style="text-align:right;white-space:nowrap;">-${currencySymbol}${discountAmt.toFixed(2)}</td></tr>` : ''
+      const taxLine = enableTax && tax > 0 ? `<tr><td style="padding:2px 0;">Tax (${taxRate}%):</td><td colspan="2" style="text-align:right;white-space:nowrap;">${currencySymbol}${tax.toFixed(2)}</td></tr>` : ''
+      const subtotalLine = (enableDiscount && discountAmt > 0) || (enableTax && tax > 0) ? `<tr><td style="padding:2px 0;">Subtotal:</td><td colspan="2" style="text-align:right;white-space:nowrap;">${currencySymbol}${subtotal.toFixed(2)}</td></tr>` : ''
 
       const isSplit = paymentMethod === 'SPLIT' && splitPayments.some((p) => p.amount > 0)
       const activePayments = isSplit
@@ -1091,17 +1091,17 @@ export default function POS() {
               ${activePayments.map((p) => `
                 <tr>
                   <td style="padding:1px 0;color:#222;">• ${p.method === 'MOBILE' ? 'Mobile Money' : p.method === 'BANK TRANSFER' ? 'Bank Transfer' : p.method}:</td>
-                  <td style="text-align:right;padding:1px 0;font-weight:bold;">${currencySymbol}${p.amount.toFixed(2)}</td>
+                  <td style="text-align:right;padding:1px 0;font-weight:bold;white-space:nowrap;">${currencySymbol}${p.amount.toFixed(2)}</td>
                 </tr>
               `).join('')}
               ${typeof cashTendered === 'number' && cashTendered > (activePayments.find((p) => p.method === 'CASH')?.amount || 0) ? `
                 <tr>
                   <td style="padding:1px 0;color:#555;">Cash Tendered:</td>
-                  <td style="text-align:right;padding:1px 0;">${currencySymbol}${cashTendered.toFixed(2)}</td>
+                  <td style="text-align:right;padding:1px 0;white-space:nowrap;">${currencySymbol}${cashTendered.toFixed(2)}</td>
                 </tr>
                 <tr>
                   <td style="padding:1px 0;font-weight:bold;color:#16a34a;">Change Returned:</td>
-                  <td style="text-align:right;padding:1px 0;font-weight:bold;color:#16a34a;">${currencySymbol}${(cashTendered - (activePayments.find((p) => p.method === 'CASH')?.amount || 0)).toFixed(2)}</td>
+                  <td style="text-align:right;padding:1px 0;font-weight:bold;color:#16a34a;white-space:nowrap;">${currencySymbol}${(cashTendered - (activePayments.find((p) => p.method === 'CASH')?.amount || 0)).toFixed(2)}</td>
                 </tr>
               ` : ''}
             </table>
@@ -1110,7 +1110,7 @@ export default function POS() {
       }
 
       const receiptHTML = `
-        <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:4px 0;margin:0;color:#000;font-size:11px;">
+        <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:0 0 16px 0;margin:0;color:#000;font-size:11px;">
           <h2 style="text-align:center;margin:0 0 4px 0;font-size:14px;font-weight:bold;">${storeName.toUpperCase()}</h2>
           <p style="text-align:center;margin:2px 0 0 0;font-size:10px;">Store Tel: ${phone}</p>
           <hr style="border-top:1px dashed #000;margin:8px 0;"/>
@@ -1123,7 +1123,7 @@ export default function POS() {
               <tr style="border-bottom:1px solid #000;text-align:left;">
                 <th style="padding:2px 0;">Item</th>
                 <th style="text-align:center;padding:2px 0;">Qty</th>
-                <th style="text-align:right;padding:2px 0;">Total</th>
+                <th style="text-align:right;padding:2px 0;white-space:nowrap;">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -1131,7 +1131,7 @@ export default function POS() {
                 <tr>
                   <td style="padding:3px 0;max-width:90px;word-break:break-word;">${item.medicine.name}</td>
                   <td style="text-align:center;vertical-align:top;padding:3px 0;">${item.quantity}</td>
-                  <td style="text-align:right;vertical-align:top;padding:3px 0;">${currencySymbol}${(item.medicine.price * item.quantity).toFixed(2)}</td>
+                  <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap;">${currencySymbol}${(item.medicine.price * item.quantity).toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1142,15 +1142,16 @@ export default function POS() {
             ${discountLine}
             ${taxLine}
             <tr>
-              <td style="padding:4px 0;font-weight:bold;font-size:13px;">GRAND TOTAL:</td>
-              <td colspan="2" style="text-align:right;font-weight:bold;font-size:14px;">${currencySymbol}${total.toFixed(2)}</td>
+              <td style="padding:4px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
+              <td colspan="2" style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;">${currencySymbol}${total.toFixed(2)}</td>
             </tr>
           </table>
           <hr style="border-top:1px dashed #000;margin:8px 0;"/>
           <p style="text-align:center;margin:6px 0 2px 0;font-size:11px;font-weight:bold;">${footer}</p>
           <p style="text-align:center;margin:0;font-size:9px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
           <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <p style="text-align:center;margin:0;font-size:9px;color:#555;">Software developed by Paylite<br/>www.mypaylite.com | 0207131415</p>
+          <p style="text-align:center;margin:0 0 6px 0;font-size:8.5px;color:#555;line-height:1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
+          <div style="height:12px;width:100%;">&nbsp;</div>
         </div>`
       try {
         const pRes = await api.printReceipt(receiptHTML)

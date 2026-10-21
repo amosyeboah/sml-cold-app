@@ -1484,7 +1484,7 @@ ipcMain.handle('print:receipt', async (_, htmlContent: string) => {
       background: #fff;
       -webkit-print-color-adjust: exact;
     }
-    body { padding: 2mm 4mm 2mm 2mm; }
+    body { padding: 0mm 3mm 10mm 2mm; }
     table { border-collapse: collapse; width: 100%; }
     hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   </style>

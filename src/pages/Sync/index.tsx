@@ -167,6 +167,7 @@ export default function SyncPage() {
       await refreshData()
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
+      queryClient.invalidateQueries({ queryKey: ['sales'] })
     } catch (err: any) {
       setFeedback({
         type: 'error',

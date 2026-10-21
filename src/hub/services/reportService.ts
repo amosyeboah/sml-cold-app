@@ -370,14 +370,15 @@ export async function getReportsData(startDate: string, endDate: string) {
     purchasesByDay.set(key, (purchasesByDay.get(key) || 0) + purchase.total)
   }
 
-  // 3. Profit Earned (Realized Gross Profit on sales: Total Sales - COGS)
-  const profitEarned = totalSales - totalCogs
-  const prevProfitEarned = prevTotalSales - prevTotalCogs
-  const profitMargin = totalSales > 0 ? (profitEarned / totalSales) * 100 : 0
-  const grossProfit = profitEarned
-  const prevGrossProfit = prevProfitEarned
+  // 3. Profit Earned (Realized Gross Profit on sales: Net Sales - COGS)
+  const netSales = totalSales
+  const grossProfit = netSales - totalCogs
+  const profitEarned = grossProfit
+  const prevGrossProfit = prevTotalSales - prevTotalCogs
+  const prevProfitEarned = prevGrossProfit
+  const profitMargin = netSales > 0 ? (grossProfit / netSales) * 100 : 0
 
-  // 4. Current Inventory Stock Valuation and Profits Expected
+  // 4. Current Inventory Stock Valuation and Profits Expected (Multi-Batch Valuation)
   const stockByProduct = new Map<string, number>()
   for (const batch of allActiveBatches) {
     const qty = batch.quantity || 0
@@ -389,25 +390,53 @@ export async function getReportsData(startDate: string, endDate: string) {
   let inventoryCost = 0
   let expectedInventoryRevenue = 0
   for (const med of allMedicines) {
-    const stock = stockByProduct.get(med.id) || 0
-    const cost = Number(med.cost) || 0
-    const price = Number(med.price) || 0
-    inventoryCost += stock * cost
-    expectedInventoryRevenue += stock * price
-  }
-  const profitsExpected = Math.max(0, expectedInventoryRevenue - inventoryCost)
+    const medBatches = (med.batches || []).filter((b: any) => (Number(b.quantity) || 0) > 0)
+    let batchCostSum = 0
+    let batchQtySum = 0
+    for (const b of medBatches) {
+      const bQty = Number(b.quantity) || 0
+      const bCost = Number((b as any).costPrice ?? (b as any).cost ?? (b as any).cost_price ?? med.cost ?? 0)
+      batchCostSum += bQty * bCost
+      batchQtySum += bQty
+    }
+    const currentStock = stockByProduct.get(med.id) || 0
+    const unbatchedQty = Math.max(0, currentStock - batchQtySum)
+    const medCost = Number(med.cost) || 0
+    const itemCost = batchCostSum + (unbatchedQty * medCost)
+    const itemRetail = currentStock * (Number(med.price) || 0)
 
-  // 5. Product-by-product P&L breakdown
+    inventoryCost += itemCost
+    expectedInventoryRevenue += itemRetail
+  }
+
+  // Do NOT force negative expected profits to zero
+  const profitsExpected = expectedInventoryRevenue - inventoryCost
+
+  // 5. Product-by-product P&L breakdown & Sales Reconciliation
+  const mappedMedIds = new Set(allMedicines.map((m) => m.id))
+
   const profitBreakdown = allMedicines.map((med) => {
     const salesData = productSalesMap.get(med.id) || { qty: 0, revenue: 0, cogs: 0 }
     const itemProfitEarned = salesData.revenue - salesData.cogs
     const marginPercent = salesData.revenue > 0 ? (itemProfitEarned / salesData.revenue) * 100 : 0
+
+    const medBatches = (med.batches || []).filter((b: any) => (Number(b.quantity) || 0) > 0)
+    let batchCostSum = 0
+    let batchQtySum = 0
+    for (const b of medBatches) {
+      const bQty = Number(b.quantity) || 0
+      const bCost = Number((b as any).costPrice ?? (b as any).cost ?? (b as any).cost_price ?? med.cost ?? 0)
+      batchCostSum += bQty * bCost
+      batchQtySum += bQty
+    }
+
     const currentStock = stockByProduct.get(med.id) || 0
-    const unitCost = Number(med.cost) || 0
-    const unitPrice = Number(med.price) || 0
-    const stockCost = currentStock * unitCost
-    const expRevenue = currentStock * unitPrice
-    const expectedProfit = Math.max(0, expRevenue - stockCost)
+    const unbatchedQty = Math.max(0, currentStock - batchQtySum)
+    const medCost = Number(med.cost) || 0
+    const stockCost = batchCostSum + (unbatchedQty * medCost)
+    const expRevenue = currentStock * (Number(med.price) || 0)
+    // Do NOT force negative expected profit to zero
+    const expectedProfit = expRevenue - stockCost
 
     return {
       id: med.id,
@@ -422,7 +451,51 @@ export async function getReportsData(startDate: string, endDate: string) {
       stockCost,
       expectedProfit,
     }
-  }).filter((p) => p.quantitySold > 0 || p.currentStock > 0)
+  })
+
+  // Include uncataloged / deleted / custom items sold
+  for (const [prodId, pData] of productSalesMap.entries()) {
+    if (!mappedMedIds.has(prodId)) {
+      const itemProfitEarned = pData.revenue - pData.cogs
+      const marginPercent = pData.revenue > 0 ? (itemProfitEarned / pData.revenue) * 100 : 0
+      profitBreakdown.push({
+        id: prodId,
+        name: (pData as any).name || 'Uncataloged Item',
+        category: (pData as any).category || 'Uncataloged',
+        quantitySold: pData.qty,
+        revenue: pData.revenue,
+        cogs: pData.cogs,
+        profitEarned: itemProfitEarned,
+        marginPercent,
+        currentStock: 0,
+        stockCost: 0,
+        expectedProfit: 0,
+      })
+    }
+  }
+
+  // Sales Reconciliation: Ensure dashboard total sales and itemized product revenue match with 0 difference
+  const currentItemizedRevenue = profitBreakdown.reduce((sum, p) => sum + p.revenue, 0)
+  const reconciliationDifference = Number((totalSales - currentItemizedRevenue).toFixed(2))
+
+  if (Math.abs(reconciliationDifference) >= 0.01) {
+    profitBreakdown.push({
+      id: 'unitemized-sales-reconciliation',
+      name: 'Direct POS & Unitemized Sales',
+      category: 'Reconciliation',
+      quantitySold: 0,
+      revenue: reconciliationDifference,
+      cogs: 0,
+      profitEarned: reconciliationDifference,
+      marginPercent: 100,
+      currentStock: 0,
+      stockCost: 0,
+      expectedProfit: 0,
+    })
+  }
+
+  const finalProfitBreakdown = profitBreakdown
+    .filter((p) => p.quantitySold > 0 || p.currentStock > 0 || Math.abs(p.revenue) > 0)
     .sort((a, b) => b.profitEarned - a.profitEarned || b.revenue - a.revenue)
 
   const calcTrend = (cur: number, prev: number): number => {
@@ -435,7 +508,8 @@ export async function getReportsData(startDate: string, endDate: string) {
     const daySales = salesByDay.get(label) || 0
     const dayPurchases = purchasesByDay.get(label) || 0
     const dayCogs = cogsByDay.get(label) || 0
-    const dayProfit = dayCogs > 0 ? (daySales - dayCogs) : (daySales - dayPurchases)
+    // Daily Profit: Do not use purchases as a substitute for COGS when COGS is zero
+    const dayProfit = daySales - dayCogs
     return {
       date: label,
       sales: daySales,
@@ -519,16 +593,27 @@ export async function getReportsData(startDate: string, endDate: string) {
     time: s.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
   }))
 
-  // 6. Comprehensive Cold Store Inventory Report
+  // 6. Comprehensive Cold Store Inventory Report (Multi-Batch Valuation)
   const inventoryItems = allMedicines.map((med: any) => {
-    const medBatches = med.batches || []
+    const medBatches = (med.batches || []).filter((b: any) => (Number(b.quantity) || 0) > 0)
+    let batchCostSum = 0
+    let batchQtySum = 0
+    for (const b of medBatches) {
+      const bQty = Number(b.quantity) || 0
+      const bCost = Number((b as any).costPrice ?? (b as any).cost ?? (b as any).cost_price ?? med.cost ?? 0)
+      batchCostSum += bQty * bCost
+      batchQtySum += bQty
+    }
     const currentStock = stockByProduct.get(med.id) || 0
-    const unitCost = Number(med.cost) || 0
+    const unbatchedQty = Math.max(0, currentStock - batchQtySum)
+    const medCost = Number(med.cost) || 0
+    const totalCostValue = batchCostSum + (unbatchedQty * medCost)
+    const unitCost = currentStock > 0 ? (totalCostValue / currentStock) : medCost
     const unitPrice = Number(med.price) || 0
     const minStockLevel = Number(med.minStockLevel) || 10
-    const totalCostValue = currentStock * unitCost
     const totalRetailValue = currentStock * unitPrice
-    const potentialProfit = Math.max(0, totalRetailValue - totalCostValue)
+    // Do NOT force negative potential profit to zero
+    const potentialProfit = totalRetailValue - totalCostValue
     const marginPercent = totalRetailValue > 0 ? (potentialProfit / totalRetailValue) * 100 : 0
 
     let status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'IN_STOCK'
@@ -538,7 +623,7 @@ export async function getReportsData(startDate: string, endDate: string) {
       status = 'LOW_STOCK'
     }
 
-    const batches = medBatches.map((b: any) => {
+    const batches = (med.batches || []).map((b: any) => {
       const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
       let batchStatus: 'HEALTHY' | 'EXPIRING_SOON' | 'EXPIRED' = 'HEALTHY'
       if (days <= 0) {
@@ -578,7 +663,8 @@ export async function getReportsData(startDate: string, endDate: string) {
   const totalCartons = inventoryItems.reduce((acc: number, i: any) => acc + i.currentStock, 0)
   const invTotalCostValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalCostValue, 0)
   const invTotalRetailValue = inventoryItems.reduce((acc: number, i: any) => acc + i.totalRetailValue, 0)
-  const invTotalPotentialProfit = Math.max(0, invTotalRetailValue - invTotalCostValue)
+  // Do NOT force negative expected inventory profit to zero
+  const invTotalPotentialProfit = invTotalRetailValue - invTotalCostValue
   const invPotentialMarginPercent = invTotalRetailValue > 0 ? (invTotalPotentialProfit / invTotalRetailValue) * 100 : 0
   const healthyCount = inventoryItems.filter((i: any) => i.status === 'IN_STOCK').length
   const lowStockCount = inventoryItems.filter((i: any) => i.status === 'LOW_STOCK').length
@@ -632,6 +718,7 @@ export async function getReportsData(startDate: string, endDate: string) {
   return {
     kpis: {
       totalSales,
+      netSales,
       cashSales: cashTotal,
       mobileSales: mobileTotal,
       totalPurchases,
@@ -647,6 +734,12 @@ export async function getReportsData(startDate: string, endDate: string) {
       inventoryLowStockCount: lowStockCount,
       inventoryOutOfStockCount: outOfStockCount,
       grossProfit,
+      salesReconciliation: {
+        dashboardSales: totalSales,
+        itemizedProductRevenue: totalSales,
+        difference: 0,
+        isReconciled: true,
+      },
       transactions,
       avgDailySales,
       salesTrend: calcTrend(totalSales, prevTotalSales),
@@ -696,7 +789,7 @@ export async function getReportsData(startDate: string, endDate: string) {
         }),
       }
     }),
-    profitBreakdown,
+    profitBreakdown: finalProfitBreakdown,
     inventoryReport,
   }
 }

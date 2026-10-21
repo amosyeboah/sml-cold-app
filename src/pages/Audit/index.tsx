@@ -1551,19 +1551,22 @@ export default function AuditTrail() {
                     onClick={() => {
                       // Generate and print receipt if requested
                       const receiptContent = `
-                        <div style="font-family: monospace; padding: 10px; width: 280px; text-align: center;">
-                          <h3>SOFIYEM LEGACY LIMITED</h3>
-                          <p>Cold Store Division</p>
-                          <hr/>
-                          <p>Invoice: ${saleNum}</p>
-                          <p>Cashier: ${cashier}</p>
-                          <p>Date: ${new Date(inspectedSale.date).toLocaleString()}</p>
-                          <hr/>
-                          ${items.map((i: any) => `<div style="display:flex; justify-content:space-between;"><span>${i.quantity}x ${i.name || 'Item'}</span><span>₵${(Number(i.price || 0) * Number(i.quantity || 1)).toFixed(2)}</span></div>`).join('')}
-                          <hr/>
-                          <h4>TOTAL: GH₵${total.toFixed(2)}</h4>
-                          <p>Payment: ${breakdown.displayLabel}</p>
-                          <p>Thank you for your business!</p>
+                        <div style="font-family: monospace; padding: 0 0 16px 0; width: 280px; text-align: center;">
+                          <h3 style="margin: 0 0 4px 0;">SOFIYEM LEGACY LIMITED</h3>
+                          <p style="margin: 2px 0;">Cold Store Division</p>
+                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
+                          <p style="margin: 2px 0;">Invoice: ${saleNum}</p>
+                          <p style="margin: 2px 0;">Cashier: ${cashier}</p>
+                          <p style="margin: 2px 0;">Date: ${new Date(inspectedSale.date).toLocaleString()}</p>
+                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
+                          ${items.map((i: any) => `<div style="display:flex; justify-content:space-between; margin: 2px 0;"><span style="text-align:left;">${i.quantity}x ${i.name || 'Item'}</span><span style="white-space:nowrap;">₵${(Number(i.price || 0) * Number(i.quantity || 1)).toFixed(2)}</span></div>`).join('')}
+                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
+                          <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:11px; margin: 4px 0;"><span style="white-space:nowrap;">TOTAL:</span><span style="white-space:nowrap;">GH₵${total.toFixed(2)}</span></div>
+                          <p style="margin: 2px 0;">Payment: ${breakdown.displayLabel}</p>
+                          <p style="margin: 2px 0;">Thank you for your business!</p>
+                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
+                          <p style="margin: 0 0 6px 0; font-size: 8.5px; color: #555; line-height: 1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
+                          <div style="height: 12px; width: 100%;">&nbsp;</div>
                         </div>
                       `
                       apiClient.printReceipt(receiptContent)

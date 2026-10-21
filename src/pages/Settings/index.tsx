@@ -60,7 +60,7 @@ const DEFAULTS: Record<string, string> = {
   'biz.ownerEmail': 'sorphygold@yahoo.com',
   'biz.ownerPhone': '+447999007775',
   'biz.address': 'Cold Store Market Depot',
-  'biz.city': 'Accra, Greater Accra',
+  'biz.city': 'Tafo, Kumasi',
   'biz.website': '',
   'biz.taxId': '',
   'biz.currency': 'GHS',
@@ -73,7 +73,7 @@ const DEFAULTS: Record<string, string> = {
   // Receipt & Invoice
   'receipt.paperSize': '58mm',
   'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
+  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy!',
   'receipt.showLogo': 'true',
   'receipt.showAddress': 'true',
   'receipt.showPhone': 'true',

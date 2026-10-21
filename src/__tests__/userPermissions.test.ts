@@ -6,6 +6,9 @@ import {
   checkUserPermission,
   parsePermissionsMap,
   SETTINGS_KEY_USER_PERMISSIONS,
+  CATEGORY_CONFIG,
+  canUserAlterPermissions,
+  canUserChangeRole,
 } from '@/services/permissions'
 
 describe('User Permissions & Granular Access Control', () => {
@@ -100,5 +103,87 @@ describe('User Permissions & Granular Access Control', () => {
     expect(parsePermissionsMap(JSON.stringify({ 'user-2': ['reports.view'] }))).toEqual({
       'user-2': ['reports.view'],
     })
+  })
+
+  it('6. Permission categories have distinct color schemes and configurations', () => {
+    const categories = ['pos', 'sales', 'inventory', 'purchases', 'customers', 'reports', 'system'] as const
+    for (const cat of categories) {
+      const config = CATEGORY_CONFIG[cat]
+      expect(config).toBeDefined()
+      expect(config.color).toBeTruthy()
+      expect(config.accentColor).toMatch(/^#/)
+      expect(config.badgeBg).toBeTruthy()
+      expect(config.badgeText).toBeTruthy()
+      expect(config.switchBg).toBeTruthy()
+      expect(config.tabActive).toBeTruthy()
+      expect(config.iconName).toBeTruthy()
+    }
+
+    // Verify distinct colors for POS (emerald) vs Sales (indigo)
+    expect(CATEGORY_CONFIG.pos.color).toBe('emerald')
+    expect(CATEGORY_CONFIG.sales.color).toBe('indigo')
+    expect(CATEGORY_CONFIG.pos.accentColor).not.toBe(CATEGORY_CONFIG.sales.accentColor)
+  })
+
+  it('7. Cashier or Manager cannot alter their own permissions to become Admin (Self-alteration blocked)', () => {
+    const cashierActor = { id: 'csh-1', username: 'john.cashier', role: 'CASHIER' }
+    const managerActor = { id: 'mgr-1', username: 'mary.manager', role: 'MANAGER' }
+
+    // Cashier attempting to alter their own permissions
+    const cashierSelfCheck = canUserAlterPermissions(cashierActor, cashierActor)
+    expect(cashierSelfCheck.allowed).toBe(false)
+    expect(cashierSelfCheck.reason).toContain('Cashiers and Managers cannot alter their own permissions to become Admin')
+
+    // Manager attempting to alter their own permissions
+    const managerSelfCheck = canUserAlterPermissions(managerActor, managerActor)
+    expect(managerSelfCheck.allowed).toBe(false)
+    expect(managerSelfCheck.reason).toContain('Cashiers and Managers cannot alter their own permissions to become Admin')
+
+    // Admin CAN alter their own or any permissions
+    const adminActor = { id: 'admin-1', username: 'admin', role: 'ADMIN' }
+    const adminSelfCheck = canUserAlterPermissions(adminActor, adminActor)
+    expect(adminSelfCheck.allowed).toBe(true)
+  })
+
+  it('8. Cashier or Manager cannot alter an Administrator account or grant Admin-only permissions', () => {
+    const managerActor = { id: 'mgr-1', username: 'mary.manager', role: 'MANAGER' }
+    const adminTarget = { id: 'admin-1', username: 'admin', role: 'ADMIN' }
+    const cashierTarget = { id: 'csh-2', username: 'other.cashier', role: 'CASHIER' }
+
+    // Manager attempting to modify an Admin user
+    const adminModCheck = canUserAlterPermissions(managerActor, adminTarget)
+    expect(adminModCheck.allowed).toBe(false)
+    expect(adminModCheck.reason).toContain('Only an Administrator can modify Administrator permissions')
+
+    // Manager attempting to grant admin-only permissions (e.g. settings.edit) to another cashier
+    const escalateCheck = canUserAlterPermissions(managerActor, cashierTarget, ['pos.access', 'settings.edit'])
+    expect(escalateCheck.allowed).toBe(false)
+    expect(escalateCheck.reason).toContain('Cashiers and Managers cannot grant administrative privileges or become Admin')
+
+    // Admin can grant admin-only permissions
+    const adminActor = { id: 'admin-1', username: 'admin', role: 'ADMIN' }
+    const adminGrantCheck = canUserAlterPermissions(adminActor, cashierTarget, ['settings.edit'])
+    expect(adminGrantCheck.allowed).toBe(true)
+  })
+
+  it('9. Cashier or Manager cannot change user role to Admin', () => {
+    const managerActor = { id: 'mgr-1', username: 'mary.manager', role: 'MANAGER' }
+    const cashierActor = { id: 'csh-1', username: 'john.cashier', role: 'CASHIER' }
+    const otherTarget = { id: 'csh-2', username: 'other.cashier', role: 'CASHIER' }
+
+    // Cashier attempting to promote themselves to ADMIN
+    const selfPromoteCheck = canUserChangeRole(cashierActor, cashierActor, 'ADMIN')
+    expect(selfPromoteCheck.allowed).toBe(false)
+    expect(selfPromoteCheck.reason).toContain('Cashiers and Managers cannot alter their own role to become Admin')
+
+    // Manager attempting to promote someone else to ADMIN
+    const promoteCheck = canUserChangeRole(managerActor, otherTarget, 'ADMIN')
+    expect(promoteCheck.allowed).toBe(false)
+    expect(promoteCheck.reason).toContain('Cashiers and Managers cannot assign the Admin role')
+
+    // Admin CAN assign ADMIN role
+    const adminActor = { id: 'admin-1', username: 'admin', role: 'ADMIN' }
+    const adminAssignCheck = canUserChangeRole(adminActor, otherTarget, 'ADMIN')
+    expect(adminAssignCheck.allowed).toBe(true)
   })
 })

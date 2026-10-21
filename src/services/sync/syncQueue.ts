@@ -61,9 +61,21 @@ function publishSyncState(listener: SyncListener): void {
 
   // Mobile / Tablet / Web mode: use local authoritative sync state directly
   if (!(window as any).electron?.ipcRenderer) {
+    let pending = getPendingQueue().length
+    try {
+      const rawSales = localStorage.getItem('sofiyem_coldstore_sales')
+      const rawSynced = localStorage.getItem('sofiyem_coldstore_synced_sale_ids')
+      if (rawSales) {
+        const sales = JSON.parse(rawSales)
+        const synced = new Set(rawSynced ? JSON.parse(rawSynced) : [])
+        const unsyncedCount = sales.filter((s: any) => !synced.has(s.id)).length
+        pending = Math.max(pending, unsyncedCount)
+      }
+    } catch {}
+
     listener({
       isSyncing: isCurrentlySyncing,
-      pendingCount: getPendingQueue().length,
+      pendingCount: pending,
       lastSyncTime: getLastSyncTime(),
     })
     return
@@ -300,6 +312,7 @@ export async function flushSyncQueue(): Promise<{
                   'Cold Store Item',
                 quantity: qty,
                 unit_price: unitPrice,
+                unit_cost: Number(i.unit_cost ?? i.unitCost ?? i.cost ?? i.costPrice ?? 0),
                 total_price: Number(i.total_price) || (qty * unitPrice),
                 created_at: saleDate,
               }
@@ -520,27 +533,6 @@ export async function reconcileAllSalesWithCloud(): Promise<{
 }> {
   const client = getSupabaseClient()
   if (!client) {
-    return { success: false, pushedCount: 0, cloudTotal: 0, message: 'Supabase client is not configured.' }
-  }
-
-  const result = await flushSyncQueue()
-  const { count } = await client.from('cloud_sales').select('*', { count: 'exact', head: true })
-  return {
-    success: result.success,
-    pushedCount: result.syncedCount,
-    cloudTotal: count || 0,
-    message: result.message,
-  }
-}
-
-async function legacyReconcileAllSalesWithCloud(): Promise<{
-  success: boolean
-  pushedCount: number
-  cloudTotal: number
-  message: string
-}> {
-  const client = getSupabaseClient()
-  if (!client) {
     return {
       success: false,
       pushedCount: 0,
@@ -550,9 +542,9 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
   }
 
   // 1. Flush any queued pending items first
-  await flushSyncQueue().catch(() => {})
+  const queueRes = await flushSyncQueue().catch(() => ({ success: false, syncedCount: 0, failedCount: 0, message: '' }))
 
-  let pushedCount = 0
+  let pushedCount = queueRes?.syncedCount || 0
 
   // 2. If running in Electron Desktop App, perform bidirectional reconciliation with Supabase
   if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer && (window as any).api?.getSales) {
@@ -688,6 +680,7 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
                   'Cold Store Item',
                 quantity: qty,
                 unit_price: unitPrice,
+                unit_cost: Number(i.unit_cost ?? i.unitCost ?? i.cost ?? i.costPrice ?? 0),
                 total_price: qty * unitPrice,
                 created_at: saleDate,
               }
@@ -800,10 +793,11 @@ async function legacyReconcileAllSalesWithCloud(): Promise<{
       console.warn('Reconcile SQLite notice:', dbErr)
     }
   } else {
-    // 3. Web / Vercel: push local browser state to cloud, then pull latest mirrors
+    // 3. Web / Vercel / Tablet: push local storage catalog & sales to cloud, then pull latest mirrors
     try {
       const { pushLocalStorageToCloudIfAvailable, syncAllCloudDataIfAvailable } = await import('../api/mobileStorage')
-      await pushLocalStorageToCloudIfAvailable()
+      const pushRes = await pushLocalStorageToCloudIfAvailable()
+      pushedCount += (pushRes?.pushedSales || 0)
       await syncAllCloudDataIfAvailable()
     } catch (webErr) {
       console.warn('Web storage cloud sync notice:', webErr)
@@ -848,20 +842,31 @@ export function initWorkManager(): void {
     reconcileAllSalesWithCloud().catch((e) => console.warn('Sync on reconnection failed:', e))
   })
 
-  // 2. Periodic interval: reconcile/flush every 60 seconds if online
+  // 2. Tablet wake / focus event: when cashier unlocks screen or returns to tab
+  window.addEventListener('focus', () => {
+    if (navigator.onLine && !isCurrentlySyncing) {
+      reconcileAllSalesWithCloud().catch(() => {})
+    }
+  })
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine && !isCurrentlySyncing) {
+      reconcileAllSalesWithCloud().catch(() => {})
+    }
+  })
+
+  // 3. Periodic interval: reconcile every 45 seconds if online
   setInterval(() => {
     if (navigator.onLine && !isCurrentlySyncing) {
-      if (getPendingQueue().length > 0) {
-        flushSyncQueue().catch(() => {})
-      }
+      reconcileAllSalesWithCloud().catch(() => {})
     }
-  }, 60000)
+  }, 45000)
 
-  // 3. Initial startup check
+  // 4. Initial startup check
   if (navigator.onLine) {
     setTimeout(() => {
       reconcileAllSalesWithCloud().catch(() => {})
-    }, 4000)
+    }, 3000)
   }
 }
 

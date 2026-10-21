@@ -195,7 +195,12 @@ export default function TopBar() {
         <Link
           to="/sync"
           title="Click to manage offline sync & cloud settings"
-          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-xs font-semibold shadow-xs flex-shrink-0"
+          className={cn(
+            "flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold shadow-xs flex-shrink-0",
+            syncState.pendingCount > 0
+              ? "border-amber-300 bg-amber-50/60 hover:bg-amber-100/70"
+              : "border-slate-200 bg-white hover:bg-slate-50"
+          )}
         >
           <span
             className={cn(
@@ -203,11 +208,11 @@ export default function TopBar() {
               syncState.isSyncing || manualSyncing
                 ? "bg-blue-500 animate-spin"
                 : syncState.pendingCount > 0
-                ? "bg-amber-500"
+                ? "bg-amber-500 animate-pulse"
                 : "bg-emerald-500"
             )}
           />
-          <span className="hidden md:inline text-slate-700">
+          <span className="text-slate-700 text-[11px] sm:text-xs">
             {syncState.isSyncing || manualSyncing
               ? "Syncing..."
               : syncState.pendingCount > 0

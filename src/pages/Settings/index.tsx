@@ -59,8 +59,8 @@ const DEFAULTS: Record<string, string> = {
   'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
   'biz.ownerEmail': 'sorphygold@yahoo.com',
   'biz.ownerPhone': '+447999007775',
-  'biz.address': 'Cold Store Market Depot',
-  'biz.city': 'Tafo, Kumasi',
+  'biz.address': 'Tafo - Kumasi',
+  'biz.city': 'Tafo - Kumasi',
   'biz.website': '',
   'biz.taxId': '',
   'biz.currency': 'GHS',
@@ -71,9 +71,9 @@ const DEFAULTS: Record<string, string> = {
   'pos.taxRate': '0',
   'pos.enableRefund': 'true',
   // Receipt & Invoice
-  'receipt.paperSize': '58mm',
+  'receipt.paperSize': '80mm',
   'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy!',
+  'receipt.footerText': 'Thank you for choosing SOFIYEM',
   'receipt.showLogo': 'true',
   'receipt.showAddress': 'true',
   'receipt.showPhone': 'true',
@@ -312,6 +312,7 @@ export default function Settings() {
 
   const handlePaperWidthChange = (width: PaperWidth) => {
     bluetoothPrinter.setPaperWidth(width)
+    set('receipt.paperSize', width)
   }
 
   useEffect(() => {
@@ -522,7 +523,7 @@ export default function Settings() {
                       id="biz-address"
                       value={form['biz.address']}
                       onChange={(e) => set('biz.address', e.target.value)}
-                      placeholder="Cold Store Market Depot"
+                      placeholder="Tafo - Kumasi"
                       className="h-9 text-sm"
                     />
                   </FieldRow>

@@ -117,6 +117,8 @@ export function getSaleBreakdown(sale: any): SalePaymentBreakdown {
 export interface ReceiptOptions {
   storeName?: string
   phone?: string
+  location?: string
+  ownerEmail?: string
   footer?: string
   currencySymbol?: string
   isDuplicate?: boolean
@@ -126,7 +128,17 @@ export interface ReceiptOptions {
 export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = {}): string {
   const storeName = options.storeName || 'SOFIYEM LEGACY LIMITED'
   const phone = options.phone || '+233 54 386 4610'
-  const footer = options.footer || 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.'
+  const location = 'Tafo - Kumasi'
+  const ownerEmail = options.ownerEmail || 'sorphygold@yahoo.com'
+  const rawFooter = options.footer
+  const isOldOrRestaurant = !rawFooter ||
+    rawFooter.toLowerCase().includes('dinning') ||
+    rawFooter.toLowerCase().includes('dining') ||
+    rawFooter.toLowerCase().includes('service charge') ||
+    rawFooter.toLowerCase().includes('legacy') ||
+    rawFooter.toLowerCase().includes('hope to see you')
+
+  const footer = isOldOrRestaurant ? 'Thank you for choosing SOFIYEM' : rawFooter
   const currencySymbol = options.currencySymbol || '₵'
   const isDuplicate = options.isDuplicate ?? true
   const resolveName = options.resolveItemName || ((item: any) => item?.product_name || item?.name || 'Cold Store Item')
@@ -137,7 +149,7 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
   const customerName = targetSale.customer?.name || targetSale.customerName || 'Walk-in Customer'
 
   const bd = getSaleBreakdown(targetSale)
-  let paymentSectionHTML = `<p style="margin:2px 0;font-size:11px;">Payment: ${bd.displayLabel}</p>`
+  let paymentSectionHTML = `<p style="margin:1px 0;font-size:9.5px;">Payment: ${bd.displayLabel}</p>`
   if (bd.isSplit || (targetSale.payments && targetSale.payments.length > 1)) {
     const paymentEntries =
       targetSale.payments && targetSale.payments.length > 0
@@ -149,9 +161,9 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
         ]
 
     paymentSectionHTML = `
-      <div style="margin:4px 0 2px 0;">
-        <p style="margin:0 0 2px 0;font-size:11px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
-        <table style="width:100%;font-size:10px;border-collapse:collapse;">
+      <div style="margin:2px 0 1px 0;">
+        <p style="margin:0 0 1px 0;font-size:9.5px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
           ${paymentEntries.map((p: any) => {
       const mUpper = (p.method || '').toUpperCase()
       const isCash = mUpper.includes('CASH')
@@ -177,49 +189,62 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
     const subtotal = Number(item.subtotal ?? (price * qty))
     return `
       <tr>
-        <td style="padding:3px 0;max-width:90px;word-break:break-word;">${name}</td>
-        <td style="text-align:center;vertical-align:top;padding:3px 0;">${qty}</td>
-        <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap;">${currencySymbol}${subtotal.toFixed(2)}</td>
+        <td style="padding:2px 0;word-break:break-word;overflow-wrap:break-word;font-size:9px;vertical-align:top;">${name}</td>
+        <td style="text-align:center;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;">${qty}</td>
+        <td style="text-align:right;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;font-variant-numeric:tabular-nums;">${currencySymbol}${subtotal.toFixed(2)}</td>
       </tr>
     `
   }).join('')
 
   return `
-    <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:0 0 16px 0;margin:0;color:#000;font-size:11px;">
-      <h2 style="text-align:center;margin:0 0 4px 0;font-size:14px;font-weight:bold;">${storeName.toUpperCase()}</h2>
-      <p style="text-align:center;margin:2px 0 0 0;font-size:10px;">Store Tel: ${phone}</p>
-      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <p style="margin:2px 0;font-size:11px;">Date: ${formattedDate}</p>
-      <p style="margin:2px 0;font-size:11px;">Receipt: ${invoiceId}</p>
-      <p style="margin:2px 0;font-size:11px;">Customer: ${customerName}</p>
-      ${isDuplicate ? `<p style="margin:3px 0;font-size:10px;color:#444;font-weight:bold;text-align:center;background:#f1f5f9;padding:2px;border:1px dashed #94a3b8;">[ DUPLICATE RECEIPT ]</p>` : ''}
+    <div style="font-family:'Courier New',Courier,monospace;width:100%;max-width:320px;margin:0 auto;padding:0 0 50px 0;color:#000;font-size:10px;line-height:1.25;">
+      <h2 style="text-align:center;margin:0 0 2px 0;padding:0;font-size:13px;font-weight:bold;line-height:1.15;">${storeName.toUpperCase()}</h2>
+      <p style="text-align:center;margin:1px 0;font-size:9.5px;">Location: ${location}</p>
+      <p style="text-align:center;margin:1px 0;font-size:9.5px;">Store Tel: ${phone}</p>
+      <p style="text-align:center;margin:1px 0;font-size:9.5px;">Email: ${ownerEmail}</p>
+      <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+      <p style="margin:1px 0;font-size:9.5px;">Date: ${formattedDate}</p>
+      <p style="margin:1px 0;font-size:9.5px;">Receipt: ${invoiceId}</p>
+      <p style="margin:1px 0;font-size:9.5px;">Customer: ${customerName}</p>
+      ${Boolean(targetSale.channel === 'REMOTE_WEB' || targetSale.isRemoteWeb) ? `<p style="margin:2px 0;font-size:9px;color:#6b21a8;font-weight:bold;text-align:center;background:#f3e8ff;padding:2px;border:1px dashed #c084fc;">[ REMOTE / ONLINE SALE: REMOTE_WEB ]</p>` : ''}
+      ${isDuplicate ? `<p style="margin:2px 0;font-size:9px;color:#444;font-weight:bold;text-align:center;background:#f1f5f9;padding:2px;border:1px dashed #94a3b8;">[ DUPLICATE RECEIPT ]</p>` : ''}
       ${paymentSectionHTML}
-      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <table style="width:100%;font-size:10px;border-collapse:collapse;">
+      <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+      <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9px;line-height:1.25;">
+        <colgroup>
+          <col style="width:54%;"/>
+          <col style="width:16%;"/>
+          <col style="width:30%;"/>
+        </colgroup>
         <thead>
           <tr style="border-bottom:1px solid #000;text-align:left;">
-            <th style="padding:2px 0;">Item</th>
-            <th style="text-align:center;padding:2px 0;">Qty</th>
-            <th style="text-align:right;padding:2px 0;white-space:nowrap;">Total</th>
+            <th style="padding:2px 0;font-size:9px;font-weight:bold;">Item</th>
+            <th style="text-align:center;padding:2px 0;font-size:9px;font-weight:bold;">Qty</th>
+            <th style="text-align:right;padding:2px 0;font-size:9px;font-weight:bold;white-space:nowrap;">Total</th>
           </tr>
         </thead>
         <tbody>
           ${itemsHTML || `<tr><td colspan="3" style="text-align:center;padding:4px 0;">Cold Store Products</td></tr>`}
         </tbody>
       </table>
-      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <table style="width:100%;font-size:10px;">
+      <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+      <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9.5px;">
+        <colgroup>
+          <col style="width:58%;"/>
+          <col style="width:42%;"/>
+        </colgroup>
         <tr>
-          <td style="padding:4px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
-          <td colspan="2" style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;">${currencySymbol}${Number(targetSale.total).toFixed(2)}</td>
+          <td style="padding:3px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
+          <td style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;">${currencySymbol}${Number(targetSale.total).toFixed(2)}</td>
         </tr>
       </table>
-      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <p style="text-align:center;margin:6px 0 2px 0;font-size:11px;font-weight:bold;">${footer}</p>
-      <p style="text-align:center;margin:0;font-size:9px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
-      <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-      <p style="text-align:center;margin:0 0 6px 0;font-size:8.5px;color:#555;line-height:1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
-      <div style="height:12px;width:100%;">&nbsp;</div>
+      <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+      <p style="text-align:center;margin:4px 0 2px 0;font-size:10px;font-weight:bold;">${footer}</p>
+      <p style="text-align:center;margin:0;font-size:8.5px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
+      <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+      <p style="text-align:center;margin:0;font-size:8px;color:#555;line-height:1.2;">software develop by PayLite</p>
+      <p style="text-align:center;margin:1px 0 4px 0;font-size:8px;color:#555;line-height:1.2;">www.mypaylite.com | 0207131415</p>
+      <div style="height:48px;width:100%;clear:both;">&nbsp;</div>
     </div>`
 }
 
@@ -333,6 +358,8 @@ export default function SalesHistory() {
       const receiptHTML = buildSaleReceiptHtml(targetSale, {
         storeName: storedSettings['biz.name'],
         phone: storedSettings['biz.phone'],
+        location: storedSettings['biz.address'] || storedSettings['biz.city'] || 'Tafo - Kumasi',
+        ownerEmail: storedSettings['biz.ownerEmail'] || storedSettings['biz.email'] || 'sorphygold@yahoo.com',
         footer: storedSettings['receipt.footerText'],
         currencySymbol: storedSettings['biz.currencySymbol'],
         isDuplicate: true,
@@ -354,10 +381,15 @@ export default function SalesHistory() {
   }
 
   const filteredSales = sales.filter((s: any) => {
-    const term = searchTerm.toLowerCase()
+    const term = searchTerm.toLowerCase().trim()
     const invoiceId = `INV-${(s.id || '').slice(0, 8).toUpperCase()}`
     const customerName = s.customer?.name || s.customerName || 'Walk-in Customer'
-    const matchesSearch = invoiceId.toLowerCase().includes(term) || customerName.toLowerCase().includes(term)
+    const isRemote = Boolean(s.channel === 'REMOTE_WEB' || s.isRemoteWeb)
+    const matchesSearch =
+      invoiceId.toLowerCase().includes(term) ||
+      customerName.toLowerCase().includes(term) ||
+      (term !== '' && isRemote && (term === 'remote' || term === 'remote_web' || term === 'online')) ||
+      Boolean(s.notes && s.notes.toLowerCase().includes(term))
 
     const breakdown = getSaleBreakdown(s)
     let matchesFilter = true
@@ -597,7 +629,14 @@ export default function SalesHistory() {
                       onClick={() => setSelectedSale(sale)}
                     >
                       <TableCell className="font-semibold text-slate-800 py-2 px-3 whitespace-nowrap">
-                        INV-{sale.id.slice(0, 8).toUpperCase()}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>INV-{sale.id.slice(0, 8).toUpperCase()}</span>
+                          {(sale.channel === 'REMOTE_WEB' || sale.isRemoteWeb) && (
+                            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 shadow-2xs" title="Created via Online Web Portal">
+                              🌐 REMOTE_WEB
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-slate-600 py-2 px-3 whitespace-nowrap">
                         {format(new Date(sale.date), 'dd MMM yyyy HH:mm')}
@@ -768,6 +807,26 @@ export default function SalesHistory() {
                     })()}
                   </p>
                 </div>
+                <div>
+                  <p className="text-slate-500 mb-1">Channel / Origin</p>
+                  <p className="font-semibold text-slate-800">
+                    {selectedSale.channel === 'REMOTE_WEB' || selectedSale.isRemoteWeb ? (
+                      <span className="inline-flex items-center gap-1 text-purple-700 font-bold bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md text-xs">
+                        🌐 Remote Web Portal
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md text-xs">
+                        🏪 Physical Counter Tablet
+                      </span>
+                    )}
+                  </p>
+                </div>
+                {selectedSale.notes && (
+                  <div className="col-span-2 rounded-lg bg-amber-50/80 border border-amber-200/80 p-2 text-xs text-amber-900">
+                    <span className="font-bold text-amber-950 mr-1.5">Order Note / Ref:</span>
+                    <span>{selectedSale.notes}</span>
+                  </div>
+                )}
               </div>
 
               <div>

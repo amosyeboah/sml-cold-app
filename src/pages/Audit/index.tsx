@@ -1551,22 +1551,59 @@ export default function AuditTrail() {
                     onClick={() => {
                       // Generate and print receipt if requested
                       const receiptContent = `
-                        <div style="font-family: monospace; padding: 0 0 16px 0; width: 280px; text-align: center;">
-                          <h3 style="margin: 0 0 4px 0;">SOFIYEM LEGACY LIMITED</h3>
-                          <p style="margin: 2px 0;">Cold Store Division</p>
-                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
-                          <p style="margin: 2px 0;">Invoice: ${saleNum}</p>
-                          <p style="margin: 2px 0;">Cashier: ${cashier}</p>
-                          <p style="margin: 2px 0;">Date: ${new Date(inspectedSale.date).toLocaleString()}</p>
-                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
-                          ${items.map((i: any) => `<div style="display:flex; justify-content:space-between; margin: 2px 0;"><span style="text-align:left;">${i.quantity}x ${i.name || 'Item'}</span><span style="white-space:nowrap;">₵${(Number(i.price || 0) * Number(i.quantity || 1)).toFixed(2)}</span></div>`).join('')}
-                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
-                          <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:11px; margin: 4px 0;"><span style="white-space:nowrap;">TOTAL:</span><span style="white-space:nowrap;">GH₵${total.toFixed(2)}</span></div>
-                          <p style="margin: 2px 0;">Payment: ${breakdown.displayLabel}</p>
-                          <p style="margin: 2px 0;">Thank you for your business!</p>
-                          <hr style="border-top: 1px dashed #000; margin: 6px 0;"/>
-                          <p style="margin: 0 0 6px 0; font-size: 8.5px; color: #555; line-height: 1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
-                          <div style="height: 12px; width: 100%;">&nbsp;</div>
+                        <div style="font-family:'Courier New',Courier,monospace;padding:0 0 50px 0;width:100%;max-width:320px;margin:0 auto;text-align:center;font-size:10px;line-height:1.25;">
+                          <h3 style="margin:0 0 2px 0;padding:0;font-size:13px;font-weight:bold;line-height:1.15;">SOFIYEM LEGACY LIMITED</h3>
+                          <p style="margin:1px 0;font-size:9.5px;">Location: Tafo - Kumasi</p>
+                          <p style="margin:1px 0;font-size:9.5px;">Store Tel: +233 54 386 4610</p>
+                          <p style="margin:1px 0;font-size:9.5px;">Email: sorphygold@yahoo.com</p>
+                          <p style="margin:2px 0;font-size:9px;font-weight:bold;background:#f1f5f9;padding:2px;border:1px dashed #94a3b8;">[ AUDIT RECEIPT COPY ]</p>
+                          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+                          <p style="margin:1px 0;font-size:9.5px;">Invoice: ${saleNum}</p>
+                          <p style="margin:1px 0;font-size:9.5px;">Cashier: ${cashier}</p>
+                          <p style="margin:1px 0;font-size:9.5px;">Date: ${new Date(inspectedSale.date).toLocaleString('en-GB')}</p>
+                          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+                          <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9px;line-height:1.25;">
+                            <colgroup>
+                              <col style="width:54%;"/>
+                              <col style="width:16%;"/>
+                              <col style="width:30%;"/>
+                            </colgroup>
+                            <thead>
+                              <tr style="border-bottom:1px solid #000;text-align:left;">
+                                <th style="padding:2px 0;font-size:9px;font-weight:bold;">Item</th>
+                                <th style="text-align:center;padding:2px 0;font-size:9px;font-weight:bold;">Qty</th>
+                                <th style="text-align:right;padding:2px 0;font-size:9px;font-weight:bold;white-space:nowrap;">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${items.map((i: any) => `
+                                <tr>
+                                  <td style="padding:2px 0;word-break:break-word;overflow-wrap:break-word;font-size:9px;vertical-align:top;text-align:left;">${i.name || 'Item'}</td>
+                                  <td style="text-align:center;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;">${i.quantity}</td>
+                                  <td style="text-align:right;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;font-variant-numeric:tabular-nums;">GH₵${(Number(i.price || 0) * Number(i.quantity || 1)).toFixed(2)}</td>
+                                </tr>
+                              `).join('')}
+                            </tbody>
+                          </table>
+                          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+                          <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9.5px;">
+                            <colgroup>
+                              <col style="width:58%;"/>
+                              <col style="width:42%;"/>
+                            </colgroup>
+                            <tr>
+                              <td style="padding:3px 0;font-weight:bold;font-size:11px;white-space:nowrap;text-align:left;">TOTAL:</td>
+                              <td style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;">GH₵${total.toFixed(2)}</td>
+                            </tr>
+                          </table>
+                          <p style="margin:2px 0;font-size:9.5px;">Payment: ${breakdown.displayLabel}</p>
+                          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+                          <p style="text-align:center;margin:4px 0 2px 0;font-size:10px;font-weight:bold;">Thank you for choosing SOFIYEM</p>
+                          <p style="text-align:center;margin:0;font-size:8.5px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
+                          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+                          <p style="text-align:center;margin:0;font-size:8px;color:#555;line-height:1.2;">software develop by PayLite</p>
+                          <p style="text-align:center;margin:1px 0 4px 0;font-size:8px;color:#555;line-height:1.2;">www.mypaylite.com | 0207131415</p>
+                          <div style="height:48px;width:100%;clear:both;">&nbsp;</div>
                         </div>
                       `
                       apiClient.printReceipt(receiptContent)

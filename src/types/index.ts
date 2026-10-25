@@ -71,11 +71,15 @@ export interface SalePayment {
 export interface Sale {
   id: string
   customerId?: string | null
+  customerName?: string
   date: string
   total: number
   paymentMethod: string
   payments?: SalePayment[]
   items?: SaleItem[]
+  channel?: string
+  isRemoteWeb?: boolean
+  notes?: string | null
 }
 
 export interface DashboardStats {

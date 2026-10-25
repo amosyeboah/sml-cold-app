@@ -78,6 +78,9 @@ export interface CreateSaleInput {
   userId?: string
   username?: string
   userRole?: string
+  channel?: string
+  isRemoteWeb?: boolean
+  notes?: string
 }
 
 export interface PurchaseItemInput {

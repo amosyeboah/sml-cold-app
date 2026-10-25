@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../sync/supabaseClient'
 import { isCloudHosting } from './hubClient'
 import { bluetoothPrinter } from '../hardware/bluetoothPrinter'
 import { SETTINGS_KEY_USER_PERMISSIONS, parsePermissionsMap } from '../permissions'
+import { isRemoteWebClient } from '../../utils'
 
 // Web & Mobile compatible password hashing using standard Web Crypto PBKDF2
 const passwordHashCache = new Map<string, string>()
@@ -105,8 +106,8 @@ export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
   'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
   'biz.ownerEmail': 'sorphygold@yahoo.com',
   'biz.ownerPhone': '+447999007775',
-  'biz.address': 'Cold Store Market Depot',
-  'biz.city': 'Accra, Greater Accra',
+  'biz.address': 'Tafo - Kumasi',
+  'biz.city': 'Tafo - Kumasi',
   'biz.website': '',
   'biz.taxId': '',
   'biz.currency': 'GHS',
@@ -117,9 +118,9 @@ export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
   'pos.taxRate': '0',
   'pos.enableRefund': 'true',
   // Receipt & Invoice
-  'receipt.paperSize': '58mm',
+  'receipt.paperSize': '80mm',
   'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
-  'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
+  'receipt.footerText': 'Thank you for choosing SOFIYEM',
   'receipt.showLogo': 'true',
   'receipt.showAddress': 'true',
   'receipt.showPhone': 'true',
@@ -141,7 +142,7 @@ export const DEFAULT_STORE_SETTINGS: Record<string, string> = {
   'hw.drawerPulseMs': '200',
   storeName: 'SOFIYEM Legacy Limited',
   currency: 'GHS',
-  address: 'Cold Store Market Depot, Accra, Ghana',
+  address: 'Tafo - Kumasi',
   phone: '+233 54 386 4610'
 }
 
@@ -345,15 +346,19 @@ export async function pushLocalStorageToCloudIfAvailable(specificSales?: any[]):
   for (const s of targetSales) {
     const saleDate = s.date || s.sold_at || s.created_at || new Date().toISOString()
     const totalAmt = Number(s.total ?? s.total_amount ?? 0)
+    const isRemote = Boolean(s.channel === 'REMOTE_WEB' || s.isRemoteWeb)
+    const remoteNoteTag = isRemote ? (s.notes ? `[REMOTE_WEB] ${s.notes}` : '[REMOTE_WEB]') : (s.notes || null)
     const salePayload = {
       id: s.id,
       store_id: 'sml_accra_main',
+      device_id: isRemote ? 'remote-web' : (s.deviceId || 'tablet-counter'),
       invoice_number: s.saleNumber || s.invoice_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
       customer_name: s.customerName || s.customer?.name || 'Walk-in Customer',
       total_amount: totalAmt,
       subtotal: Number(s.subtotal ?? totalAmt),
       payment_method: s.paymentMethod || 'CASH',
       cashier_name: s.cashier || s.cashier_name || s.username || 'cashier',
+      notes: remoteNoteTag,
       sold_at: saleDate,
       created_at: saleDate,
     }
@@ -1140,24 +1145,46 @@ async function seedInitialDataIfNeeded() {
       'biz.ownerName': 'Sofiyat Opeyemi Yusuf',
       'biz.ownerEmail': 'sorphygold@yahoo.com',
       'biz.ownerPhone': '+447999007775',
-      'biz.address': 'Cold Store Market Depot',
-      'biz.city': 'Accra, Greater Accra',
+      'biz.address': 'Tafo - Kumasi',
+      'biz.city': 'Tafo - Kumasi',
       'biz.currency': 'GHS',
       'biz.currencySymbol': 'GH₵',
-      'receipt.footerText': 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.',
+      'receipt.paperSize': '80mm',
+      'receipt.footerText': 'Thank you for choosing SOFIYEM',
       'receipt.headerText': 'Quality Frozen Foods & Cold Storage',
       storeName: 'SOFIYEM Legacy Limited',
       currency: 'GHS',
-      address: 'Cold Store Market Depot, Accra, Ghana',
+      address: 'Tafo - Kumasi',
       phone: '+233 54 386 4610'
     })
-  } else if (currentSettings['biz.name'] === 'SML Legacy Limited' || currentSettings.storeName === 'SML Legacy Limited') {
-    currentSettings['biz.name'] = 'SOFIYEM Legacy Limited'
-    currentSettings.storeName = 'SOFIYEM Legacy Limited'
-    if (currentSettings['receipt.footerText']?.includes('SML Legacy')) {
-      currentSettings['receipt.footerText'] = currentSettings['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+  } else {
+    let changed = false
+    if (currentSettings['biz.name'] === 'SML Legacy Limited' || currentSettings.storeName === 'SML Legacy Limited') {
+      currentSettings['biz.name'] = 'SOFIYEM Legacy Limited'
+      currentSettings.storeName = 'SOFIYEM Legacy Limited'
+      changed = true
     }
-    setItem(STORAGE_KEYS.SETTINGS, currentSettings)
+    if (!currentSettings['biz.address'] || currentSettings['biz.address'].includes('Cold Store Market Depot') || currentSettings['biz.address'].includes('Accra')) {
+      currentSettings['biz.address'] = 'Tafo - Kumasi'
+      changed = true
+    }
+    if (!currentSettings['biz.city'] || currentSettings['biz.city'].includes('Accra') || currentSettings['biz.city'] === 'Tafo, Kumasi') {
+      currentSettings['biz.city'] = 'Tafo - Kumasi'
+      changed = true
+    }
+    currentSettings.address = 'Tafo - Kumasi'
+    const ft = currentSettings['receipt.footerText'] || ''
+    if (!ft || ft.toLowerCase().includes('dinn') || ft.toLowerCase().includes('dining') || ft.toLowerCase().includes('service charge') || ft.includes('Legacy') || ft.toLowerCase().includes('hope to see you')) {
+      currentSettings['receipt.footerText'] = 'Thank you for choosing SOFIYEM'
+      changed = true
+    }
+    if (!currentSettings['receipt.paperSize'] || currentSettings['receipt.paperSize'] === '58mm') {
+      currentSettings['receipt.paperSize'] = '80mm'
+      changed = true
+    }
+    if (changed) {
+      setItem(STORAGE_KEYS.SETTINGS, currentSettings)
+    }
   }
 }
 
@@ -2407,6 +2434,14 @@ export const mobileApi = {
     const cashierName = (data as any).cashier || (data as any).username || op.username || 'cashier'
     const userRole = (data as any).userRole || op.userRole || 'CASHIER'
 
+    const isRemote = Boolean(
+      (data as any).channel === 'REMOTE_WEB' ||
+      (data as any).isRemoteWeb ||
+      ((data as any).channel === undefined && typeof window !== 'undefined' && isRemoteWebClient())
+    )
+    const saleChannel = isRemote ? 'REMOTE_WEB' : ((data as any).channel || 'COUNTER')
+    const saleNotes = (data as any).notes || (isRemote ? 'Remote Online Sale' : null)
+
     const newSale = {
       id: saleId,
       customerId: data.customerId || null,
@@ -2417,6 +2452,9 @@ export const mobileApi = {
       date: new Date().toISOString(),
       cashier: cashierName,
       userRole: userRole,
+      channel: saleChannel,
+      isRemoteWeb: isRemote,
+      notes: saleNotes,
       items: data.items.map((item, idx) => {
         const batch = batches.find(b => b.id === item.batchId)
         const med = medicines.find(m => m.id === (batch?.medicineId || (item as any).medicineId) || ((item as any).name && m.name && m.name.toLowerCase() === (item as any).name.toLowerCase())) || (item as any).medicine
@@ -3884,7 +3922,7 @@ export const mobileApi = {
         const doc = iframe.contentWindow?.document
         if (doc) {
           doc.open()
-          doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print Receipt</title><style>@page{margin:0;}body{margin:0;padding:0 4px 30px 4px;font-family:'Courier New',Courier,monospace;font-size:11px;width:72mm;}table{width:100%;border-collapse:collapse;}hr{border:none;border-top:1px dashed #000;margin:6px 0;}</style></head><body>${html}</body></html>`)
+          doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print Receipt</title><style>@page{size:auto;margin:0!important;}*{-webkit-box-sizing:border-box;box-sizing:border-box;}html{margin:0!important;padding:0!important;}body{margin:0 auto!important;padding:0 2px 50px 2px!important;font-family:'Courier New',Courier,monospace;font-size:10px;width:100%!important;max-width:78mm!important;color:#000;background:#fff;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;table-layout:fixed;}hr{border:none;border-top:1px dashed #000;margin:5px 0;}</style></head><body>${html}</body></html>`)
           doc.close()
           iframe.contentWindow?.focus()
           setTimeout(() => {
@@ -3933,15 +3971,27 @@ export const mobileApi = {
     let cached = getItem(STORAGE_KEYS.SETTINGS, DEFAULT_STORE_SETTINGS)
     cached = { ...DEFAULT_STORE_SETTINGS, ...cached }
 
-    if (cached['biz.name'] === 'SML Legacy Limited') {
-      cached['biz.name'] = 'SOFIYEM Legacy Limited'
+    const sanitizeSettings = (s: Record<string, string>) => {
+      if (s['biz.name'] === 'SML Legacy Limited') s['biz.name'] = 'SOFIYEM Legacy Limited'
+      if (s['storeName'] === 'SML Legacy Limited') s['storeName'] = 'SOFIYEM Legacy Limited'
+      if (!s['biz.city'] || s['biz.city'].includes('Accra') || s['biz.city'] === 'Tafo, Kumasi') {
+        s['biz.city'] = 'Tafo - Kumasi'
+      }
+      if (!s['biz.address'] || s['biz.address'].includes('Cold Store Market Depot') || s['biz.address'].includes('Accra')) {
+        s['biz.address'] = 'Tafo - Kumasi'
+      }
+      s.address = 'Tafo - Kumasi'
+      const ft = s['receipt.footerText'] || ''
+      if (!ft || ft.toLowerCase().includes('dinn') || ft.toLowerCase().includes('dining') || ft.toLowerCase().includes('service charge') || ft.includes('Legacy') || ft.toLowerCase().includes('hope to see you')) {
+        s['receipt.footerText'] = 'Thank you for choosing SOFIYEM'
+      }
+      if (!s['receipt.paperSize'] || s['receipt.paperSize'] === '58mm') {
+        s['receipt.paperSize'] = '80mm'
+      }
+      return s
     }
-    if (cached['storeName'] === 'SML Legacy Limited') {
-      cached['storeName'] = 'SOFIYEM Legacy Limited'
-    }
-    if (cached['receipt.footerText']?.includes('SML Legacy')) {
-      cached['receipt.footerText'] = cached['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
-    }
+
+    cached = sanitizeSettings(cached)
 
     const client = getSupabaseClient()
     if (client && isOnline()) {
@@ -3956,16 +4006,8 @@ export const mobileApi = {
           const parsed = extractStateMirrorPayload(data)
           const cloudSettings = parsed?.settings || parsed
           if (cloudSettings && typeof cloudSettings === 'object') {
-            const merged = { ...DEFAULT_STORE_SETTINGS, ...cached, ...cloudSettings }
-            if (merged['biz.name'] === 'SML Legacy Limited') {
-              merged['biz.name'] = 'SOFIYEM Legacy Limited'
-            }
-            if (merged['storeName'] === 'SML Legacy Limited') {
-              merged['storeName'] = 'SOFIYEM Legacy Limited'
-            }
-            if (merged['receipt.footerText']?.includes('SML Legacy')) {
-              merged['receipt.footerText'] = merged['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
-            }
+            let merged = { ...DEFAULT_STORE_SETTINGS, ...cached, ...cloudSettings }
+            merged = sanitizeSettings(merged)
             setItem(STORAGE_KEYS.SETTINGS, merged)
             return merged
           }

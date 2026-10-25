@@ -122,13 +122,17 @@ describe('Sales History Calculation Verification', () => {
     })
 
     expect(html).toContain('SOFIYEM LEGACY TEST STORE')
+    expect(html).toContain('Location: Tafo - Kumasi')
+    expect(html).toContain('Email: sorphygold@yahoo.com')
+    expect(html).toContain('Thank you for choosing SOFIYEM')
     expect(html).toContain('INV-AB12CD34')
     expect(html).toContain('Kofi Mensah')
     expect(html).toContain('[ DUPLICATE RECEIPT ]')
     expect(html).toContain('Frozen Tilapia')
     expect(html).toContain('Mackerel 1kg')
     expect(html).toContain('₵125.50')
-    expect(html).toContain('software developed by PayLite | www.mypaylite.com | 0207131415')
+    expect(html).toContain('software develop by PayLite')
+    expect(html).toContain('www.mypaylite.com | 0207131415')
     expect(html).toContain('font-size:11px;white-space:nowrap;">GRAND TOTAL:')
   })
 
@@ -152,5 +156,35 @@ describe('Sales History Calculation Verification', () => {
     expect(html).toContain('300.00')
     expect(html).toContain('200.00')
     expect(html).toContain('Chicken Wings Box')
+  })
+
+  it('buildSaleReceiptHtml includes [ REMOTE / ONLINE SALE: REMOTE_WEB ] badge when sale is remote', () => {
+    const remoteSale = {
+      id: 'rem99998888',
+      total: 350,
+      customerName: 'Kofi Online Wholesale',
+      paymentMethod: 'MOBILE',
+      channel: 'REMOTE_WEB',
+      isRemoteWeb: true,
+      items: [{ product_name: 'Tilapia Large Box', quantity: 1, price: 350, subtotal: 350 }],
+    }
+
+    const html = buildSaleReceiptHtml(remoteSale, { isDuplicate: false })
+    expect(html).toContain('[ REMOTE / ONLINE SALE: REMOTE_WEB ]')
+  })
+
+  it('buildSaleReceiptHtml omits [ REMOTE / ONLINE SALE ] badge for standard counter sales', () => {
+    const counterSale = {
+      id: 'cnt11112222',
+      total: 120,
+      customerName: 'Depot Walk-in',
+      paymentMethod: 'CASH',
+      channel: 'COUNTER',
+      isRemoteWeb: false,
+      items: [{ product_name: 'Mackerel 1kg', quantity: 1, price: 120, subtotal: 120 }],
+    }
+
+    const html = buildSaleReceiptHtml(counterSale, { isDuplicate: false })
+    expect(html).not.toContain('[ REMOTE / ONLINE SALE: REMOTE_WEB ]')
   })
 })

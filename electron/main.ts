@@ -1470,22 +1470,23 @@ ipcMain.handle('print:receipt', async (_, htmlContent: string) => {
   <meta charset="utf-8">
   <style>
     @page {
-      margin: 0;
+      size: auto;
+      margin: 0 !important;
     }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 72mm;
-      max-width: 100%;
+    * { box-sizing: border-box; -webkit-box-sizing: border-box; }
+    html { margin: 0 !important; padding: 0 !important; }
+    body {
+      margin: 0 auto !important;
+      padding: 0 2mm 15mm 2mm !important;
+      width: 100% !important;
+      max-width: 78mm !important;
       font-family: 'Courier New', Courier, monospace;
-      font-size: 11px;
+      font-size: 9.5px;
       color: #000;
       background: #fff;
       -webkit-print-color-adjust: exact;
     }
-    body { padding: 0mm 3mm 10mm 2mm; }
-    table { border-collapse: collapse; width: 100%; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   </style>
 </head>
@@ -2425,7 +2426,7 @@ ipcMain.handle('settings:get', async () => {
     result['storeName'] = 'SOFIYEM Legacy Limited'
   }
   if (result['receipt.footerText']?.includes('SML Legacy')) {
-    result['receipt.footerText'] = result['receipt.footerText'].replace('SML Legacy', 'SOFIYEM Legacy')
+    result['receipt.footerText'] = result['receipt.footerText'].replace('SML Legacy', 'SOFIYEM')
   }
   return result
 })

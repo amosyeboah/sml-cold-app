@@ -32,9 +32,10 @@ import {
   BluetoothConnected,
   ChevronDown,
   ChevronUp,
+  Globe,
 } from 'lucide-react'
 import type { Category, Customer, Medicine } from '@/types'
-import { cn } from '@/utils'
+import { cn, isRemoteWebClient } from '@/utils'
 import { bluetoothPrinter, BluetoothPrinterStatus } from '@/services/hardware/bluetoothPrinter'
 import { barcodeScanner } from '@/services/hardware/barcodeScanner'
 import { api } from '@/services/api'
@@ -57,6 +58,8 @@ export interface PaymentConfirmedData {
   itemCount: number
   receiptHTML: string
   timestamp: string
+  isRemoteWeb?: boolean
+  channel?: string
 }
 
 interface CartItem {
@@ -898,6 +901,9 @@ export default function POS() {
   const [confirmedPayment, setConfirmedPayment] = useState<PaymentConfirmedData | null>(null)
   const [btStatus, setBtStatus] = useState<BluetoothPrinterStatus>(bluetoothPrinter.getStatus())
   const searchRef = useRef<HTMLInputElement>(null)
+  const [isRemoteWarningOpen, setIsRemoteWarningOpen] = useState(false)
+  const [remoteSaleNote, setRemoteSaleNote] = useState('')
+  const isRemote = isRemoteWebClient()
 
   // Track Bluetooth printer state
   useEffect(() => {
@@ -1071,23 +1077,32 @@ export default function POS() {
       const tagline = storedSettings['biz.tagline'] || 'Quality Frozen Foods & Cold Storage'
       const phone = storedSettings['biz.phone'] || '+233 54 386 4610'
       const ownerPhone = storedSettings['biz.ownerPhone'] || '+447999007775'
-      const email = storedSettings['biz.email'] || 'sorphygold@yahoo.com'
-      const footer = storedSettings['receipt.footerText'] || 'Thank you for choosing SOFIYEM Legacy! Keep frozen at -18°C.'
-      const discountLine = enableDiscount && discountAmt > 0 ? `<tr><td style="padding:2px 0;">Discount (${discountPercent}%):</td><td colspan="2" style="text-align:right;white-space:nowrap;">-${currencySymbol}${discountAmt.toFixed(2)}</td></tr>` : ''
-      const taxLine = enableTax && tax > 0 ? `<tr><td style="padding:2px 0;">Tax (${taxRate}%):</td><td colspan="2" style="text-align:right;white-space:nowrap;">${currencySymbol}${tax.toFixed(2)}</td></tr>` : ''
-      const subtotalLine = (enableDiscount && discountAmt > 0) || (enableTax && tax > 0) ? `<tr><td style="padding:2px 0;">Subtotal:</td><td colspan="2" style="text-align:right;white-space:nowrap;">${currencySymbol}${subtotal.toFixed(2)}</td></tr>` : ''
+      const location = 'Tafo - Kumasi'
+      const ownerEmail = storedSettings['biz.ownerEmail'] || storedSettings['biz.email'] || 'sorphygold@yahoo.com'
+      const rawFooter = storedSettings['receipt.footerText']
+      const isOldOrRestaurant = !rawFooter ||
+        rawFooter.toLowerCase().includes('dinning') ||
+        rawFooter.toLowerCase().includes('dining') ||
+        rawFooter.toLowerCase().includes('service charge') ||
+        rawFooter.toLowerCase().includes('legacy') ||
+        rawFooter.toLowerCase().includes('hope to see you')
+
+      const footer = isOldOrRestaurant ? 'Thank you for choosing SOFIYEM' : rawFooter
+      const discountLine = enableDiscount && discountAmt > 0 ? `<tr><td style="padding:1.5px 0;">Discount (${discountPercent}%):</td><td style="text-align:right;white-space:nowrap;">-${currencySymbol}${discountAmt.toFixed(2)}</td></tr>` : ''
+      const taxLine = enableTax && tax > 0 ? `<tr><td style="padding:1.5px 0;">Tax (${taxRate}%):</td><td style="text-align:right;white-space:nowrap;">${currencySymbol}${tax.toFixed(2)}</td></tr>` : ''
+      const subtotalLine = (enableDiscount && discountAmt > 0) || (enableTax && tax > 0) ? `<tr><td style="padding:1.5px 0;">Subtotal:</td><td style="text-align:right;white-space:nowrap;">${currencySymbol}${subtotal.toFixed(2)}</td></tr>` : ''
 
       const isSplit = paymentMethod === 'SPLIT' && splitPayments.some((p) => p.amount > 0)
       const activePayments = isSplit
         ? splitPayments.filter((p) => p.amount > 0)
         : [{ method: paymentMethod, amount: total }]
 
-      let paymentSectionHTML = `<p style="margin:2px 0;font-size:11px;">Payment: ${paymentMethod === 'MOBILE' ? 'MOBILE MONEY' : paymentMethod}</p>`
+      let paymentSectionHTML = `<p style="margin:1px 0;font-size:9.5px;">Payment: ${paymentMethod === 'MOBILE' ? 'MOBILE MONEY' : paymentMethod}</p>`
       if (isSplit) {
         paymentSectionHTML = `
-          <div style="margin:4px 0 2px 0;">
-            <p style="margin:0 0 2px 0;font-size:11px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
-            <table style="width:100%;font-size:10px;border-collapse:collapse;">
+          <div style="margin:2px 0 1px 0;">
+            <p style="margin:0 0 1px 0;font-size:9.5px;font-weight:bold;">Payment: SPLIT PAYMENT</p>
+            <table style="width:100%;font-size:9px;border-collapse:collapse;">
               ${activePayments.map((p) => `
                 <tr>
                   <td style="padding:1px 0;color:#222;">• ${p.method === 'MOBILE' ? 'Mobile Money' : p.method === 'BANK TRANSFER' ? 'Bank Transfer' : p.method}:</td>
@@ -1110,64 +1125,79 @@ export default function POS() {
       }
 
       const receiptHTML = `
-        <div style="font-family:'Courier New',Courier,monospace;width:100%;padding:0 0 16px 0;margin:0;color:#000;font-size:11px;">
-          <h2 style="text-align:center;margin:0 0 4px 0;font-size:14px;font-weight:bold;">${storeName.toUpperCase()}</h2>
-          <p style="text-align:center;margin:2px 0 0 0;font-size:10px;">Store Tel: ${phone}</p>
-          <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <p style="margin:2px 0;font-size:11px;">Date: ${new Date().toLocaleString('en-GB')}</p>
-          <p style="margin:2px 0;font-size:11px;">Receipt: INV-${sale.id.slice(0, 8).toUpperCase()}</p>
+        <div style="font-family:'Courier New',Courier,monospace;width:100%;max-width:320px;margin:0 auto;padding:0 0 50px 0;color:#000;font-size:10px;line-height:1.25;">
+          <h2 style="text-align:center;margin:0 0 2px 0;padding:0;font-size:13px;font-weight:bold;line-height:1.15;">${storeName.toUpperCase()}</h2>
+          <p style="text-align:center;margin:1px 0;font-size:9.5px;">Location: ${location}</p>
+          <p style="text-align:center;margin:1px 0;font-size:9.5px;">Store Tel: ${phone}</p>
+          <p style="text-align:center;margin:1px 0;font-size:9.5px;">Email: ${ownerEmail}</p>
+          ${Boolean(sale?.channel === 'REMOTE_WEB' || sale?.isRemoteWeb || isRemote) ? `<p style="margin:2px 0;font-size:9px;color:#6b21a8;font-weight:bold;text-align:center;background:#f3e8ff;padding:2px;border:1px dashed #c084fc;">[ REMOTE / ONLINE SALE: REMOTE_WEB ]</p>` : ''}
+          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+          <p style="margin:1px 0;font-size:9.5px;">Date: ${new Date().toLocaleString('en-GB')}</p>
+          <p style="margin:1px 0;font-size:9.5px;">Receipt: INV-${sale.id.slice(0, 8).toUpperCase()}</p>
           ${paymentSectionHTML}
-          <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <table style="width:100%;font-size:10px;border-collapse:collapse;">
+          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+          <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9px;line-height:1.25;">
+            <colgroup>
+              <col style="width:54%;"/>
+              <col style="width:16%;"/>
+              <col style="width:30%;"/>
+            </colgroup>
             <thead>
               <tr style="border-bottom:1px solid #000;text-align:left;">
-                <th style="padding:2px 0;">Item</th>
-                <th style="text-align:center;padding:2px 0;">Qty</th>
-                <th style="text-align:right;padding:2px 0;white-space:nowrap;">Total</th>
+                <th style="padding:2px 0;font-size:9px;font-weight:bold;">Item</th>
+                <th style="text-align:center;padding:2px 0;font-size:9px;font-weight:bold;">Qty</th>
+                <th style="text-align:right;padding:2px 0;font-size:9px;font-weight:bold;white-space:nowrap;">Total</th>
               </tr>
             </thead>
             <tbody>
               ${cart.map((item) => `
                 <tr>
-                  <td style="padding:3px 0;max-width:90px;word-break:break-word;">${item.medicine.name}</td>
-                  <td style="text-align:center;vertical-align:top;padding:3px 0;">${item.quantity}</td>
-                  <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap;">${currencySymbol}${(item.medicine.price * item.quantity).toFixed(2)}</td>
+                  <td style="padding:2px 0;word-break:break-word;overflow-wrap:break-word;font-size:9px;vertical-align:top;">${item.medicine.name}</td>
+                  <td style="text-align:center;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;">${item.quantity}</td>
+                  <td style="text-align:right;vertical-align:top;padding:2px 0;font-size:9px;white-space:nowrap;font-variant-numeric:tabular-nums;">${currencySymbol}${(item.medicine.price * item.quantity).toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
-          <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <table style="width:100%;font-size:10px;">
+          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+          <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:9.5px;">
+            <colgroup>
+              <col style="width:58%;"/>
+              <col style="width:42%;"/>
+            </colgroup>
             ${subtotalLine}
             ${discountLine}
             ${taxLine}
             <tr>
-              <td style="padding:4px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
-              <td colspan="2" style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;">${currencySymbol}${total.toFixed(2)}</td>
+              <td style="padding:3px 0;font-weight:bold;font-size:11px;white-space:nowrap;">GRAND TOTAL:</td>
+              <td style="text-align:right;font-weight:bold;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;">${currencySymbol}${total.toFixed(2)}</td>
             </tr>
           </table>
-          <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <p style="text-align:center;margin:6px 0 2px 0;font-size:11px;font-weight:bold;">${footer}</p>
-          <p style="text-align:center;margin:0;font-size:9px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
-          <hr style="border-top:1px dashed #000;margin:8px 0;"/>
-          <p style="text-align:center;margin:0 0 6px 0;font-size:8.5px;color:#555;line-height:1.3;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
-          <div style="height:12px;width:100%;">&nbsp;</div>
+          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+          <p style="text-align:center;margin:4px 0 2px 0;font-size:10px;font-weight:bold;">${footer}</p>
+          <p style="text-align:center;margin:0;font-size:8.5px;color:#333;">Goods sold in good condition are not returnable once defrosted.</p>
+          <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+          <p style="text-align:center;margin:0;font-size:8px;color:#555;line-height:1.2;">software develop by PayLite</p>
+          <p style="text-align:center;margin:1px 0 4px 0;font-size:8px;color:#555;line-height:1.2;">www.mypaylite.com | 0207131415</p>
+          <div style="height:48px;width:100%;clear:both;">&nbsp;</div>
         </div>`
-      try {
-        const pRes = await api.printReceipt(receiptHTML)
-        if (pRes && pRes.success === false && pRes.error) {
-          console.warn('Bluetooth receipt print issue:', pRes.error)
-        }
-      } catch (printErr) {
-        console.warn('Receipt print failed:', printErr)
-      }
-
-      // Auto-open cash drawer for cash payments
-      const hasCashPayment = paymentMethod === 'CASH' || (isSplit && activePayments.some((p) => p.method === 'CASH' && p.amount > 0))
-      if (hasCashPayment) {
+      if (!isRemote) {
         try {
-          await api.openCashDrawer()
-        } catch { /* drawer may not be enabled */ }
+          const pRes = await api.printReceipt(receiptHTML)
+          if (pRes && pRes.success === false && pRes.error) {
+            console.warn('Bluetooth receipt print issue:', pRes.error)
+          }
+        } catch (printErr) {
+          console.warn('Receipt print failed:', printErr)
+        }
+
+        // Auto-open cash drawer for cash payments
+        const hasCashPayment = paymentMethod === 'CASH' || (isSplit && activePayments.some((p) => p.method === 'CASH' && p.amount > 0))
+        if (hasCashPayment) {
+          try {
+            await api.openCashDrawer()
+          } catch { /* drawer may not be enabled */ }
+        }
       }
 
       const finalChangeDue = typeof cashTendered === 'number'
@@ -1188,6 +1218,8 @@ export default function POS() {
         itemCount: totalCartons,
         receiptHTML,
         timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        isRemoteWeb: Boolean(sale?.channel === 'REMOTE_WEB' || sale?.isRemoteWeb || isRemote),
+        channel: sale?.channel || (isRemote ? 'REMOTE_WEB' : 'COUNTER'),
       })
 
       setCart([])
@@ -1453,21 +1485,8 @@ export default function POS() {
     return () => unsubscribe()
   }, [productsList, addToCart])
 
-  const handleCheckout = () => {
+  const executeSaleSubmission = (customNote?: string) => {
     if (cart.length === 0) return
-
-    if (paymentMethod === 'SPLIT') {
-      const allocated = splitPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
-      if (Math.abs(allocated - total) > 0.01) {
-        setToast({
-          type: 'error',
-          message: allocated < total
-            ? `Please allocate the remaining ${currencySymbol}${(total - allocated).toFixed(2)} to complete split payment.`
-            : `Split amounts exceed total by ${currencySymbol}${(allocated - total).toFixed(2)}. Please balance amounts.`,
-        })
-        return
-      }
-    }
 
     const items = cart.flatMap((c) => {
       if (c.allocations && c.allocations.length > 0) {
@@ -1513,7 +1532,36 @@ export default function POS() {
       customerId: selectedCustomerId || undefined,
       cashier: user?.username || 'cashier',
       userRole: user?.role || 'CASHIER',
+      channel: isRemote ? 'REMOTE_WEB' : 'COUNTER',
+      isRemoteWeb: isRemote,
+      notes: customNote || (isRemote ? 'Remote Online Sale' : undefined),
     })
+  }
+
+  const handleCheckout = () => {
+    if (cart.length === 0) return
+
+    if (paymentMethod === 'SPLIT') {
+      const allocated = splitPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
+      if (Math.abs(allocated - total) > 0.01) {
+        setToast({
+          type: 'error',
+          message: allocated < total
+            ? `Please allocate the remaining ${currencySymbol}${(total - allocated).toFixed(2)} to complete split payment.`
+            : `Split amounts exceed total by ${currencySymbol}${(allocated - total).toFixed(2)}. Please balance amounts.`,
+        })
+        return
+      }
+    }
+
+    // Intercept with warning pop-up if running on remote web / cloud portal
+    if (isRemote) {
+      setIsRemoteWarningOpen(true)
+      return
+    }
+
+    // Standard physical counter sale
+    executeSaleSubmission()
   }
 
   const paginationPages = useMemo(() => {
@@ -1582,6 +1630,120 @@ export default function POS() {
         </div>
       )}
 
+      {/* ── Remote Web Sale Confirmation Warning Modal ── */}
+      {isRemoteWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+            {/* Header banner */}
+            <div className="relative bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 px-6 pt-6 pb-6 text-white">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRemoteWarningOpen(false)
+                  setRemoteSaleNote('')
+                }}
+                className="absolute right-4 top-4 rounded-full bg-white/20 p-1.5 text-white hover:bg-white/30 transition-colors"
+                title="Cancel (Esc)"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 text-white backdrop-blur-xs ring-4 ring-white/10 shrink-0">
+                  <Globe className="h-7 w-7 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black tracking-tight text-white sm:text-2xl">Confirm Remote Online Sale</h2>
+                  <p className="mt-0.5 text-xs font-semibold text-amber-100">
+                    Online Web Session Active • Physical Counter is in Tafo
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div className="rounded-2xl bg-amber-50 border border-amber-200/80 p-3.5 text-xs text-amber-950 space-y-1.5">
+                <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                  Notice: Online Portal is for Monitoring & Admin
+                </p>
+                <p className="text-slate-700 leading-relaxed text-[12px]">
+                  Most sales are expected directly on the <strong>Counter Tablet App in Tafo</strong>. Are you recording a special online order, wholesale phone order, or remote bank transfer?
+                </p>
+              </div>
+
+              {/* What happens list */}
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-2 text-xs">
+                <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                  Impact of this transaction:
+                </p>
+                <div className="space-y-2 text-slate-600 text-[11px]">
+                  <div className="flex items-start gap-2">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">✓</span>
+                    <span><strong>Live Stock Deduction:</strong> Inventory will be subtracted from cold room freezer batches immediately.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">!</span>
+                    <span><strong>Cash Drawer:</strong> Physical counter cash drawer will <em>not</em> open or expect this cash at shift close.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold">#</span>
+                    <span><strong>Audit Tag:</strong> Sale will be permanently tagged with <span className="font-mono font-bold text-purple-800 bg-purple-100 px-1 py-0.5 rounded">REMOTE_WEB</span>.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reference note */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Remote Order Note / Reference <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. WhatsApp wholesale order, phone order, direct bank transfer..."
+                  value={remoteSaleNote}
+                  onChange={(e) => setRemoteSaleNote(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200"
+                />
+              </div>
+
+              {/* Total Summary */}
+              <div className="flex items-center justify-between rounded-xl bg-slate-100 px-3.5 py-2.5 text-xs">
+                <span className="font-semibold text-slate-600">Sale Total Amount</span>
+                <span className="font-black text-slate-900 text-base">{currencySymbol}{total.toFixed(2)}</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRemoteWarningOpen(false)
+                    setRemoteSaleNote('')
+                  }}
+                  className="rounded-2xl border border-slate-300 bg-white py-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-all"
+                >
+                  Cancel Sale
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRemoteWarningOpen(false)
+                    executeSaleSubmission(remoteSaleNote.trim() || undefined)
+                    setRemoteSaleNote('')
+                  }}
+                  className="rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 py-3 text-xs font-bold text-white shadow-md shadow-purple-600/30 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Globe className="h-4 w-4" />
+                  <span>Confirm Remote Sale</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── High-Visibility Payment Confirmation Modal ── */}
       {confirmedPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150">
@@ -1609,6 +1771,17 @@ export default function POS() {
 
             {/* Content area */}
             <div className="p-6 space-y-4">
+              {Boolean(confirmedPayment.isRemoteWeb || confirmedPayment.channel === 'REMOTE_WEB') && (
+                <div className="rounded-2xl border border-purple-200 bg-purple-50 p-3 text-purple-900 text-xs flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-purple-200 text-purple-800 font-bold">
+                    🌐
+                  </span>
+                  <div>
+                    <p className="font-bold">Logged as REMOTE_WEB Sale</p>
+                    <p className="text-[11px] text-purple-700">Remote order recorded. Counter cash drawer & printer were bypassed.</p>
+                  </div>
+                </div>
+              )}
               {/* Grand Total Paid Box */}
               <div className="rounded-2xl bg-slate-50 border border-slate-200/80 p-4 text-center">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Amount Paid</p>
@@ -1821,6 +1994,25 @@ export default function POS() {
               setToast={setToast}
               onClose={() => setIsCartDrawerOpen(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── Remote Web Session Ambient Warning Banner ── */}
+      {isRemote && (
+        <div className="flex-shrink-0 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 px-4 py-2 text-white shadow-xs">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-white font-bold">
+                🌐
+              </span>
+              <p className="truncate font-medium">
+                <span className="font-bold underline decoration-amber-200">Remote Cloud Session:</span> Primary sales are expected on the counter tablet in Tafo. Any sale logged here will be tagged as <code className="rounded bg-black/20 px-1 py-0.5 font-mono font-bold">REMOTE_WEB</code>.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider backdrop-blur-xs">
+              Web Portal Active
+            </span>
           </div>
         </div>
       )}

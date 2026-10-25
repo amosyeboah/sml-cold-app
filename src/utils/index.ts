@@ -94,3 +94,39 @@ export function formatNumber(n: number): string {
 export function formatPercent(n: number): string {
   return `${n.toFixed(1)}%`
 }
+
+// ─── Platform & Client Environment ─────────────────────────────────────────────
+/**
+ * Detects whether the current session is running in a Remote Web browser
+ * (e.g. Vercel cloud dashboard, external Chrome/Safari session) rather than
+ * the dedicated physical counter devices (Android Tablet Capacitor app or Windows Desktop Electron app).
+ */
+export function isRemoteWebClient(): boolean {
+  if (typeof window === 'undefined') return false
+
+  // In test runners (Vitest / Jest), default to false unless explicitly mocking
+  if (
+    typeof process !== 'undefined' &&
+    (process.env?.NODE_ENV === 'test' || Boolean(process.env?.VITEST))
+  ) {
+    return false
+  }
+
+  // 1. Android Tablet Native App (Capacitor)
+  const isCapacitorNative = Boolean(
+    (window as any).Capacitor?.isNativePlatform &&
+    typeof (window as any).Capacitor.isNativePlatform === 'function' &&
+    (window as any).Capacitor.isNativePlatform()
+  )
+  if (isCapacitorNative) return false
+
+  // 2. Windows Desktop Native App (Electron)
+  const isElectron = Boolean(
+    (window as any).electron?.ipcRenderer ||
+    (window as any).process?.versions?.electron
+  )
+  if (isElectron) return false
+
+  // Regular web browser (remote web cloud session)
+  return true
+}

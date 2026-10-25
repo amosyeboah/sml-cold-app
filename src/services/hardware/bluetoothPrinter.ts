@@ -85,8 +85,8 @@ class BluetoothPrinterService {
 
   private paperWidth: PaperWidth =
     typeof localStorage !== 'undefined'
-      ? ((localStorage.getItem('bt_printer_paper_width') as PaperWidth) || '58mm')
-      : '58mm'
+      ? ((localStorage.getItem('bt_printer_paper_width') as PaperWidth) || '80mm')
+      : '80mm'
   private listeners: ((status: BluetoothPrinterStatus) => void)[] = []
 
   constructor() {
@@ -523,32 +523,39 @@ class BluetoothPrinterService {
 
     const currentName = this.getStatus().deviceName || 'BT Printer'
     const testHtml = `
-      <div style="font-family:monospace;width:100%;">
-        <h2 style="text-align:center;">SOFIYEM COLD STORE</h2>
-        <p style="text-align:center;">*** BLUETOOTH TEST PRINT ***</p>
+      <div style="font-family:'Courier New',Courier,monospace;width:100%;max-width:280px;margin:0 auto;padding:0 0 50px 0;">
+        <h2 style="text-align:center;margin:0 0 2px 0;padding:0;font-size:13px;line-height:1.15;">SOFIYEM COLD STORE</h2>
+        <p style="text-align:center;margin:1px 0;font-size:9.5px;">Location: Tafo - Kumasi</p>
+        <p style="text-align:center;margin:1px 0;font-size:9.5px;">Store Tel: +233 54 386 4610</p>
+        <p style="text-align:center;margin:1px 0;font-size:9.5px;">Email: sorphygold@yahoo.com</p>
+        <p style="text-align:center;margin:2px 0;font-size:9.5px;">*** BLUETOOTH TEST PRINT ***</p>
         <hr/>
-        <p>Device: ${currentName}</p>
-        <p>Mode: ${this.isNative() ? 'Android Native SPP' : 'Web Bluetooth BLE'}</p>
-        <p>Paper Width: ${this.paperWidth}</p>
-        <p>Date: ${new Date().toLocaleString()}</p>
+        <p style="margin:1px 0;font-size:9.5px;">Device: ${currentName}</p>
+        <p style="margin:1px 0;font-size:9.5px;">Mode: ${this.isNative() ? 'Android Native SPP' : 'Web Bluetooth BLE'}</p>
+        <p style="margin:1px 0;font-size:9.5px;">Paper Width: ${this.paperWidth}</p>
+        <p style="margin:1px 0;font-size:9.5px;">Date: ${new Date().toLocaleString('en-GB')}</p>
         <hr/>
-        <table>
+        <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:8.5px;line-height:1.2;">
+          <colgroup><col style="width:52%;"/><col style="width:16%;"/><col style="width:32%;"/></colgroup>
           <thead>
-            <tr><th>Item</th><th>Qty</th><th>Total</th></tr>
+            <tr><th style="font-size:8.5px;text-align:left;">Item</th><th style="font-size:8.5px;text-align:center;">Qty</th><th style="font-size:8.5px;text-align:right;">Total</th></tr>
           </thead>
           <tbody>
-            <tr><td>Tilapia 1kg Large</td><td>1</td><td>GHc 45.00</td></tr>
-            <tr><td>Chicken Wings 2kg</td><td>2</td><td>GHc 90.00</td></tr>
+            <tr><td style="font-size:8.5px;">Tilapia 1kg Large</td><td style="font-size:8.5px;text-align:center;">1</td><td style="font-size:8.5px;text-align:right;">GHc 45.00</td></tr>
+            <tr><td style="font-size:8.5px;">Chicken Wings 2kg</td><td style="font-size:8.5px;text-align:center;">2</td><td style="font-size:8.5px;text-align:right;">GHc 90.00</td></tr>
           </tbody>
         </table>
         <hr/>
-        <table>
-          <tr><td>GRAND TOTAL:</td><td>GHc 135.00</td></tr>
+        <table style="width:100%;font-size:9.5px;">
+          <tr><td style="font-weight:bold;font-size:11px;">GRAND TOTAL:</td><td style="text-align:right;font-weight:bold;font-size:11px;">GHc 135.00</td></tr>
         </table>
         <hr/>
-        <p style="text-align:center;">Printer Connection Verified!</p>
-        <p style="text-align:center;">software developed by PayLite | www.mypaylite.com | 0207131415</p>
-        <div style="height:12px;">&nbsp;</div>
+        <p style="text-align:center;margin:4px 0 2px 0;font-size:10px;font-weight:bold;">Thank you for choosing SOFIYEM</p>
+        <p style="text-align:center;margin:0 0 4px 0;font-size:9px;">Printer Connection Verified!</p>
+        <hr style="border-top:1px dashed #000;margin:5px 0;"/>
+        <p style="text-align:center;margin:0;font-size:8px;color:#555;line-height:1.2;">software develop by PayLite</p>
+        <p style="text-align:center;margin:1px 0 4px 0;font-size:8px;color:#555;line-height:1.2;">www.mypaylite.com | 0207131415</p>
+        <div style="height:48px;width:100%;clear:both;">&nbsp;</div>
       </div>
     `
     return await this.printReceipt(testHtml)
@@ -571,7 +578,7 @@ class BluetoothPrinterService {
     const BOLD_OFF = [ESC, 0x45, 0]
     const DOUBLE_SIZE = [GS, 0x21, 0x11]
     const NORMAL_SIZE = [GS, 0x21, 0x00]
-    const FEED_5 = [ESC, 0x64, 5]
+    const FEED_7 = [ESC, 0x64, 7]
     const CUT = [GS, 0x56, 0]
 
     const encoder = new TextEncoder()
@@ -581,11 +588,15 @@ class BluetoothPrinterService {
       buffer.push(...bytes)
     }
 
-    const printText = (text: string, newline = true) => {
-      const clean = text
+    const cleanEscPosText = (text: string) => {
+      return text
         .replace(/GH[₵c]/gi, 'GHc ')
         .replace(/[₵]/g, 'GHc ')
         .replace(/[•]/g, '-')
+    }
+
+    const printText = (text: string, newline = true) => {
+      const clean = cleanEscPosText(text)
       const encoded = encoder.encode(clean + (newline ? '\n' : ''))
       for (let i = 0; i < encoded.length; i++) {
         buffer.push(encoded[i])
@@ -595,7 +606,7 @@ class BluetoothPrinterService {
     const parser = new DOMParser()
     const doc = parser.parseFromString(html, 'text/html')
 
-    const titleEl = doc.querySelector('h1, h2')
+    const titleEl = doc.querySelector('h1, h2, h3')
     if (titleEl) {
       append(ALIGN_CENTER)
       append(BOLD_ON)
@@ -612,7 +623,7 @@ class BluetoothPrinterService {
       if (handledNodes.has(p)) return
       handledNodes.add(p)
 
-      const text = p.innerText?.trim()
+      const text = (p.innerText || p.textContent || '').trim()
       if (!text) return
 
       const isCenter = p.style.textAlign === 'center' || p.getAttribute('align') === 'center'
@@ -632,30 +643,35 @@ class BluetoothPrinterService {
       append(ALIGN_LEFT)
 
       rows.forEach((tr) => {
+        // Pre-clean currency symbols BEFORE calculating text width and padding
         const cells = Array.from(tr.querySelectorAll('th, td')).map((c) =>
-          (c.textContent || '').trim().replace(/GH[₵c]/gi, 'GHc ')
+          cleanEscPosText((c.textContent || '').trim()).replace(/\s+/g, ' ')
         )
         if (cells.length === 0) return
 
         if (cells.length === 3) {
-          const [item, qty, total] = cells
+          const [item, qty, rawTotal] = cells
+          const total = rawTotal.replace(/\s+/g, ' ').trim()
           const qtyWidth = width === '80mm' ? 6 : 4
-          const totalWidth = width === '80mm' ? 14 : 10
-          const itemWidth = charsPerLine - qtyWidth - totalWidth
+          // Dynamically compute safe total width that fits the total text without wrapping
+          const curTotalWidth = Math.min(charsPerLine - qtyWidth - 6, Math.max(width === '80mm' ? 14 : 11, total.length))
+          const itemWidth = Math.max(6, charsPerLine - qtyWidth - curTotalWidth)
+          const finalTotalWidth = charsPerLine - itemWidth - qtyWidth
 
           const truncatedItem = item.slice(0, itemWidth).padEnd(itemWidth, ' ')
           const paddedQty = qty.padStart(qtyWidth, ' ')
-          const paddedTotal = total.padStart(totalWidth, ' ')
+          const paddedTotal = total.padStart(finalTotalWidth, ' ')
 
           printText(`${truncatedItem}${paddedQty}${paddedTotal}`)
         } else if (cells.length === 2) {
           const [label, val] = cells
           const isGrandTotal = label.toUpperCase().includes('GRAND TOTAL')
-          const valWidth = width === '80mm' ? 18 : 12
-          const labelWidth = charsPerLine - valWidth
+          const curValWidth = Math.min(charsPerLine - 8, Math.max(val.length, width === '80mm' ? 16 : 12))
+          const labelWidth = Math.max(6, charsPerLine - curValWidth)
+          const finalValWidth = charsPerLine - labelWidth
 
           const truncatedLabel = label.slice(0, labelWidth).padEnd(labelWidth, ' ')
-          const paddedVal = val.padStart(valWidth, ' ')
+          const paddedVal = val.padStart(finalValWidth, ' ')
 
           if (isGrandTotal) {
             append(BOLD_ON)
@@ -675,7 +691,7 @@ class BluetoothPrinterService {
       const el = node as HTMLElement
       const tagName = el.tagName?.toUpperCase()
 
-      if (tagName === 'H1' || tagName === 'H2') {
+      if (tagName === 'H1' || tagName === 'H2' || tagName === 'H3') {
         // already handled
       } else if (tagName === 'HR') {
         append(ALIGN_CENTER)
@@ -685,21 +701,28 @@ class BluetoothPrinterService {
       } else if (tagName === 'TABLE') {
         processTable(el)
       } else if (tagName === 'DIV') {
-        const childTables = Array.from(el.querySelectorAll('table'))
-        const childPs = Array.from(el.querySelectorAll('p'))
-        const childHrs = Array.from(el.querySelectorAll('hr'))
-
-        childPs.forEach((p) => processParagraph(p as HTMLElement))
-        childTables.forEach((t) => processTable(t as HTMLElement))
-        childHrs.forEach(() => {
-          append(ALIGN_CENTER)
-          printText(separator)
-        })
+        const walkDivChildren = (parent: HTMLElement) => {
+          Array.from(parent.children).forEach((child) => {
+            const childEl = child as HTMLElement
+            const childTag = childEl.tagName?.toUpperCase()
+            if (childTag === 'P') {
+              processParagraph(childEl)
+            } else if (childTag === 'TABLE') {
+              processTable(childEl)
+            } else if (childTag === 'HR') {
+              append(ALIGN_CENTER)
+              printText(separator)
+            } else if (childTag === 'DIV') {
+              walkDivChildren(childEl)
+            }
+          })
+        }
+        walkDivChildren(el)
       }
     })
 
     append(ALIGN_CENTER)
-    append(FEED_5)
+    append(FEED_7)
     append(CUT)
 
     return new Uint8Array(buffer)

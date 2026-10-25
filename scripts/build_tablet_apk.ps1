@@ -114,11 +114,31 @@ if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 }
 
+function Safe-CopyApk([string]$source, [string]$destination) {
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            if (Test-Path $destination) {
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+            }
+            [System.IO.File]::Copy($source, $destination, $true)
+            return
+        } catch {
+            if ($attempt -eq 5) {
+                # Fallback to copy via shell
+                Copy-Item -Path $source -Destination $destination -Force
+            } else {
+                Start-Sleep -Milliseconds 600
+            }
+        }
+    }
+}
+
 $targetApk = Join-Path $targetDir "sofiyem-cold-store-tablet-v2.apk"
-Copy-Item -Path $apkSource -Destination $targetApk -Force
+Safe-CopyApk $apkSource $targetApk
 # Also maintain legacy name for compatibility with existing deployment shortcuts
 $legacyApk = Join-Path $targetDir "sml-cold-store-tablet-v2.apk"
-Copy-Item -Path $apkSource -Destination $legacyApk -Force
+Safe-CopyApk $apkSource $legacyApk
 
 $fileInfo = Get-Item $targetApk
 $sizeMB = [math]::Round($fileInfo.Length / 1MB, 2)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getSaleBreakdown, buildSaleReceiptHtml } from '../pages/SalesHistory'
+import { getSaleBreakdown, buildSaleReceiptHtml, getSaleTotalUnits } from '../pages/SalesHistory'
 
 describe('Sales History Calculation Verification', () => {
   it('correctly handles split payment with explicit payments array (e.g. 2700 Cash + 300 MoMo = 3000 Total)', () => {
@@ -186,5 +186,46 @@ describe('Sales History Calculation Verification', () => {
 
     const html = buildSaleReceiptHtml(counterSale, { isDuplicate: false })
     expect(html).not.toContain('[ REMOTE / ONLINE SALE: REMOTE_WEB ]')
+  })
+
+  it('getSaleTotalUnits correctly calculates total units across items with quantity, qty, or quantity_sold', () => {
+    const sale = {
+      id: 'sale-units-1',
+      total: 500,
+      items: [
+        { product_name: 'Tilapia', quantity: 2 },
+        { product_name: 'Chicken Wings', qty: 3 },
+        { product_name: 'Beef Chuck', quantity_sold: 4 },
+      ],
+    }
+    expect(getSaleTotalUnits(sale)).toBe(9)
+  })
+
+  it('getSaleTotalUnits prevents 0 units bug by using fallback count or total amount', () => {
+    // 1. Empty items array but positive total amount
+    const saleWithEmptyItems = { id: 'sale-empty', total: 580, items: [] }
+    expect(getSaleTotalUnits(saleWithEmptyItems)).toBe(1)
+
+    // 2. Explicit itemsCount attribute on cloud/synced transaction
+    const saleWithItemsCount = { id: 'sale-count', total: 580, itemsCount: 4, items: [] }
+    expect(getSaleTotalUnits(saleWithItemsCount)).toBe(4)
+
+    // 3. Truly 0 total and empty items
+    const zeroSale = { id: 'sale-zero', total: 0, items: [] }
+    expect(getSaleTotalUnits(zeroSale)).toBe(0)
+  })
+
+  it('buildSaleReceiptHtml renders fallback item breakdown when items array is empty', () => {
+    const sale = {
+      id: 'h9tgyxvr5x8pfbuyo3fris',
+      total: 580,
+      customerName: 'Kofi Depot',
+      paymentMethod: 'CASH',
+      items: [],
+    }
+
+    const html = buildSaleReceiptHtml(sale, { isDuplicate: false })
+    expect(html).toContain('Cold Store Products')
+    expect(html).toContain('₵580.00')
   })
 })

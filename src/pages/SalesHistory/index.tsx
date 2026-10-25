@@ -114,6 +114,20 @@ export function getSaleBreakdown(sale: any): SalePaymentBreakdown {
   return { cash: total, momo: 0, other: 0, isSplit: false, displayLabel: 'CASH' }
 }
 
+export function getSaleTotalUnits(sale: any): number {
+  if (sale?.items && Array.isArray(sale.items) && sale.items.length > 0) {
+    const sum = sale.items.reduce((acc: number, item: any) => {
+      const q = Number(item.quantity ?? item.qty ?? item.quantity_sold ?? 1)
+      return acc + (isNaN(q) || q <= 0 ? 1 : q)
+    }, 0)
+    if (sum > 0) return sum
+  }
+  const explicitCount = Number(sale?.itemsCount ?? sale?.itemCount ?? sale?.quantity ?? sale?.qty ?? 0)
+  if (explicitCount > 0) return explicitCount
+  const total = Number(sale?.total ?? sale?.total_amount ?? 0)
+  return total > 0 ? 1 : 0
+}
+
 export interface ReceiptOptions {
   storeName?: string
   phone?: string
@@ -181,11 +195,21 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
     `
   }
 
-  const items = targetSale.items || []
+  const fallbackUnits = getSaleTotalUnits(targetSale)
+  const totalAmt = Number(targetSale.total ?? targetSale.total_amount ?? 0)
+  const items = (targetSale.items && Array.isArray(targetSale.items) && targetSale.items.length > 0)
+    ? targetSale.items
+    : [{
+        name: targetSale.product_name || `Cold Store Products (${invoiceId})`,
+        quantity: fallbackUnits,
+        price: fallbackUnits > 0 ? totalAmt / fallbackUnits : totalAmt,
+        subtotal: totalAmt,
+      }]
+
   const itemsHTML = items.map((item: any) => {
     const name = resolveName(item)
-    const qty = Number(item.quantity) || 1
-    const price = Number(item.price ?? item.unit_price ?? item.medicine?.price ?? 0)
+    const qty = Number(item.quantity ?? item.qty ?? item.quantity_sold ?? 1) || 1
+    const price = Number(item.price ?? item.unit_price ?? item.medicine?.price ?? (totalAmt / qty))
     const subtotal = Number(item.subtotal ?? (price * qty))
     return `
       <tr>
@@ -645,7 +669,7 @@ export default function SalesHistory() {
                         {sale.customer?.name || 'Walk-in Customer'}
                       </TableCell>
                       <TableCell className="text-slate-600 py-2 px-3 whitespace-nowrap">
-                        {sale.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0} units
+                        {getSaleTotalUnits(sale)} unit{getSaleTotalUnits(sale) === 1 ? '' : 's'}
                       </TableCell>
                       <TableCell className="font-bold text-slate-900 py-2 px-3 whitespace-nowrap">
                         ₵{Number(sale.total).toFixed(2)}
@@ -842,28 +866,39 @@ export default function SalesHistory() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedSale.items && selectedSale.items.length > 0 ? (
-                        selectedSale.items.map((item: any, i: number) => (
-                          <TableRow key={i}>
-                            <TableCell className="font-medium text-slate-800">
-                              {resolveItemName(item)}
-                            </TableCell>
-                            <TableCell className="text-center text-slate-600">{item.quantity || 1}</TableCell>
-                            <TableCell className="text-right text-slate-600">
-                              ₵{Number(item.price ?? item.unit_price ?? item.medicine?.price ?? 0).toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-right font-semibold text-slate-800">
-                              ₵{(Number(item.subtotal ?? ((item.price ?? item.unit_price ?? item.medicine?.price ?? 0) * (item.quantity || 1)))).toFixed(2)}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={4} className="py-6 text-center text-slate-500">
-                            No item breakdown recorded for this transaction.
-                          </TableCell>
-                        </TableRow>
-                      )}
+                      {(() => {
+                        const units = getSaleTotalUnits(selectedSale)
+                        const totalAmt = Number(selectedSale.total) || 0
+                        const fallbackPrice = units > 0 ? totalAmt / units : totalAmt
+                        const displayItems = (selectedSale.items && Array.isArray(selectedSale.items) && selectedSale.items.length > 0)
+                          ? selectedSale.items
+                          : [{
+                              name: selectedSale.product_name || `Cold Store Products (INV-${selectedSale.id.slice(0, 8).toUpperCase()})`,
+                              quantity: units,
+                              price: fallbackPrice,
+                              subtotal: totalAmt,
+                            }]
+
+                        return displayItems.map((item: any, i: number) => {
+                          const itemQty = Number(item.quantity ?? item.qty ?? item.quantity_sold ?? 1) || 1
+                          const itemPrice = Number(item.price ?? item.unit_price ?? item.medicine?.price ?? (totalAmt / itemQty))
+                          const itemSubtotal = Number(item.subtotal ?? (itemPrice * itemQty))
+                          return (
+                            <TableRow key={i}>
+                              <TableCell className="font-medium text-slate-800">
+                                {resolveItemName(item)}
+                              </TableCell>
+                              <TableCell className="text-center text-slate-600">{itemQty}</TableCell>
+                              <TableCell className="text-right text-slate-600">
+                                ₵{itemPrice.toFixed(2)}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold text-slate-800">
+                                ₵{itemSubtotal.toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      })()}
                     </TableBody>
                   </Table>
                 </div>

@@ -189,9 +189,19 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
   }
 
   try {
+    let salesQuery: any = client.from('cloud_sales').select('*').order('created_at', { ascending: false })
+    if (salesQuery && typeof salesQuery.limit === 'function') {
+      salesQuery = salesQuery.limit(2000)
+    }
+
+    let itemsQuery: any = client.from('cloud_sale_items').select('*')
+    if (itemsQuery && typeof itemsQuery.limit === 'function') {
+      itemsQuery = itemsQuery.limit(5000)
+    }
+
     const [salesRes, itemsRes] = await Promise.all([
-      client.from('cloud_sales').select('*').order('created_at', { ascending: false }),
-      client.from('cloud_sale_items').select('*'),
+      salesQuery,
+      itemsQuery,
     ])
 
     if (salesRes.error || !salesRes.data || salesRes.data.length === 0) {
@@ -200,11 +210,13 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
     const cloudSales = salesRes.data || []
     const cloudItems = itemsRes.data || []
+    const localSalesMap = new Map(localSales.map((s: any) => [s.id, s]))
 
     const mappedSales = cloudSales.map((s: any) => {
       const relatedItems = cloudItems.filter((i: any) => i.sale_id === s.id)
       const pm = (s.payment_method || 'CASH').toUpperCase()
       const totalAmt = Number(s.total_amount ?? s.total ?? 0)
+      const localSale = localSalesMap.get(s.id)
 
       let payments: any[] = []
       if (pm.startsWith('SPLIT:')) {
@@ -229,7 +241,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
 
       const localMeds = getItem<any[]>(STORAGE_KEYS.MEDICINES, [])
 
-      const finalItems = relatedItems.map((item: any) => {
+      let finalItems = relatedItems.map((item: any) => {
         const med = localMeds.find(
           (m: any) =>
             m.id === (item.product_id || item.batch_id) ||
@@ -260,6 +272,41 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         }
       })
 
+      // CRITICAL PRESERVATION: If cloud has no items for this sale, but local sale has items, KEEP local items!
+      if (finalItems.length === 0 && localSale?.items && Array.isArray(localSale.items) && localSale.items.length > 0) {
+        finalItems = localSale.items
+      }
+
+      // CRITICAL SELF-HEALING: If both cloud and local lacked line items, synthesize fallback item so it never displays '0 units'
+      if (finalItems.length === 0 && totalAmt > 0) {
+        const fallbackUnits = Math.max(1, Number(s.quantity ?? s.qty ?? s.itemsCount ?? 1))
+        const unitPrice = Math.round((totalAmt / fallbackUnits) * 100) / 100
+        const label = s.product_name || `Cold Store Products (${s.invoice_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`})`
+        finalItems = [
+          {
+            id: `${s.id}_item_1`,
+            saleId: s.id,
+            batchId: 'general-stock',
+            medicineId: 'general-stock',
+            quantity: fallbackUnits,
+            price: unitPrice,
+            cost: 0,
+            unitCost: 0,
+            unit_cost: 0,
+            name: label,
+            product_name: label,
+            total_price: totalAmt,
+            subtotal: totalAmt,
+            medicine: {
+              id: 'general-stock',
+              name: label,
+              price: unitPrice,
+              cost: 0,
+            },
+          },
+        ]
+      }
+
       return {
         id: s.id,
         saleNumber: s.invoice_number || s.sale_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
@@ -274,6 +321,23 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
       }
     })
 
+    // Merge: For sales present in both local and cloud, if local has detailed items but cloud only has generic fallback, preserve detailed local items!
+    const mergedCloudSales = mappedSales.map((cloudSale) => {
+      const local = localSalesMap.get(cloudSale.id)
+      if (local && local.items && Array.isArray(local.items) && local.items.length > 0) {
+        const cloudHasDetailedItems = cloudSale.items?.some(
+          (i: any) => i.medicineId || i.batchId || (i.name && !i.name.startsWith('Cold Store Products (INV-'))
+        )
+        if (!cloudHasDetailedItems) {
+          return {
+            ...cloudSale,
+            items: local.items,
+          }
+        }
+      }
+      return cloudSale
+    })
+
     // Merge any local-only sales that have not synced yet
     const cloudIds = new Set(mappedSales.map((s) => s.id))
 
@@ -286,7 +350,7 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
     } catch {}
 
     const localOnlySales = localSales.filter((s) => !cloudIds.has(s.id))
-    const merged = [...localOnlySales, ...mappedSales]
+    const merged = [...localOnlySales, ...mergedCloudSales]
 
     // Sort by date descending
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -370,27 +434,25 @@ export async function pushLocalStorageToCloudIfAvailable(specificSales?: any[]):
         syncedIds.add(s.id)
 
         if (s.items && Array.isArray(s.items) && s.items.length > 0) {
-          const itemPayloads = s.items.map((i: any) => {
-            const qty = Number(i.quantity) || 1
+          const itemPayloads = s.items.map((i: any, itemIdx: number) => {
+            const qty = Number(i.quantity ?? i.qty ?? 1) || 1
             const unitPrice = Number(i.price ?? i.unit_price ?? 0)
-            const unitCost = Number(i.unit_cost ?? i.unitCost ?? i.cost ?? i.costPrice ?? 0)
             return {
-              id: i.id || `${s.id}_${i.medicineId || i.batchId}`,
+              id: i.id || `${s.id}_item_${itemIdx + 1}`,
               sale_id: s.id,
               product_id: i.medicineId || i.batchId || null,
               batch_id: i.batchId && i.batchId !== i.medicineId ? i.batchId : null,
               product_name: i.name || i.product_name || 'Cold Store Item',
               quantity: qty,
               unit_price: unitPrice,
-              unit_cost: unitCost,
               total_price: Number(i.total_price) || (qty * unitPrice),
               created_at: saleDate,
             }
           })
 
           const { error: itemsErr } = await client.from('cloud_sale_items').upsert(itemPayloads)
-          if (itemsErr && (itemsErr.code === '23503' || itemsErr.message?.includes('foreign key constraint'))) {
-            // Null out foreign keys that don't yet exist in cloud catalog
+          if (itemsErr) {
+            // Null out foreign keys that don't yet exist in cloud catalog or retry
             const safeItems = itemPayloads.map((item: any) => ({
               ...item,
               product_id: null,
@@ -408,6 +470,12 @@ export async function pushLocalStorageToCloudIfAvailable(specificSales?: any[]):
   }
 
   setItem(STORAGE_KEYS.SYNCED_SALE_IDS, Array.from(syncedIds))
+
+  // Mirror full sales state to cloud_state_mirrors for complete offline recovery
+  if (pushed > 0) {
+    const allCurrentSales = getItem<any[]>(STORAGE_KEYS.SALES, [])
+    pushCloudStateMirror('STATE_SALES', 'SALES', 'sales', allCurrentSales).catch(() => {})
+  }
 
   // Purge pushed sales from offline sync queue to keep queue clean
   if (pushed > 0) {

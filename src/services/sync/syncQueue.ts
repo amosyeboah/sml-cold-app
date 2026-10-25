@@ -312,14 +312,13 @@ export async function flushSyncQueue(): Promise<{
                   'Cold Store Item',
                 quantity: qty,
                 unit_price: unitPrice,
-                unit_cost: Number(i.unit_cost ?? i.unitCost ?? i.cost ?? i.costPrice ?? 0),
                 total_price: Number(i.total_price) || (qty * unitPrice),
                 created_at: saleDate,
               }
             })
 
             let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
-            if (itemsErr && itemsErr.code === '23503') {
+            if (itemsErr) {
               // Retry with null foreign keys if product or batch not yet present in cloud
               const safeItems = cloudItems.map((item: any) => ({
                 ...item,
@@ -328,8 +327,6 @@ export async function flushSyncQueue(): Promise<{
               }))
               const { error: retryErr } = await client.from('cloud_sale_items').upsert(safeItems)
               if (retryErr) uploadError = retryErr
-            } else if (itemsErr) {
-              uploadError = itemsErr
             }
           }
         } else if (item.entity === 'AUDIT_LOG') {
@@ -680,13 +677,12 @@ export async function reconcileAllSalesWithCloud(): Promise<{
                   'Cold Store Item',
                 quantity: qty,
                 unit_price: unitPrice,
-                unit_cost: Number(i.unit_cost ?? i.unitCost ?? i.cost ?? i.costPrice ?? 0),
                 total_price: qty * unitPrice,
                 created_at: saleDate,
               }
             })
             let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
-            if (itemsErr && itemsErr.code === '23503') {
+            if (itemsErr) {
               const safeItems = cloudItems.map((item: any) => ({
                 ...item,
                 product_id: null,

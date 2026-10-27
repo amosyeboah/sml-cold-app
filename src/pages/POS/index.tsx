@@ -246,9 +246,7 @@ function CartPanelContent({
   createSaleMutation,
   setToast,
   onClose,
-  isRemote,
 }: any) {
-  const isRemoteEffective = Boolean(isRemote || isRemoteWebClient())
   const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
   const allocatedTotal = paymentMethod === 'SPLIT'
     ? splitPayments.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0)
@@ -368,6 +366,8 @@ function CartPanelContent({
             ))}
           </select>
         </div>
+      </div>
+
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
         {cart.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center py-8 text-slate-300">
@@ -804,17 +804,6 @@ function CartPanelContent({
           </div>
         )}
 
-        {/* Remote Web Clear Short Notice */}
-        {isRemoteEffective && (
-          <div className="mb-2.5 flex items-center gap-2 rounded-xl border border-purple-200/90 bg-purple-50/90 px-3 py-2 text-xs text-purple-900 shadow-2xs">
-            <Globe className="h-4 w-4 shrink-0 text-purple-600" />
-            <div className="min-w-0 flex-1 leading-tight text-[11px]">
-              <span className="font-bold text-purple-950">Remote Web Sale:</span>{' '}
-              <span className="text-purple-800">Tagged as <strong className="font-mono font-bold text-purple-900">REMOTE_WEB</strong> in Cloud Sales &amp; Reports.</span>
-            </div>
-          </div>
-        )}
-
         {/* Checkout Button */}
         {(() => {
           const isSplitInvalid = paymentMethod === 'SPLIT' && !isSplitBalanced
@@ -914,6 +903,7 @@ export default function POS() {
   const searchRef = useRef<HTMLInputElement>(null)
   const isClientRemote = isRemoteWebClient()
   const isRemote = isClientRemote
+  const [isRemoteConfirmOpen, setIsRemoteConfirmOpen] = useState(false)
 
   // Track Bluetooth printer state
   useEffect(() => {
@@ -1565,7 +1555,13 @@ export default function POS() {
       }
     }
 
-    // Complete physical counter sale or remote web order directly
+    // If recording from remote web portal, prompt with confirmation popup
+    if (isRemote) {
+      setIsRemoteConfirmOpen(true)
+      return
+    }
+
+    // Physical counter sale records directly
     executeSaleSubmission()
   }
 
@@ -1581,6 +1577,14 @@ export default function POS() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isRemoteConfirmOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setIsRemoteConfirmOpen(false)
+          return
+        }
+      }
+
       if (confirmedPayment) {
         if (e.key === 'Enter' || e.key === 'Escape') {
           e.preventDefault()
@@ -1632,6 +1636,75 @@ export default function POS() {
           <button onClick={() => setToast(null)} className="ml-2 text-slate-400 hover:text-slate-600">
             <X className="h-3.5 w-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* ── Remote Web Sale Confirmation Popup ── */}
+      {isRemoteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+            {/* Header banner */}
+            <div className="relative bg-gradient-to-br from-purple-600 via-indigo-600 to-purple-700 px-5 pt-6 pb-5 text-center text-white">
+              <button
+                type="button"
+                onClick={() => setIsRemoteConfirmOpen(false)}
+                className="absolute right-3.5 top-3.5 rounded-full bg-white/20 p-1.5 text-white hover:bg-white/30 transition-colors"
+                title="Cancel (Esc)"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <div className="mx-auto mb-2.5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 text-white backdrop-blur-xs ring-4 ring-white/10">
+                <Globe className="h-7 w-7 text-white" />
+              </div>
+
+              <h3 className="text-xl font-black tracking-tight text-white">Record Remote Sale?</h3>
+              <p className="mt-0.5 text-xs text-purple-100 font-medium">
+                Online Web Portal Active
+              </p>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <div className="rounded-2xl bg-purple-50/80 border border-purple-200/80 p-3.5 text-xs text-purple-950 space-y-1">
+                <p className="font-bold flex items-center gap-1.5 text-purple-900">
+                  <Globe className="h-4 w-4 text-purple-600 shrink-0" />
+                  Remote Web Transaction Notice
+                </p>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  This sale will be logged as <strong className="font-mono text-purple-800 bg-purple-100 px-1 py-0.5 rounded">REMOTE_WEB</strong> in Cloud Sales &amp; Reports with live cloud inventory deduction.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl bg-slate-100 px-3.5 py-2.5 text-xs">
+                <span className="font-semibold text-slate-600">Total ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
+                <span className="font-black text-slate-900 text-base">{currencySymbol}{total.toFixed(2)}</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsRemoteConfirmOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white py-2.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRemoteConfirmOpen(false)
+                    executeSaleSubmission()
+                  }}
+                  disabled={createSaleMutation.isPending}
+                  className="rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/30 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Globe className="h-4 w-4" />
+                  <span>{createSaleMutation.isPending ? 'Processing...' : 'Confirm Sale'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1883,7 +1956,6 @@ export default function POS() {
               handleCheckout={handleCheckout}
               createSaleMutation={createSaleMutation}
               setToast={setToast}
-              isRemote={isRemote}
               onClose={() => setIsCartDrawerOpen(false)}
             />
           </div>
@@ -2191,7 +2263,6 @@ export default function POS() {
             handleCheckout={handleCheckout}
             createSaleMutation={createSaleMutation}
             setToast={setToast}
-            isRemote={isRemote}
           />
         </div>
       </div>

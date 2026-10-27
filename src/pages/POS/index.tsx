@@ -246,7 +246,11 @@ function CartPanelContent({
   createSaleMutation,
   setToast,
   onClose,
+  orderChannel,
+  setOrderChannel,
+  isRemote,
 }: any) {
+  const isRemoteEffective = Boolean(isRemote || orderChannel === 'REMOTE_WEB' || isRemoteWebClient())
   const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
   const allocatedTotal = paymentMethod === 'SPLIT'
     ? splitPayments.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0)
@@ -367,6 +371,38 @@ function CartPanelContent({
           </select>
         </div>
       </div>
+
+      {/* Channel / Order Origin toggle */}
+      {setOrderChannel && (
+        <div className="border-b border-slate-200/80 bg-white px-4 py-2">
+          <div className="grid grid-cols-2 gap-1.5 p-0.5 rounded-xl bg-slate-100 text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => setOrderChannel('COUNTER')}
+              className={cn(
+                'flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all',
+                orderChannel === 'COUNTER'
+                  ? 'bg-white text-slate-800 shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-800'
+              )}
+            >
+              <span>🏪 Counter</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrderChannel('REMOTE_WEB')}
+              className={cn(
+                'flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all',
+                orderChannel === 'REMOTE_WEB'
+                  ? 'bg-purple-600 text-white shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-purple-700'
+              )}
+            >
+              <span>🌐 Online Order</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
         {cart.length === 0 ? (
@@ -804,6 +840,17 @@ function CartPanelContent({
           </div>
         )}
 
+        {/* Remote Web Clear Short Notice */}
+        {isRemoteEffective && (
+          <div className="mb-2.5 flex items-center gap-2 rounded-xl border border-purple-200/90 bg-purple-50/90 px-3 py-2 text-xs text-purple-900 shadow-2xs">
+            <Globe className="h-4 w-4 shrink-0 text-purple-600" />
+            <div className="min-w-0 flex-1 leading-tight text-[11px]">
+              <span className="font-bold text-purple-950">Remote Web Sale:</span>{' '}
+              <span className="text-purple-800">Tagged as <strong className="font-mono font-bold text-purple-900">REMOTE_WEB</strong> in Cloud Sales &amp; Reports.</span>
+            </div>
+          </div>
+        )}
+
         {/* Checkout Button */}
         {(() => {
           const isSplitInvalid = paymentMethod === 'SPLIT' && !isSplitBalanced
@@ -901,9 +948,9 @@ export default function POS() {
   const [confirmedPayment, setConfirmedPayment] = useState<PaymentConfirmedData | null>(null)
   const [btStatus, setBtStatus] = useState<BluetoothPrinterStatus>(bluetoothPrinter.getStatus())
   const searchRef = useRef<HTMLInputElement>(null)
-  const [isRemoteWarningOpen, setIsRemoteWarningOpen] = useState(false)
-  const [remoteSaleNote, setRemoteSaleNote] = useState('')
-  const isRemote = isRemoteWebClient()
+  const isClientRemote = isRemoteWebClient()
+  const [orderChannel, setOrderChannel] = useState<'COUNTER' | 'REMOTE_WEB'>(isClientRemote ? 'REMOTE_WEB' : 'COUNTER')
+  const isRemote = isClientRemote || orderChannel === 'REMOTE_WEB'
 
   // Track Bluetooth printer state
   useEffect(() => {
@@ -1534,6 +1581,7 @@ export default function POS() {
       userRole: user?.role || 'CASHIER',
       channel: isRemote ? 'REMOTE_WEB' : 'COUNTER',
       isRemoteWeb: isRemote,
+      deviceId: isRemote ? 'remote-web' : (isClientRemote ? 'remote-web' : 'tablet-counter'),
       notes: customNote || (isRemote ? 'Remote Online Sale' : undefined),
     })
   }
@@ -1554,13 +1602,7 @@ export default function POS() {
       }
     }
 
-    // Intercept with warning pop-up if running on remote web / cloud portal
-    if (isRemote) {
-      setIsRemoteWarningOpen(true)
-      return
-    }
-
-    // Standard physical counter sale
+    // Complete physical counter sale or remote web order directly
     executeSaleSubmission()
   }
 
@@ -1627,120 +1669,6 @@ export default function POS() {
           <button onClick={() => setToast(null)} className="ml-2 text-slate-400 hover:text-slate-600">
             <X className="h-3.5 w-3.5" />
           </button>
-        </div>
-      )}
-
-      {/* ── Remote Web Sale Confirmation Warning Modal ── */}
-      {isRemoteWarningOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
-            {/* Header banner */}
-            <div className="relative bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 px-6 pt-6 pb-6 text-white">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRemoteWarningOpen(false)
-                  setRemoteSaleNote('')
-                }}
-                className="absolute right-4 top-4 rounded-full bg-white/20 p-1.5 text-white hover:bg-white/30 transition-colors"
-                title="Cancel (Esc)"
-              >
-                <X className="h-5 w-5" />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 text-white backdrop-blur-xs ring-4 ring-white/10 shrink-0">
-                  <Globe className="h-7 w-7 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-black tracking-tight text-white sm:text-2xl">Confirm Remote Online Sale</h2>
-                  <p className="mt-0.5 text-xs font-semibold text-amber-100">
-                    Online Web Session Active • Physical Counter is in Tafo
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-4">
-              <div className="rounded-2xl bg-amber-50 border border-amber-200/80 p-3.5 text-xs text-amber-950 space-y-1.5">
-                <p className="font-bold text-amber-900 flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                  Notice: Online Portal is for Monitoring & Admin
-                </p>
-                <p className="text-slate-700 leading-relaxed text-[12px]">
-                  Most sales are expected directly on the <strong>Counter Tablet App in Tafo</strong>. Are you recording a special online order, wholesale phone order, or remote bank transfer?
-                </p>
-              </div>
-
-              {/* What happens list */}
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-2 text-xs">
-                <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-                  Impact of this transaction:
-                </p>
-                <div className="space-y-2 text-slate-600 text-[11px]">
-                  <div className="flex items-start gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">✓</span>
-                    <span><strong>Live Stock Deduction:</strong> Inventory will be subtracted from cold room freezer batches immediately.</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">!</span>
-                    <span><strong>Cash Drawer:</strong> Physical counter cash drawer will <em>not</em> open or expect this cash at shift close.</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold">#</span>
-                    <span><strong>Audit Tag:</strong> Sale will be permanently tagged with <span className="font-mono font-bold text-purple-800 bg-purple-100 px-1 py-0.5 rounded">REMOTE_WEB</span>.</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Reference note */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Remote Order Note / Reference <span className="font-normal text-slate-400">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. WhatsApp wholesale order, phone order, direct bank transfer..."
-                  value={remoteSaleNote}
-                  onChange={(e) => setRemoteSaleNote(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200"
-                />
-              </div>
-
-              {/* Total Summary */}
-              <div className="flex items-center justify-between rounded-xl bg-slate-100 px-3.5 py-2.5 text-xs">
-                <span className="font-semibold text-slate-600">Sale Total Amount</span>
-                <span className="font-black text-slate-900 text-base">{currencySymbol}{total.toFixed(2)}</span>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRemoteWarningOpen(false)
-                    setRemoteSaleNote('')
-                  }}
-                  className="rounded-2xl border border-slate-300 bg-white py-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-all"
-                >
-                  Cancel Sale
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRemoteWarningOpen(false)
-                    executeSaleSubmission(remoteSaleNote.trim() || undefined)
-                    setRemoteSaleNote('')
-                  }}
-                  className="rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 py-3 text-xs font-bold text-white shadow-md shadow-purple-600/30 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Globe className="h-4 w-4" />
-                  <span>Confirm Remote Sale</span>
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1992,27 +1920,11 @@ export default function POS() {
               handleCheckout={handleCheckout}
               createSaleMutation={createSaleMutation}
               setToast={setToast}
+              orderChannel={orderChannel}
+              setOrderChannel={setOrderChannel}
+              isRemote={isRemote}
               onClose={() => setIsCartDrawerOpen(false)}
             />
-          </div>
-        </div>
-      )}
-
-      {/* ── Remote Web Session Ambient Warning Banner ── */}
-      {isRemote && (
-        <div className="flex-shrink-0 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 px-4 py-2 text-white shadow-xs">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-white font-bold">
-                🌐
-              </span>
-              <p className="truncate font-medium">
-                <span className="font-bold underline decoration-amber-200">Remote Cloud Session:</span> Primary sales are expected on the counter tablet in Tafo. Any sale logged here will be tagged as <code className="rounded bg-black/20 px-1 py-0.5 font-mono font-bold">REMOTE_WEB</code>.
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider backdrop-blur-xs">
-              Web Portal Active
-            </span>
           </div>
         </div>
       )}
@@ -2318,6 +2230,9 @@ export default function POS() {
             handleCheckout={handleCheckout}
             createSaleMutation={createSaleMutation}
             setToast={setToast}
+            orderChannel={orderChannel}
+            setOrderChannel={setOrderChannel}
+            isRemote={isRemote}
           />
         </div>
       </div>

@@ -278,9 +278,23 @@ export async function flushSyncQueue(): Promise<{
           const saleDate = sale.date || sale.sold_at || sale.created_at || new Date().toISOString()
           const cashierName = sale.cashier || sale.cashier_name || sale.cashier_username || sale.username || 'cashier'
 
+          const isRemote = Boolean(
+            sale.channel === 'REMOTE_WEB' ||
+            sale.channel === 'ONLINE' ||
+            sale.channel === 'WEB' ||
+            sale.isRemoteWeb ||
+            sale.deviceId === 'remote-web' ||
+            (typeof sale.notes === 'string' && sale.notes.includes('[REMOTE_WEB]'))
+          )
+          const remoteNoteTag = isRemote
+            ? (sale.notes ? (sale.notes.includes('[REMOTE_WEB]') ? sale.notes : `[REMOTE_WEB] ${sale.notes}`) : '[REMOTE_WEB]')
+            : (sale.notes || null)
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
+            device_id: isRemote ? 'remote-web' : (sale.deviceId || 'tablet-counter'),
+            notes: remoteNoteTag,
             invoice_number: saleNumber,
             customer_name: sale.customer?.name || sale.customerName || 'Walk-in Customer',
             total_amount: totalAmt,
@@ -319,11 +333,17 @@ export async function flushSyncQueue(): Promise<{
 
             let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
             if (itemsErr) {
-              // Retry with null foreign keys if product or batch not yet present in cloud
+              // Retry with safe standard columns and null foreign keys
               const safeItems = cloudItems.map((item: any) => ({
-                ...item,
+                id: item.id,
+                sale_id: item.sale_id,
                 product_id: null,
                 batch_id: null,
+                product_name: item.product_name,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                total_price: item.total_price,
+                created_at: item.created_at,
               }))
               const { error: retryErr } = await client.from('cloud_sale_items').upsert(safeItems)
               if (retryErr) uploadError = retryErr
@@ -646,9 +666,23 @@ export async function reconcileAllSalesWithCloud(): Promise<{
           const saleDate = sale.date || sale.sold_at || sale.created_at || new Date().toISOString()
           const cashierName = sale.cashier || sale.cashier_name || sale.cashier_username || sale.username || 'cashier'
 
+          const isRemote = Boolean(
+            sale.channel === 'REMOTE_WEB' ||
+            sale.channel === 'ONLINE' ||
+            sale.channel === 'WEB' ||
+            sale.isRemoteWeb ||
+            sale.deviceId === 'remote-web' ||
+            (typeof sale.notes === 'string' && sale.notes.includes('[REMOTE_WEB]'))
+          )
+          const remoteNoteTag = isRemote
+            ? (sale.notes ? (sale.notes.includes('[REMOTE_WEB]') ? sale.notes : `[REMOTE_WEB] ${sale.notes}`) : '[REMOTE_WEB]')
+            : (sale.notes || null)
+
           const { error: saleErr } = await client.from('cloud_sales').upsert({
             id: sale.id,
             store_id: 'sml_accra_main',
+            device_id: isRemote ? 'remote-web' : (sale.deviceId || 'tablet-counter'),
+            notes: remoteNoteTag,
             invoice_number: saleNumber,
             customer_name: sale.customer?.name || sale.customerName || 'Walk-in Customer',
             total_amount: totalAmt,
@@ -684,9 +718,15 @@ export async function reconcileAllSalesWithCloud(): Promise<{
             let { error: itemsErr } = await client.from('cloud_sale_items').upsert(cloudItems)
             if (itemsErr) {
               const safeItems = cloudItems.map((item: any) => ({
-                ...item,
+                id: item.id,
+                sale_id: item.sale_id,
                 product_id: null,
                 batch_id: null,
+                product_name: item.product_name,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                total_price: item.total_price,
+                created_at: item.created_at,
               }))
               await client.from('cloud_sale_items').upsert(safeItems).catch(() => {})
             }

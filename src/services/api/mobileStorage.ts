@@ -307,6 +307,23 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         ]
       }
 
+      const isRemote = Boolean(
+        s.device_id === 'remote-web' ||
+        s.deviceId === 'remote-web' ||
+        s.channel === 'REMOTE_WEB' ||
+        s.channel === 'ONLINE' ||
+        s.channel === 'WEB' ||
+        s.is_remote_web ||
+        s.isRemoteWeb ||
+        (typeof s.notes === 'string' && s.notes.includes('[REMOTE_WEB]')) ||
+        (typeof s.notes === 'string' && s.notes.toLowerCase().includes('remote online sale')) ||
+        localSale?.channel === 'REMOTE_WEB' ||
+        localSale?.channel === 'ONLINE' ||
+        localSale?.isRemoteWeb ||
+        localSale?.deviceId === 'remote-web' ||
+        (typeof localSale?.notes === 'string' && localSale.notes.includes('[REMOTE_WEB]'))
+      )
+
       return {
         id: s.id,
         saleNumber: s.invoice_number || s.sale_number || `INV-${String(s.id).slice(0, 8).toUpperCase()}`,
@@ -318,24 +335,47 @@ export async function fetchCloudSalesIfAvailable(): Promise<any[]> {
         date: s.created_at || s.date || s.synced_at || new Date().toISOString(),
         cashier: s.cashier_name || s.cashier_username || 'cashier',
         items: finalItems,
+        channel: isRemote ? 'REMOTE_WEB' : (s.channel || localSale?.channel || 'COUNTER'),
+        isRemoteWeb: isRemote,
+        notes: s.notes || localSale?.notes || (isRemote ? 'Remote Online Sale' : null),
+        deviceId: s.device_id || s.deviceId || localSale?.deviceId || (isRemote ? 'remote-web' : 'tablet-counter'),
       }
     })
 
     // Merge: For sales present in both local and cloud, if local has detailed items but cloud only has generic fallback, preserve detailed local items!
     const mergedCloudSales = mappedSales.map((cloudSale) => {
       const local = localSalesMap.get(cloudSale.id)
+      const isRemote = Boolean(
+        cloudSale.isRemoteWeb ||
+        cloudSale.channel === 'REMOTE_WEB' ||
+        cloudSale.channel === 'ONLINE' ||
+        cloudSale.deviceId === 'remote-web' ||
+        (typeof cloudSale.notes === 'string' && cloudSale.notes.includes('[REMOTE_WEB]')) ||
+        local?.isRemoteWeb ||
+        local?.channel === 'REMOTE_WEB' ||
+        local?.channel === 'ONLINE' ||
+        local?.deviceId === 'remote-web' ||
+        (typeof local?.notes === 'string' && local.notes.includes('[REMOTE_WEB]'))
+      )
+
+      let resolvedItems = cloudSale.items
       if (local && local.items && Array.isArray(local.items) && local.items.length > 0) {
         const cloudHasDetailedItems = cloudSale.items?.some(
           (i: any) => i.medicineId || i.batchId || (i.name && !i.name.startsWith('Cold Store Products (INV-'))
         )
         if (!cloudHasDetailedItems) {
-          return {
-            ...cloudSale,
-            items: local.items,
-          }
+          resolvedItems = local.items
         }
       }
-      return cloudSale
+
+      return {
+        ...cloudSale,
+        items: resolvedItems,
+        channel: isRemote ? 'REMOTE_WEB' : (cloudSale.channel || local?.channel || 'COUNTER'),
+        isRemoteWeb: isRemote,
+        notes: cloudSale.notes || local?.notes || (isRemote ? 'Remote Online Sale' : null),
+        deviceId: cloudSale.deviceId || local?.deviceId || (isRemote ? 'remote-web' : 'tablet-counter'),
+      }
     })
 
     // Merge any local-only sales that have not synced yet
@@ -392,6 +432,21 @@ export async function pushLocalStorageToCloudIfAvailable(specificSales?: any[]):
       if (Array.isArray(cloudIdsData)) {
         const cloudIdSet = new Set(cloudIdsData.map((c: any) => c.id))
         targetSales = localSales.filter((s: any) => !cloudIdSet.has(s.id))
+
+        // Auto-heal: Purge sales already confirmed in cloud from the offline sync queue
+        try {
+          const { getQueue, saveQueue } = await import('../sync/syncQueue')
+          const queue = getQueue()
+          const filtered = queue.filter((item: any) => {
+            if (item.entity === 'SALE') {
+              return !cloudIdSet.has(item.payload?.id)
+            }
+            return true
+          })
+          if (filtered.length !== queue.length) {
+            saveQueue(filtered)
+          }
+        } catch {}
       } else {
         targetSales = localSales
       }
@@ -2504,11 +2559,15 @@ export const mobileApi = {
 
     const isRemote = Boolean(
       (data as any).channel === 'REMOTE_WEB' ||
+      (data as any).channel === 'ONLINE' ||
+      (data as any).channel === 'WEB' ||
       (data as any).isRemoteWeb ||
+      ((data as any).notes && String((data as any).notes).includes('[REMOTE_WEB]')) ||
       ((data as any).channel === undefined && typeof window !== 'undefined' && isRemoteWebClient())
     )
     const saleChannel = isRemote ? 'REMOTE_WEB' : ((data as any).channel || 'COUNTER')
     const saleNotes = (data as any).notes || (isRemote ? 'Remote Online Sale' : null)
+    const saleDeviceId = (data as any).deviceId || (isRemote ? 'remote-web' : 'tablet-counter')
 
     const newSale = {
       id: saleId,
@@ -2522,6 +2581,7 @@ export const mobileApi = {
       userRole: userRole,
       channel: saleChannel,
       isRemoteWeb: isRemote,
+      deviceId: saleDeviceId,
       notes: saleNotes,
       items: data.items.map((item, idx) => {
         const batch = batches.find(b => b.id === item.batchId)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getSaleBreakdown, buildSaleReceiptHtml, getSaleTotalUnits } from '../pages/SalesHistory'
+import { getSaleBreakdown, buildSaleReceiptHtml, getSaleTotalUnits, isRemoteSale } from '../pages/SalesHistory'
 
 describe('Sales History Calculation Verification', () => {
   it('correctly handles split payment with explicit payments array (e.g. 2700 Cash + 300 MoMo = 3000 Total)', () => {
@@ -227,5 +227,43 @@ describe('Sales History Calculation Verification', () => {
     const html = buildSaleReceiptHtml(sale, { isDuplicate: false })
     expect(html).toContain('Cold Store Products')
     expect(html).toContain('₵580.00')
+  })
+
+  it('isRemoteSale accurately identifies remote online sales across diverse device and notes formats', () => {
+    // 1. Explicit channel REMOTE_WEB
+    expect(isRemoteSale({ channel: 'REMOTE_WEB' })).toBe(true)
+
+    // 2. Channel ONLINE or WEB
+    expect(isRemoteSale({ channel: 'ONLINE' })).toBe(true)
+    expect(isRemoteSale({ channel: 'WEB' })).toBe(true)
+
+    // 3. Boolean flag isRemoteWeb
+    expect(isRemoteSale({ isRemoteWeb: true })).toBe(true)
+
+    // 4. Device ID remote-web
+    expect(isRemoteSale({ deviceId: 'remote-web' })).toBe(true)
+    expect(isRemoteSale({ device_id: 'remote-web' })).toBe(true)
+
+    // 5. Notes tagged with [REMOTE_WEB] or 'Remote Online Sale'
+    expect(isRemoteSale({ notes: '[REMOTE_WEB] Special phone order' })).toBe(true)
+    expect(isRemoteSale({ notes: 'Remote Online Sale' })).toBe(true)
+
+    // 6. Standard physical counter sale must NOT be detected as remote
+    expect(isRemoteSale({ channel: 'COUNTER', isRemoteWeb: false, deviceId: 'tablet-counter' })).toBe(false)
+    expect(isRemoteSale(null)).toBe(false)
+  })
+
+  it('buildSaleReceiptHtml displays REMOTE_WEB badge even if channel is missing but device_id is remote-web', () => {
+    const syncedSaleWithoutChannel = {
+      id: 'synced-rem-01',
+      total: 700,
+      customerName: 'Abena Online Order',
+      paymentMethod: 'MOBILE',
+      deviceId: 'remote-web',
+      notes: '[REMOTE_WEB]',
+      items: [{ product_name: 'Chicken Wings Box', quantity: 2, price: 350, subtotal: 700 }],
+    }
+    const html = buildSaleReceiptHtml(syncedSaleWithoutChannel, { isDuplicate: false })
+    expect(html).toContain('[ REMOTE / ONLINE SALE: REMOTE_WEB ]')
   })
 })

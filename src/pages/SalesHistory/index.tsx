@@ -128,6 +128,25 @@ export function getSaleTotalUnits(sale: any): number {
   return total > 0 ? 1 : 0
 }
 
+export function isRemoteSale(sale: any): boolean {
+  if (!sale) return false
+  const ch = String(sale.channel || '').toUpperCase()
+  const dev = String(sale.deviceId || sale.device_id || '').toLowerCase()
+  const notes = String(sale.notes || '')
+  return Boolean(
+    sale.isRemoteWeb ||
+    sale.is_remote_web ||
+    ch === 'REMOTE_WEB' ||
+    ch === 'ONLINE' ||
+    ch === 'WEB' ||
+    dev === 'remote-web' ||
+    dev.includes('remote') ||
+    dev.includes('web') ||
+    notes.includes('[REMOTE_WEB]') ||
+    notes.toLowerCase().includes('remote online sale')
+  )
+}
+
 export interface ReceiptOptions {
   storeName?: string
   phone?: string
@@ -230,7 +249,7 @@ export function buildSaleReceiptHtml(targetSale: any, options: ReceiptOptions = 
       <p style="margin:1px 0;font-size:9.5px;">Date: ${formattedDate}</p>
       <p style="margin:1px 0;font-size:9.5px;">Receipt: ${invoiceId}</p>
       <p style="margin:1px 0;font-size:9.5px;">Customer: ${customerName}</p>
-      ${Boolean(targetSale.channel === 'REMOTE_WEB' || targetSale.isRemoteWeb) ? `<p style="margin:2px 0;font-size:9px;color:#6b21a8;font-weight:bold;text-align:center;background:#f3e8ff;padding:2px;border:1px dashed #c084fc;">[ REMOTE / ONLINE SALE: REMOTE_WEB ]</p>` : ''}
+      ${isRemoteSale(targetSale) ? `<p style="margin:2px 0;font-size:9px;color:#6b21a8;font-weight:bold;text-align:center;background:#f3e8ff;padding:2px;border:1px dashed #c084fc;">[ REMOTE / ONLINE SALE: REMOTE_WEB ]</p>` : ''}
       ${isDuplicate ? `<p style="margin:2px 0;font-size:9px;color:#444;font-weight:bold;text-align:center;background:#f1f5f9;padding:2px;border:1px dashed #94a3b8;">[ DUPLICATE RECEIPT ]</p>` : ''}
       ${paymentSectionHTML}
       <hr style="border-top:1px dashed #000;margin:5px 0;"/>
@@ -408,7 +427,7 @@ export default function SalesHistory() {
     const term = searchTerm.toLowerCase().trim()
     const invoiceId = `INV-${(s.id || '').slice(0, 8).toUpperCase()}`
     const customerName = s.customer?.name || s.customerName || 'Walk-in Customer'
-    const isRemote = Boolean(s.channel === 'REMOTE_WEB' || s.isRemoteWeb)
+    const isRemote = isRemoteSale(s)
     const matchesSearch =
       invoiceId.toLowerCase().includes(term) ||
       customerName.toLowerCase().includes(term) ||
@@ -655,7 +674,7 @@ export default function SalesHistory() {
                       <TableCell className="font-semibold text-slate-800 py-2 px-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span>INV-{sale.id.slice(0, 8).toUpperCase()}</span>
-                          {(sale.channel === 'REMOTE_WEB' || sale.isRemoteWeb) && (
+                          {isRemoteSale(sale) && (
                             <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 shadow-2xs" title="Created via Online Web Portal">
                               🌐 REMOTE_WEB
                             </span>
@@ -834,9 +853,13 @@ export default function SalesHistory() {
                 <div>
                   <p className="text-slate-500 mb-1">Channel / Origin</p>
                   <p className="font-semibold text-slate-800">
-                    {selectedSale.channel === 'REMOTE_WEB' || selectedSale.isRemoteWeb ? (
+                    {isRemoteSale(selectedSale) ? (
                       <span className="inline-flex items-center gap-1 text-purple-700 font-bold bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md text-xs">
                         🌐 Remote Web Portal
+                      </span>
+                    ) : selectedSale.deviceId === 'desktop-main-pos' ? (
+                      <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md text-xs">
+                        🖥️ Depot Desktop POS
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md text-xs">

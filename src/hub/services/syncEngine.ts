@@ -169,10 +169,24 @@ export async function flushOutboxBatch(batchSize = 50): Promise<{
             const saleNumber = payload.saleNumber || payload.invoice_number || `INV-${String(payload.id).slice(0, 8).toUpperCase()}`
             const totalAmt = Number(payload.total ?? payload.total_amount ?? 0)
             const saleDate = payload.date || payload.sold_at || new Date().toISOString()
+            const isRemote = Boolean(
+              payload.channel === 'REMOTE_WEB' ||
+              payload.channel === 'ONLINE' ||
+              payload.channel === 'WEB' ||
+              payload.isRemoteWeb ||
+              payload.deviceId === 'remote-web' ||
+              (typeof payload.notes === 'string' && payload.notes.includes('[REMOTE_WEB]'))
+            )
+            const remoteNoteTag = isRemote
+              ? (payload.notes ? (payload.notes.includes('[REMOTE_WEB]') ? payload.notes : `[REMOTE_WEB] ${payload.notes}`) : '[REMOTE_WEB]')
+              : (payload.notes || null)
+
             const { error: saleErr } = await supabase.from('cloud_sales').upsert(
               {
                 id: payload.id,
                 store_id: storeId,
+                device_id: isRemote ? 'remote-web' : (payload.deviceId || 'desktop-main-pos'),
+                notes: remoteNoteTag,
                 invoice_number: saleNumber,
                 customer_name: payload.customer?.name || payload.customerName || 'Walk-in Customer',
                 total_amount: totalAmt,
